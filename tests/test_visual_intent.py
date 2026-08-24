@@ -12,9 +12,18 @@ Both directions are cheap to get wrong and neither is catastrophic, so the table
 the specification: a false positive costs a cache miss, a false negative risks replaying
 a chart for a question that wanted a different one.
 """
+import pathlib
+
 import pytest
 
 from visualweaver.cache import wants_visual
+
+# Anchored to this file, not the working directory, and matching the filename as it is
+# actually spelled on disk. Both bit: a CWD-relative "README.md" resolved on macOS, whose
+# filesystem is case-insensitive, and failed on Linux CI where the file is "readme.md".
+_REPO = pathlib.Path(__file__).resolve().parents[1]
+_README = next(p for p in _REPO.iterdir()
+               if p.is_file() and p.name.lower() == "readme.md")
 
 # ── things the user wants to SEE ─────────────────────────────────────────────
 VISUAL = [
@@ -127,8 +136,7 @@ def test_no_imitation_of_the_redis_visual_identity_ships():
     logo rights at all, and says explicitly: "Don't imitate our visual identity". The
     Settings panel carried a hand-drawn stacked cube in Redis red — not their logo, but
     near enough to evoke it, which is the part a mark protects."""
-    import pathlib
-    html = pathlib.Path("visualweaver/index.html").read_text(encoding="utf-8")
+    html = (_REPO / "visualweaver" / "index.html").read_text(encoding="utf-8")
     i = html.index('id="tab-redis"')
     banner = html[i:i + 1600]
     assert "<svg" not in banner, "a mark came back into the Redis panel"
@@ -138,14 +146,13 @@ def test_no_imitation_of_the_redis_visual_identity_ships():
 def test_the_non_endorsement_notice_is_present_where_redis_is_named():
     """The community permission is conditional on making it clear the project is not
     endorsed — so the notice is part of the licence to use the name, not decoration."""
-    import pathlib
-    html = pathlib.Path("visualweaver/index.html").read_text(encoding="utf-8")
+    html = (_REPO / "visualweaver" / "index.html").read_text(encoding="utf-8")
     i = html.index('id="tab-redis"')
     banner = html[i:i + 1600]
     assert "registered trademark of Redis Ltd" in banner
     assert "not endorsed" in banner
 
-    readme = pathlib.Path("README.md").read_text(encoding="utf-8")
+    readme = _README.read_text(encoding="utf-8")
     assert "## Trademarks" in readme
     assert "not endorsed, supported, sponsored, or certified by" in readme
     for owner in ("Docker", "GitHub", "OpenAI", "Mistral", "Ollama", "Groq", "Qwen"):
