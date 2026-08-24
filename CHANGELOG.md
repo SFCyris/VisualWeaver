@@ -5,6 +5,38 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Fourteen more fractal presets.** `hilbert`, `peano` and `moore` (space-filling
+  curves), `gosper`, `levy`, `arrowhead` and `tree` (self-similar curves), `carpet`
+  (Sierpiński carpet), and six strange attractors — `lorenz`, `rossler`, `thomas`,
+  `halvorsen`, `clifford` and `dejong`. Naming one is enough: `{"type":"hilbert",
+  "order":5}` draws a fifth-order Hilbert curve.
+- **Strange attractors are a new kind of ```fractal.** Continuous systems are
+  integrated and drawn as an orbit graded along the trajectory; a three-dimensional
+  one takes `plane` to choose its projection, and each takes its own named
+  coefficients.
+- **Alternate spellings of a preset resolve to it.** `Hilbert Curve`, `flowsnake`,
+  `Koch snowflake` and `lorenz_attractor` all name presets, and `order` and `steps`
+  work as well as `depth` and `iter`.
+
+### Fixed
+- **Asking for a Hilbert curve, a Peano curve or a Lorenz attractor produced an
+  error box.** Each is exactly what the ```fractal lane is for, but only seven
+  presets had names, so anything else had to be written out as a raw L-system or
+  IFS to render at all.
+- **A fractal card kept its dark background after switching to the light theme.**
+  The lane paints its own background into the canvas, so a card already on screen
+  stayed dark until something resized it.
+- **An attractor given coefficients that make it blow up drew an empty card.** The
+  runaway values were kept and stretched the drawing area so far that the real
+  orbit collapsed to a single pixel. The card now draws the part that stayed
+  bounded, or says the system diverged.
+- **An IFS map given a probability of `0` was still drawn.** A zero weight was read
+  as "no weight given" and the map received an equal share of the points; a
+  negative weight suppressed every map but the first.
+
 ## [1.10.0] — 2026-08-22
 
 ### Fixed

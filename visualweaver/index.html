@@ -6501,6 +6501,20 @@ function applyTheme(t){
   // AFTER the attribute is set — _syncHljsTheme() reads it via _isDark(), so running
   // it earlier would apply the previous theme's stylesheet.
   try{ _syncHljsTheme(); }catch(e){}
+  _repaintFractals();
+}
+// Every other lane is styled by CSS and follows a theme change on its own. The
+// fractal lane is the exception: it paints its background and its palette into a
+// canvas raster from _isDark() at draw time, so an already-drawn card kept its
+// dark #0b0b10 plate on a light page until something else happened to resize it.
+function _repaintFractals(){
+  for(const out of document.querySelectorAll('.rich-output')){
+    const inst=out._richInst;
+    if(inst?.kind==='fractal'&&inst.canvas){
+      if(inst.raf)clearTimeout(inst.raf);
+      try{ inst.redraw(); }catch(e){}
+    }
+  }
 }
 function setTheme(t){applyTheme(t);}
 
@@ -7184,13 +7198,161 @@ const _FRAC_PRESETS={
   fern:      {type:'ifs',maps:[[0,0,0,0.16,0,0,0.01],[0.85,0.04,-0.04,0.85,0,1.6,0.85],
                                [0.2,-0.26,0.23,0.22,0,1.6,0.07],[-0.15,0.28,0.26,0.24,0,0.44,0.07]]},
   sierpinski:{type:'ifs',maps:[[0.5,0,0,0.5,0,0,0.34],[0.5,0,0,0.5,0.5,0,0.33],[0.5,0,0,0.5,0.25,0.5,0.33]]},
+  // Sierpinski carpet — the same construction one dimension "wider": keep the
+  // eight outer ninths of a square, drop the middle. Eight maps, so it stays
+  // inside the 12-map ceiling.
+  carpet:    {type:'ifs',points:120000,maps:[
+                [0.333333,0,0,0.333333,0,0,0.125],       [0.333333,0,0,0.333333,0.333333,0,0.125],
+                [0.333333,0,0,0.333333,0.666667,0,0.125],[0.333333,0,0,0.333333,0,0.333333,0.125],
+                [0.333333,0,0,0.333333,0.666667,0.333333,0.125],
+                [0.333333,0,0,0.333333,0,0.666667,0.125],[0.333333,0,0,0.333333,0.333333,0.666667,0.125],
+                [0.333333,0,0,0.333333,0.666667,0.666667,0.125]]},
   dragon:    {type:'lsystem',axiom:'FX',rules:{X:'X+YF+',Y:'-FX-Y'},angle:90,depth:12},
   koch:      {type:'lsystem',axiom:'F--F--F',rules:{F:'F+F--F+F'},angle:60,depth:4},
   plant:     {type:'lsystem',axiom:'X',rules:{X:'F+[[X]-X]-F[-FX]+X',F:'FF'},angle:25,depth:5},
+  // Space-filling and self-similar curves. Every one of these is an L-system the
+  // turtle above could always walk — they were unreachable only because the model
+  // had to guess the axiom and rules, and a wrong guess draws a wrong picture
+  // silently. Named here, "hilbert" is a spelling the model already knows.
+  // A/B are structure-only placeholders; F and G are the two drawing symbols,
+  // which is why the curves whose canonical form has BOTH letters draw (gosper,
+  // arrowhead) are written with F/G rather than the textbooks' A/B.
+  hilbert:   {type:'lsystem',axiom:'A',rules:{A:'+BF-AFA-FB+',B:'-AF+BFB+FA-'},angle:90,depth:5},
+  peano:     {type:'lsystem',axiom:'X',angle:90,depth:3,
+              rules:{X:'XFYFX+F+YFXFY-F-XFYFX',Y:'YFXFY-F-XFYFX+F+YFXFY'}},
+  moore:     {type:'lsystem',axiom:'LFL+F+LFL',rules:{L:'-RF+LFL+FR-',R:'+LF-RFR-FL+'},angle:90,depth:4},
+  gosper:    {type:'lsystem',axiom:'F',rules:{F:'F-G--G+F++FF+G-',G:'+F-GG--G-F++F+G'},angle:60,depth:4},
+  levy:      {type:'lsystem',axiom:'F',rules:{F:'+F--F+'},angle:45,depth:12},
+  arrowhead: {type:'lsystem',axiom:'F',rules:{F:'G-F-G',G:'F+G+F'},angle:60,depth:6},
+  tree:      {type:'lsystem',axiom:'F',rules:{F:'G[+F]-F',G:'GG'},angle:45,depth:7},
   mandelbrot:{type:'mandelbrot'},
   julia:     {type:'julia',c:[-0.8,0.156]},
+  // Strange attractors. Named systems only — see _FRAC_ATTRACTORS.
+  lorenz:    {type:'attractor',system:'lorenz'},
+  rossler:   {type:'attractor',system:'rossler'},
+  thomas:    {type:'attractor',system:'thomas'},
+  halvorsen: {type:'attractor',system:'halvorsen'},
+  clifford:  {type:'attractor',system:'clifford'},
+  dejong:    {type:'attractor',system:'dejong'},
+};
+// Spellings the model reaches for that mean an entry above. Kept separate from
+// the preset table so the canonical name stays the one the error message and the
+// docs teach.
+const _FRAC_ALIASES={
+  snowflake:'koch','koch-snowflake':'koch','kochsnowflake':'koch',
+  'sierpinski-triangle':'sierpinski','sierpinski-gasket':'sierpinski','gasket':'sierpinski',
+  'sierpinski-carpet':'carpet','sierpinskicarpet':'carpet',
+  'sierpinski-arrowhead':'arrowhead','arrowhead-curve':'arrowhead',
+  'hilbert-curve':'hilbert','peano-curve':'peano','moore-curve':'moore',
+  flowsnake:'gosper','gosper-curve':'gosper','peano-gosper':'gosper',
+  'levy-c':'levy','levyc':'levy','levy-curve':'levy','levy-c-curve':'levy',
+  'dragon-curve':'dragon','heighway':'dragon','heighway-dragon':'dragon',
+  'barnsley-fern':'fern','barnsley':'fern',
+  // No 'pythagoras-tree' here on purpose: that one is built from squares, and
+  // answering it with a line-segment tree is the silent-wrong-picture failure
+  // this table exists to prevent.
+  'binary-tree':'tree','fractal-tree':'tree',
+  'lorenz-attractor':'lorenz','rossler-attractor':'rossler',"r\u00f6ssler":'rossler',
+  "r\u00f6ssler-attractor":'rossler','de-jong':'dejong','peter-de-jong':'dejong',
+  'clifford-attractor':'clifford','thomas-attractor':'thomas','halvorsen-attractor':'halvorsen',
+  'mandelbrot-set':'mandelbrot','julia-set':'julia',
 };
 function _fracNum(v,d,lo,hi){const n=Number(v);return isFinite(n)?Math.min(hi,Math.max(lo,n)):d;}
+// Own-property lookup for the three spec tables. Without it a type or system of
+// "constructor" resolves to Object off the prototype chain — _FRAC_ATTRACTORS
+// then passes the !sys guard and throws "Cannot convert undefined or null to
+// object" out of Object.entries(sys.params). Same guard, same reason, as the one
+// RICH_LANES already carries.
+function _fracOwn(table,key){
+  return Object.prototype.hasOwnProperty.call(table,key)?table[key]:undefined;
+}
+// Strange attractors — the one family neither escape-time, IFS nor L-system can
+// express, because the shape is the ORBIT of a dynamical system rather than a
+// fixed point set. Continuous systems ('ode') are integrated with RK4; discrete
+// ones ('map') iterate their recurrence directly.
+//
+// The equations live HERE, in app code, and the spec supplies only named
+// coefficients — exactly the ```fractal contract the IFS lane already keeps
+// (the model writes numbers, never behaviour). A model cannot introduce a new
+// system by writing a formula string, so there is nothing to evaluate and the
+// "data only, never code" rule holds unchanged.
+//
+// `dt` is per-system because the stiffness differs by two orders of magnitude:
+// Thomas drifts (0.05 is coarse enough), Halvorsen needs 0.005 to stay on the
+// attractor. Each default is the largest step that still draws the textbook
+// picture, so a spec asking for a modest `iter` still gets a full portrait.
+const _FRAC_ATTRACTORS={
+  lorenz:   {kind:'ode',plane:'xz',dt:0.01,p0:[0.1,0,0],params:{sigma:10,rho:28,beta:2.666667},
+             f:(x,y,z,q)=>[q.sigma*(y-x), x*(q.rho-z)-y, x*y-q.beta*z]},
+  rossler:  {kind:'ode',plane:'xy',dt:0.02,p0:[1,1,1],params:{a:0.2,b:0.2,c:5.7},
+             f:(x,y,z,q)=>[-y-z, x+q.a*y, q.b+z*(x-q.c)]},
+  thomas:   {kind:'ode',plane:'xy',dt:0.05,steps:60000,p0:[1.1,1.1,-0.01],params:{b:0.208186},
+             f:(x,y,z,q)=>[Math.sin(y)-q.b*x, Math.sin(z)-q.b*y, Math.sin(x)-q.b*z]},
+  // a=1.4, not the 1.89 most write-ups quote. Measured: at 1.89 this orbit is
+  // CLOSED — quadrupling the step count leaves the drawn pixel count unchanged
+  // (2318 occupied cells at 20k steps, 2352 at 80k), from every starting point
+  // tried, so it paints one plain loop rather than an attractor. The chaotic
+  // window sits at a≈1.27–1.44, where the same measure grows 2.3x with the step
+  // count and does so independently of where the orbit starts.
+  halvorsen:{kind:'ode',plane:'xy',dt:0.005,steps:60000,p0:[-1.48,-1.51,2.04],params:{a:1.4},
+             f:(x,y,z,q)=>[-q.a*x-4*y-4*z-y*y, -q.a*y-4*z-4*x-z*z, -q.a*z-4*x-4*y-x*x]},
+  clifford: {kind:'map',p0:[0.1,0.1],params:{a:-1.4,b:1.6,c:1,d:0.7},
+             f:(x,y,q)=>[Math.sin(q.a*y)+q.c*Math.cos(q.a*x), Math.sin(q.b*x)+q.d*Math.cos(q.b*y)]},
+  dejong:   {kind:'map',p0:[0.1,0.1],params:{a:1.4,b:-2.3,c:2.4,d:-2.1},
+             f:(x,y,q)=>[Math.sin(q.a*y)-Math.cos(q.b*x), Math.sin(q.c*x)-Math.cos(q.d*y)]},
+};
+// One RK4 step. Written out rather than looped over the three components: at
+// 20k steps this is the whole cost of the render, and the flat form measured
+// faster than an allocation-per-stage loop.
+function _fracRK4(f,x,y,z,dt,q){
+  const h=dt/2;
+  const a=f(x,y,z,q);
+  const b=f(x+h*a[0], y+h*a[1], z+h*a[2], q);
+  const c=f(x+h*b[0], y+h*b[1], z+h*b[2], q);
+  const d=f(x+dt*c[0], y+dt*c[1], z+dt*c[2], q);
+  const s=dt/6;
+  return [x+s*(a[0]+2*b[0]+2*c[0]+d[0]),
+          y+s*(a[1]+2*b[1]+2*c[1]+d[1]),
+          z+s*(a[2]+2*b[2]+2*c[2]+d[2])];
+}
+// Walk the orbit and return the projected 2D track. Returns fewer points than
+// asked for — or none — if the orbit runs away: a spec is free to name
+// coefficients that blow the system up (beta=-1 on Lorenz reaches 1e76 in about
+// 140 steps), and half a trajectory drawn is a better answer than an empty card.
+//
+// The cut-off is a MAGNITUDE bound, not just a finiteness check. Stopping only at
+// Infinity keeps every intermediate step of the runaway, and those dwarf the
+// attractor: thomas with b=-1 stays finite for 13651 steps but ends at 1e307, so
+// the bounding box below scaled the real orbit down to a single pixel and painted
+// a blank card — silently, since none of it is NaN. Every system here lives far
+// under this bound (Lorenz at rho=280, well outside its usual range, spans 92).
+const _FRAC_ORBIT_BOUND=1e6;
+function _fracOrbit(spec){
+  const sys=_FRAC_ATTRACTORS[spec.system], q=spec.params, n=spec.steps;
+  const skip=Math.min(500,Math.floor(n*0.1));
+  const xs=new Float64Array(n), ys=new Float64Array(n);
+  let k=0;
+  if(sys.kind==='ode'){
+    const pick={xy:(x,y,z)=>[x,y], xz:(x,y,z)=>[x,z], yz:(x,y,z)=>[y,z]}[spec.plane];
+    let[x,y,z]=sys.p0;
+    for(let i=0;i<n+skip;i++){
+      const r=_fracRK4(sys.f,x,y,z,spec.dt,q);
+      x=r[0];y=r[1];z=r[2];
+      if(!(Math.abs(x)<_FRAC_ORBIT_BOUND&&Math.abs(y)<_FRAC_ORBIT_BOUND
+           &&Math.abs(z)<_FRAC_ORBIT_BOUND))break;   // false for NaN too
+      if(i>=skip){const p=pick(x,y,z);xs[k]=p[0];ys[k]=p[1];k++;}
+    }
+  }else{
+    let[x,y]=sys.p0;
+    for(let i=0;i<n+skip;i++){
+      const r=sys.f(x,y,q);
+      x=r[0];y=r[1];
+      if(!(Math.abs(x)<_FRAC_ORBIT_BOUND&&Math.abs(y)<_FRAC_ORBIT_BOUND))break;
+      if(i>=skip){xs[k]=x;ys[k]=y;k++;}
+    }
+  }
+  return {xs,ys,n:k,kind:sys.kind};
+}
 function _fracLExpand(axiom,rules,depth,cap){
   let s=axiom;
   for(let d=0;d<depth;d++){
@@ -7240,12 +7402,32 @@ function _fracSpec(raw){
   try{s=typeof raw==='string'?JSON.parse(_fracFixFractions(raw)):raw;}
   catch(e){throw new Error('fractal body must be JSON: '+e.message);}
   if(!s||typeof s!=='object'||Array.isArray(s))throw new Error('fractal spec must be a JSON object');
-  let t=String(s.type||'').toLowerCase();
-  const p=_FRAC_PRESETS[t];
-  if(p){s={...p,...s};t=p.type;}
-  if(!['mandelbrot','julia','ifs','lsystem'].includes(t))
-    throw new Error('unknown fractal type "'+t+'" — use mandelbrot, julia, ifs, lsystem, '+
-                    'or a preset (fern, sierpinski, dragon, koch, plant)');
+  const rawType=String(s.type||'');
+  // "Hilbert Curve", "lorenz_attractor", "KochSnowflake" — the model varies the
+  // separator freely and none of the variants used to resolve. Fold whitespace
+  // and underscores to '-' first, then try the name with and without them, so
+  // one preset entry covers every spelling of itself.
+  let t=rawType.toLowerCase().trim().replace(/[\s_]+/g,'-');
+  const bare=t.replace(/-/g,'');
+  t=_fracOwn(_FRAC_ALIASES,t)||_fracOwn(_FRAC_ALIASES,bare)
+    ||(_fracOwn(_FRAC_PRESETS,t)?t:(_fracOwn(_FRAC_PRESETS,bare)?bare:t));
+  // `order` (what the model calls an L-system's depth for a space-filling curve)
+  // and `steps` (an attractor's iteration count). Fold them onto the spec BEFORE
+  // the preset merge, so they land as the SPEC's own keys — merged the other way
+  // round, {"type":"hilbert","order":3} would silently render the preset's
+  // depth 5 and quietly ignore the number actually asked for.
+  if(s.order!=null&&s.depth==null)s={...s,depth:s.order};
+  if(s.steps!=null&&s.iter==null)s={...s,iter:s.steps};
+  const p=_fracOwn(_FRAC_PRESETS,t);
+  // The preset's own system wins: {"type":"lorenz","system":"clifford"} names a
+  // Lorenz attractor and must draw one.
+  if(p){s={...p,...s,...(p.system?{system:p.system}:{})};t=p.type;}
+  if(!['mandelbrot','julia','ifs','lsystem','attractor'].includes(t))
+    // Built from the tables rather than written out, so a preset added above can
+    // never go unmentioned here.
+    throw new Error('unknown fractal type "'+rawType+'" — use a preset ('+
+                    Object.keys(_FRAC_PRESETS).join(', ')+'), or a custom '+
+                    'mandelbrot, julia, ifs, lsystem or attractor spec');
   const out={type:t,palette:/^(fire|ocean|mono|viridis)$/.test(s.palette)?s.palette:'viridis'};
   if(t==='mandelbrot'||t==='julia'){
     out.iter=Math.round(_fracNum(s.iter,256,16,_FRAC_MAX_ITER));
@@ -7253,6 +7435,22 @@ function _fracSpec(raw){
                 _fracNum(s.center?.[1],0,-4,4)];
     out.zoom=_fracNum(s.zoom,1,1e-3,1e12);
     if(t==='julia')out.c=[_fracNum(s.c?.[0],-0.8,-2,2),_fracNum(s.c?.[1],0.156,-2,2)];
+  }else if(t==='attractor'){
+    const name=String(s.system||'').toLowerCase().trim().replace(/[\s_]+/g,'-');
+    const bareName=name.replace(/-/g,'');
+    const sys=_fracOwn(_FRAC_ATTRACTORS,name)||_fracOwn(_FRAC_ATTRACTORS,bareName);
+    if(!sys)throw new Error('unknown attractor "'+(s.system??'')+'" — use '+
+                            Object.keys(_FRAC_ATTRACTORS).join(', '));
+    out.system=_fracOwn(_FRAC_ATTRACTORS,name)?name:bareName;
+    out.steps=Math.round(_fracNum(s.iter, sys.steps??(sys.kind==='ode'?20000:120000),
+                                  500,_FRAC_MAX_POINTS));
+    out.dt=sys.kind==='ode'?_fracNum(s.dt,sys.dt,1e-5,0.2):0;
+    const pl=String(s.plane||'').toLowerCase();
+    out.plane=/^(xy|xz|yz)$/.test(pl)?pl:sys.plane;
+    // Only the coefficients this system actually declares are read, and each is
+    // clamped: an unrecognised key is dropped rather than reaching the equations.
+    out.params={};
+    for(const[k,v]of Object.entries(sys.params))out.params[k]=_fracNum(s[k],v,-1e4,1e4);
   }else if(t==='ifs'){
     if(!Array.isArray(s.maps)||!s.maps.length||s.maps.length>12)
       throw new Error('ifs needs 1–12 affine maps [a,b,c,d,e,f,p]');
@@ -7285,6 +7483,7 @@ function _fracDraw(inst,canvas){
   ctx.fillRect(0,0,canvas.width,canvas.height);
   if(inst.spec.type==='ifs')_fracRenderIFS(inst,canvas);
   else if(inst.spec.type==='lsystem')_fracRenderL(inst,canvas);
+  else if(inst.spec.type==='attractor')_fracRenderAttractor(inst,canvas);
   else _fracRenderEscape(inst,canvas);
 }
 // Escape-time, painted in row batches under a ~12 ms/frame budget so a deep
@@ -7341,9 +7540,16 @@ function _fracRenderEscape(inst,canvas){
 function _fracRenderIFS(inst,canvas){
   const {spec}=inst, ctx=canvas.getContext('2d');
   const W=canvas.width,H=canvas.height,maps=spec.maps;
-  const psum=maps.reduce((a,m)=>a+(m[6]||1/maps.length),0)||1;
+  // `m[6] || 1/n` read an explicit 0 as "not given" and handed that map an equal
+  // share, so a map the spec deliberately disabled still drew a third of the
+  // points. A negative weight was worse: it made every cumulative bound negative
+  // and pick() then returned the first map for every draw.
+  const wOf=m=>(m.length>6&&isFinite(m[6]))?Math.max(0,m[6]):1/maps.length;
+  let psum=maps.reduce((a,m)=>a+wOf(m),0);
+  const uniform=!(psum>0);              // every weight zero — fall back to equal
+  if(uniform)psum=1;
   const cum=[];let acc=0;
-  for(const m of maps){acc+=(m[6]||1/maps.length)/psum;cum.push(acc);}
+  for(const m of maps){acc+=(uniform?1/maps.length:wOf(m)/psum);cum.push(acc);}
   const mk=()=>{let seed=1234;return()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};};
   const pick=(r)=>{let k=0;while(r>cum[k]&&k<maps.length-1)k++;return maps[k];};
   let rnd=mk(),x=0,y=0,minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
@@ -7413,6 +7619,77 @@ function _fracRenderL(inst,canvas){
     ctx.lineTo(ox+(x2-minx)*sc,oy+(y2-miny)*sc);
   });
   ctx.stroke();
+}
+// Strange attractor. A continuous orbit is stroked as a POLYLINE graded along
+// the trajectory: the gradient is the time axis, and it is what separates the
+// two Lorenz lobes into a butterfly instead of a scribble. A discrete map is a
+// point cloud like the IFS — successive iterates land on opposite sides of the
+// figure, so joining them would draw noise across the picture.
+function _fracRenderAttractor(inst,canvas){
+  const {spec}=inst, ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  const {xs,ys,n,kind}=_fracOrbit(spec);
+  const pal=_fracPalette(spec.palette,_isDark());
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  if(n<2){
+    // Painted, not thrown: redraw() also runs on resize and on a theme change,
+    // where an exception has no card left to land in.
+    const c=pal.at(0.5);
+    ctx.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.font=`${12*dpr}px system-ui,sans-serif`;
+    ctx.textAlign='center';
+    ctx.fillText(spec.system+' diverged — adjust its coefficients or dt',W/2,H/2);
+    return;
+  }
+  let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
+  for(let i=0;i<n;i++){
+    if(xs[i]<minx)minx=xs[i];if(xs[i]>maxx)maxx=xs[i];
+    if(ys[i]<miny)miny=ys[i];if(ys[i]>maxy)maxy=ys[i];
+  }
+  const pad=12*dpr;
+  const sc=Math.min((W-2*pad)/Math.max(1e-9,maxx-minx),(H-2*pad)/Math.max(1e-9,maxy-miny));
+  const ox=(W-sc*(maxx-minx))/2, oy=(H-sc*(maxy-miny))/2;
+  // Y up, as every published portrait of these systems draws them — the Lorenz
+  // wings belong at the top of the card, not mirrored under the axis.
+  const px=i=>ox+(xs[i]-minx)*sc, py=i=>H-(oy+(ys[i]-miny)*sc);
+  const gen=++inst.gen;
+  let i=0,lastTick=0;
+  if(kind==='ode'){
+    // ≤256 strokes total, so the gradient stays smooth on a short orbit and the
+    // stroke count stays bounded on a 200k-step one.
+    const CH=Math.max(32,Math.ceil(n/256));
+    ctx.lineWidth=Math.max(0.6,0.75*dpr);
+    ctx.lineJoin='round';
+    const step=()=>{
+      if(gen!==inst.gen)return;
+      const t0=performance.now();
+      const budget=(lastTick&&t0-lastTick>200)?250:14;
+      lastTick=t0;
+      while(i<n-1&&performance.now()-t0<budget){
+        const end=Math.min(n-1,i+CH), c=pal.at(i/(n-1));
+        ctx.strokeStyle=`rgba(${c[0]},${c[1]},${c[2]},0.8)`;
+        ctx.beginPath();
+        ctx.moveTo(px(i),py(i));
+        for(let j=i+1;j<=end;j++)ctx.lineTo(px(j),py(j));
+        ctx.stroke();
+        i=end;                       // share the endpoint — a gap per chunk otherwise
+      }
+      if(i<n-1)inst.raf=setTimeout(step,0);else inst.raf=null;
+    };
+    step();
+  }else{
+    const c=pal.at(0.65);
+    ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},${_isDark()?0.42:0.32})`;
+    const step=()=>{
+      if(gen!==inst.gen)return;
+      const t0=performance.now();
+      const take=Math.min((lastTick&&t0-lastTick>200)?60000:6000,n-i);
+      lastTick=t0;
+      for(let j=0;j<take;j++,i++)ctx.fillRect(px(i),py(i),1,1);
+      if(i<n)inst.raf=setTimeout(step,0);else inst.raf=null;
+    };
+    step();
+  }
 }
 
 // mermaid's timeline grammar ends a period at a colon FOLLOWED BY WHITESPACE. A colon

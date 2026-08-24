@@ -194,7 +194,7 @@ Answers are rendered inline: the model writes a short, declarative block and the
 | ` ```mermaid ` | **Diagram** — flowchart, sequence, class, state, ER, Gantt | mermaid syntax | Mermaid |
 | ` ```dot ` | **Auto-laid-out graph** — dependency/call graphs | Graphviz DOT | Viz.js |
 | ` ```geometry ` | **Geometric construction** | JSON: `boundingbox` + `elements` | JSXGraph |
-| ` ```fractal ` | **Fractal** — Mandelbrot/Julia (click-to-zoom), IFS chaos game, L-systems; presets `fern`, `sierpinski`, `dragon`, `koch`, `plant` | JSON: `type` + parameters | plain canvas (no library) |
+| ` ```fractal ` | **Fractal** — Mandelbrot/Julia (click-to-zoom), IFS chaos game, L-system curves, strange attractors; 21 presets ([full list](#fractals-and-attractors)) | JSON: `type` + parameters | plain canvas (no library) |
 | ` ```map ` | **Map** with markers / GeoJSON | JSON: `center`, `zoom`, `markers` | Leaflet + OpenStreetMap |
 | ` ```plot3d ` | **3-D surface / scatter** | Plotly JSON | Plotly |
 | ` ```molecule ` | **Chemical structure** | a SMILES string | SmilesDrawer |
@@ -237,6 +237,51 @@ Notes:
 |---|---|
 | ![Timeline](screenshots/rendering/timeline.png) | ![Gantt](screenshots/rendering/gantt.png) |
 | ![Network](screenshots/rendering/network.png) | ![GeoJSON](screenshots/rendering/geojson.png) |
+| ![Lorenz attractor](screenshots/rendering/fractal.png) | ![Hilbert curve](screenshots/rendering/fractal-curve.png) |
+
+### Fractals and attractors
+
+The ` ```fractal ` lane computes the iteration in the browser on a plain canvas.
+Naming a preset is all a question needs:
+
+| Group | Presets |
+|---|---|
+| Escape-time | `mandelbrot`, `julia` — click to zoom in, shift-click to zoom out |
+| Chaos game (IFS) | `fern`, `sierpinski`, `carpet` |
+| Curves (L-system) | `koch`, `dragon`, `levy`, `arrowhead`, `gosper`, `plant`, `tree` |
+| Space-filling curves | `hilbert`, `peano`, `moore` |
+| Strange attractors | `lorenz`, `rossler`, `thomas`, `halvorsen`, `clifford`, `dejong` |
+
+Common spellings reach the same preset — `Hilbert Curve`, `flowsnake`,
+`Koch snowflake` and `lorenz_attractor` all resolve.
+
+Every option is optional:
+
+- `palette` — `viridis` (default), `fire`, `ocean` or `mono`.
+- `order` — recursion depth of a curve, from 1 up to a per-curve maximum:
+  `peano` 4, `gosper` 5, `moore` 6, `hilbert`, `koch` and `plant` 7, `arrowhead` 10,
+  `tree` 13, `dragon` and `levy` 14. Above its maximum a curve reports
+  `L-system exceeds 120000 symbols` instead of drawing.
+- `iter` — escape-time detail (16–1000), or the number of points along an
+  attractor's orbit.
+- `plane` — `xy`, `xz` or `yz`: which projection to draw of `lorenz`, `rossler`,
+  `thomas` or `halvorsen`. `clifford` and `dejong` are already flat and ignore it.
+- An attractor's own coefficients: `sigma` / `rho` / `beta` for `lorenz`, `a`–`c`
+  for `rossler`, `a`–`d` for `clifford` and `dejong`, `b` for `thomas`, `a` for
+  `halvorsen`. `dt` sets the integration step of the four continuous systems.
+- `c` — for `julia` only, the complex constant as `[re, im]`.
+- `center`, `zoom` — for `mandelbrot` and `julia`. `points` — for `ifs`.
+  `axiom`, `rules`, `angle`, `depth` — for a hand-written `lsystem`.
+
+So `{"type":"hilbert","order":5}` draws a fifth-order Hilbert curve,
+`{"type":"lorenz"}` draws the Lorenz butterfly, and
+`{"type":"lorenz","plane":"xy","palette":"fire"}` draws it from above.
+
+Anything the presets do not cover is written out in full as
+`{"type":"ifs","maps":[…]}` or
+`{"type":"lsystem","axiom":…,"rules":…,"angle":…,"depth":…}`. An L-system's rule
+strings use letters and `+ - [ ]` only: `F` and `G` draw a step, `f` moves without
+drawing, `+` and `-` turn, `[` and `]` open and close a branch.
 
 ### Working with tables and charts
 
