@@ -18,7 +18,7 @@ from _jsrun import run_node
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_INDEX = _ROOT / "redirecall" / "index.html"
+_INDEX = _ROOT / "visualweaver" / "index.html"
 
 
 def _fn(html: str, header: str) -> str:

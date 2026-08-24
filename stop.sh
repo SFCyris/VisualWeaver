@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# RediRecall — stop the app AND the dedicated local Redis it uses.
+# VisualWeaver — stop the app AND the dedicated local Redis it uses.
 #
-# Only touches RediRecall's own instances (its pidfiles + its private Redis
+# Only touches VisualWeaver's own instances (its pidfiles + its private Redis
 # port); never a system Redis or another project's process.
 set -euo pipefail
 
@@ -43,8 +43,8 @@ stop_port_fallback() {
   p="$(lsof -tnP -iTCP:"${APP_PORT}" -sTCP:LISTEN 2>/dev/null | head -n1 || true)"
   [ -z "${p}" ] && return 1
   cmd="$(ps -p "${p}" -o command= 2>/dev/null || true)"
-  if ! printf '%s' "${cmd}" | grep -qE 'uvicorn[^|]*redirecall|redirecall\.main|-m *redirecall'; then
-    c_warn "Port ${APP_PORT} is held by a process that is not RediRecall (pid ${p}) — leaving it."
+  if ! printf '%s' "${cmd}" | grep -qE 'uvicorn[^|]*visualweaver|visualweaver\.main|-m *visualweaver'; then
+    c_warn "Port ${APP_PORT} is held by a process that is not VisualWeaver (pid ${p}) — leaving it."
     return 1
   fi
   c_info "Stopping app found on port ${APP_PORT} (pid ${p}, started outside these scripts)…"
@@ -82,4 +82,4 @@ else
   stop_pidfile "${REDIS_PID}" "redis" || c_info "Redis was not running."
 fi
 
-c_ok "══ RediRecall stopped ══"
+c_ok "══ VisualWeaver stopped ══"

@@ -1,9 +1,111 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # Changelog
 
-All notable changes to RediRecall are recorded here. The format follows
+All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.10.0] — 2026-08-22
+
+### Fixed
+- **Asking to visualise something is no longer excluded from the cache.** The same
+  request twice cost two model calls, and because nothing was stored, a later plain-text
+  rewording of it could not match either. Those turns are cached now and matched on the
+  question itself rather than on similarity — two different drawing requests measure
+  closer together than any usable threshold, so *"plot f(x) = sin(x)"* must never be
+  served *"sin(2x)"*.
+- **Ordinary questions were being excluded from the semantic cache.** A question was
+  treated as a request for a chart whenever it mentioned one, so "what is graph theory",
+  "explain knowledge graphs in Redis" and "how do I read a flame graph" were never looked
+  up and never stored, each paying again for an answer already produced. Asking to *see*
+  something is now distinguished from mentioning a picture; requests with no verb ("Sugar
+  molecule in 2d and 3d") and follow-ups ("same thing but as a pie chart") are recognised,
+  and idioms that borrow a drawing verb ("draw up a plan") are not.
+- **An answer now says whether it came from the cache, and if not, why.** Previously a
+  finished answer carried no cache badge at all, so a question that is never cacheable
+  looked identical to one that simply had no match.
+- **Cache settings take effect without a restart.** The similarity threshold and TTL were
+  read once when the cache was first built, so changing them in Settings did nothing —
+  and because the threshold is applied inside the vector search, lowering it could not
+  widen what matched.
+- **Changing the embedding model now clears the semantic cache** and resets its
+  similarity threshold. The stored vectors come from the previous model and are not
+  comparable, and neither is the threshold: two unrelated questions score about 0.10
+  apart under `all-MiniLM-L6-v2` and about 0.80 apart under `multilingual-e5-base`, so a
+  setting carried across the change admits questions that were never asked.
+
+### Changed
+- **The cache similarity threshold now follows the embedding model** unless you set it
+  yourself. Each model's value is the lowest that admitted no unrelated question in the
+  set at `tests/fixtures/cache_calibration.py`; see **Semantic Cache** in `DOCS.md` for
+  the table and for what no threshold can separate.
+- **Regenerating an answer no longer fragments the cache**, and selecting a template no
+  longer resets itself when settings are saved.
+- **A corpus that retrieves nothing no longer counts as a score of 0.00.** One empty
+  instance dragged every derived threshold to zero, which accepts every chunk.
+- **The presets now require the same evidence the verdicts do.** They would derive a
+  threshold from as few as three searches while the panel above them said there was not
+  enough data to read the distribution.
+- **`Avg Best Raw` in Analytics counted searches that retrieved nothing as a score of
+  zero**, understating it by the share of empty searches — the figure the documentation
+  points at for diagnosing a threshold that is too strict.
+- **A setting with nothing measured behind it is no longer given a colour or a suggested
+  value.** Reranking and hybrid search were graded from the configuration alone, so a
+  deployment that had answered no questions still showed two amber verdicts with
+  one-click apply buttons, and they survived resetting the counters.
+- **Deleting a template no longer switches the chat to a different one.** The selection
+  was held by list position, so removing an earlier template silently moved it.
+- `Settings → Analytics` said retrieval statistics were reset on restart; they persist.
+  The reset dialog now names everything it clears.
+
+### Added
+- **The RAG advice speaks per corpus.** Each corpus states the threshold it needs, and
+  the panel reports the value every corpus can meet rather than an average — when two
+  disagree, that disagreement is the finding, with both named. The ⓘ lists every corpus,
+  what it clears today and what it needs.
+- **The score distribution is drawn under the threshold slider**, with a marker that
+  follows the slider and a live reading of what that value keeps.
+- **Copy diagnosis** puts every measurement behind the verdicts on the clipboard as text.
+- **Scores are kept separately per retrieval mode.** Question-mode and HyDE-mode searches
+  score differently, and pooling them produced a threshold that suited neither; switching
+  modes back restores the earlier history rather than discarding it.
+- **The panel says how much traffic its numbers cover** when questions were answered from
+  cache, since those run no retrieval and are absent from every figure.
+
+## [1.9.0] — 2026-08-22
+
+### Added
+- **The RAG settings now advise you from your own retrieval history.** Each control
+  carries a verdict drawn from what this deployment has measured — the scores retrieval
+  produced and which chunks answers cited — with a one-click button to apply the
+  suggested value. A setting with no measurement behind it says so and shows no colour.
+- **Three presets — Precision, Recall and Economy.** Each resolves its similarity
+  threshold from your own observed scores; with no history yet, the threshold is left
+  unchanged and the preset says why. Applying one lists what it will change and stages
+  it for review rather than saving.
+- **An ⓘ on every RAG control**, explaining what it does and what raising or lowering it
+  costs.
+- **Reranking has a UI.** *Rerank retrieved chunks*, *Candidates to score* and *Chunks
+  to keep*, under **Settings → RAG**; previously `config.json` only.
+- **`GET /api/rag/advice`** returns the same verdicts and presets.
+
+### Fixed
+- Retrieval statistics survive a restart. They were held in memory only, so they emptied
+  exactly when Settings was most likely to be opened.
+- Deleting a RAG instance now removes its retrieval statistics with it.
+
+## [1.8.6] — 2026-08-22
+
+### Fixed
+- **The in-app keyboard shortcut list advertised a shortcut that does nothing.** It
+  offered `⌘/Ctrl+F` for search; that combination was given back to the browser's own
+  find in 1.8.0 and the app's search moved to `⌘/Ctrl+Shift+F`. The list was never
+  updated, so for two releases the only place in the app that says what the shortcuts
+  are was wrong about the one that had changed.
+- **`Enter` and `Shift+Enter` were missing from that list** — the two most-used keys in
+  the app. It now matches the table in `DOCS.md` row for row, and names `⌘/Ctrl+F` as
+  the browser's own so it is clear the app does not take it.
+- **`DOCS.md` was missing `⌘/Ctrl+Enter`**, which sends a message.
 
 ## [1.8.5] — 2026-08-21
 
@@ -288,7 +390,7 @@ All notable changes to RediRecall are recorded here. The format follows
   from general knowledge — a weak vocabulary-overlap match no longer produces an
   answer that summarises an unrelated document and abstains. Each context chunk
   now carries its match score so the model can calibrate.
-- `stop.sh` also finds and stops a RediRecall instance started outside the
+- `stop.sh` also finds and stops a VisualWeaver instance started outside the
   scripts (no pidfile) but holding the app port; `start.sh` no longer announces
   the repo's version when a pre-existing instance kept the port — the banner now
   reports what is actually serving.
@@ -404,7 +506,7 @@ keep working with the model they were built with.
   (CC-BY-3.0) attribution and the corrected Graphviz (EPL-2.0) entry.
 
 ## [1.4.1] — 2026-08-02
-- The `redirecall` command-line entry point ignored its arguments; `--help` started
+- The `visualweaver` command-line entry point ignored its arguments; `--help` started
   a server and hung instead of printing help, and `--port`/`--host` were discarded.
 
 ## [1.4.0] — 2026-08-01
@@ -413,12 +515,12 @@ keep working with the model they were built with.
 
 ## Earlier releases
 
-See the [GitHub releases](https://github.com/SFCyris/RediRecall/releases) for
+See the [GitHub releases](https://github.com/SFCyris/VisualWeaver/releases) for
 1.3.x and 1.2.0.
 
-[1.7.0]: https://github.com/SFCyris/RediRecall/releases/tag/v1.7.0
-[1.6.0]: https://github.com/SFCyris/RediRecall/releases/tag/v1.6.0
-[1.5.1]: https://github.com/SFCyris/RediRecall/releases/tag/v1.5.1
-[1.5.0]: https://github.com/SFCyris/RediRecall/releases/tag/v1.5.0
-[1.4.1]: https://github.com/SFCyris/RediRecall/releases/tag/v1.4.1
-[1.4.0]: https://github.com/SFCyris/RediRecall/releases/tag/v1.4.0
+[1.7.0]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.7.0
+[1.6.0]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.6.0
+[1.5.1]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.5.1
+[1.5.0]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.5.0
+[1.4.1]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.4.1
+[1.4.0]: https://github.com/SFCyris/VisualWeaver/releases/tag/v1.4.0

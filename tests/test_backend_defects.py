@@ -13,9 +13,9 @@ import numpy as np
 
 import pytest
 
-from redirecall import crawler, embeddings, providers, rag, routes_ingestion, routes_media
+from visualweaver import crawler, embeddings, providers, rag, routes_ingestion, routes_media
 
-_SRC = pathlib.Path(__file__).resolve().parents[1] / "redirecall"
+_SRC = pathlib.Path(__file__).resolve().parents[1] / "visualweaver"
 
 
 # ── glob injection via an instance name ──────────────────────────────────────
@@ -64,7 +64,7 @@ def test_instance_name_validator_rejects_glob_and_separator_characters():
     glob meaning — that turned a security check into an arbitrary naming policy and
     refused perfectly safe names like "My Docs"."""
     from fastapi import HTTPException
-    from redirecall import routes_instances as ri
+    from visualweaver import routes_instances as ri
     for good in ("default", "product-docs", "kb_2", "a.b", "A1",
                  "My Docs", "ünïcode", "a/b", " lead"):
         assert ri._check_instance_name(good) == good
@@ -112,7 +112,7 @@ def test_replace_from_rejects_a_boolean():
     see polarity — a guard inverted to `or isinstance(v, bool)` still matched) and then
     re-implemented the rule inside the test, which passed with routes_chat.py deleted.
     """
-    from redirecall.routes_chat import valid_replace_index as ok
+    from visualweaver.routes_chat import valid_replace_index as ok
     assert ok(0, 4) and ok(2, 4) and ok(4, 4)
     assert not ok(True, 4) and not ok(False, 4), "a JSON true is accepted as index 1"
     assert not ok("2", 4) and not ok(None, 4) and not ok(2.0, 4)
@@ -257,7 +257,7 @@ def test_provider_status_never_takes_the_api_key_from_the_query_string(provider)
     """A query string is written to the server access log, to every proxy log in front
     of it, and to the browser's own history — so the six calls whose entire purpose is
     handling a credential were the ones broadcasting it. The key moves to the body."""
-    from redirecall import routes_settings as rs
+    from visualweaver import routes_settings as rs
     fn = getattr(rs, f"api_{provider}_status")
     import inspect
     params = inspect.signature(fn).parameters
@@ -267,7 +267,7 @@ def test_provider_status_never_takes_the_api_key_from_the_query_string(provider)
     assert "_probe_key(request)" in src
     # ...and the route must actually accept both methods. Narrowing it to GET left every
     # Settings "Test" button returning 405 with the whole suite green.
-    from redirecall import appcore
+    from visualweaver import appcore
     methods = {m for r in appcore.app.routes
                if getattr(r, "path", None) == f"/api/status/{provider}"
                for m in getattr(r, "methods", set())}
@@ -279,8 +279,8 @@ def test_probe_key_ignores_the_redacted_sentinel_and_non_post():
     """The Settings form pre-fills a saved key's field with the redaction sentinel and
     the Test button sends whatever is in the field, so the sentinel must fall through to
     the stored key rather than be tried as one."""
-    from redirecall import config
-    from redirecall import routes_settings as rs
+    from visualweaver import config
+    from visualweaver import routes_settings as rs
 
     class _Req:
         def __init__(self, method, payload): self.method, self._p = method, payload

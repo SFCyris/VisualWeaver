@@ -1,4 +1,4 @@
-<p align="center"><strong>RediRecall</strong></p>
+<p align="center"><strong>VisualWeaver</strong></p>
 
 <p align="center">Self-hosted retrieval-augmented chat over your own documents and websites, backed by Redis vector search.</p>
 
@@ -8,21 +8,21 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg" alt="License: AGPL-3.0-or-later"></a>
-  <a href="https://github.com/SFCyris/RediRecall/releases/latest"><img src="https://img.shields.io/github/v/release/SFCyris/RediRecall?include_prereleases&sort=semver" alt="Latest release"></a>
-  <a href="https://github.com/SFCyris/RediRecall/pkgs/container/redirecall"><img src="https://img.shields.io/badge/ghcr.io-redirecall-2496ED?logo=docker&logoColor=white" alt="Docker image on GHCR"></a>
+  <a href="https://github.com/SFCyris/VisualWeaver/releases/latest"><img src="https://img.shields.io/github/v/release/SFCyris/VisualWeaver?include_prereleases&sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/SFCyris/VisualWeaver/pkgs/container/visualweaver"><img src="https://img.shields.io/badge/ghcr.io-visualweaver-2496ED?logo=docker&logoColor=white" alt="Docker image on GHCR"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+">
 </p>
 
 <p align="center">
-  <strong><a href="https://github.com/SFCyris/RediRecall/releases/latest/download/redirecall-latest.zip">⬇&nbsp; Download the latest release</a></strong>
-  &nbsp;·&nbsp; <a href="https://github.com/SFCyris/RediRecall/releases/latest">release notes</a>
+  <strong><a href="https://github.com/SFCyris/VisualWeaver/releases/latest/download/visualweaver-latest.zip">⬇&nbsp; Download the latest release</a></strong>
+  &nbsp;·&nbsp; <a href="https://github.com/SFCyris/VisualWeaver/releases/latest">release notes</a>
 </p>
 
 ---
 
-## What is RediRecall?
+## What is VisualWeaver?
 
-RediRecall is a self-hosted chat application that answers from **your** knowledge base. Point it at documents (PDF, DOCX, XLSX, TXT, CSV, Markdown) and websites, and it ingests them into a Redis vector index; when you chat, it retrieves the most relevant passages and grounds the model's answer in them (retrieval-augmented generation). 
+VisualWeaver is a self-hosted chat application that answers from **your** knowledge base. Point it at documents (PDF, DOCX, XLSX, TXT, CSV, Markdown) and websites, and it ingests them into a Redis vector index; when you chat, it retrieves the most relevant passages and grounds the model's answer in them (retrieval-augmented generation). 
 Redis is also used for semantic caching, so similar queries are answered from the cache and don't waste tokens.
 
 It runs entirely on your own machine — you bring your own LLM (a local **Ollama** model, or an API key for **Claude, OpenAI, Qwen, Mistral, Groq, or Gemini**), and your data never leaves your control.
@@ -36,8 +36,8 @@ It runs entirely on your own machine — you bring your own LLM (a local **Ollam
 Answers render richly **inline** — Markdown and tables, LaTeX math, SVG diagrams, exact function graphs, and even sheet music — right in the chat.
 
 <p align="center">
-  <img src="screenshots/graph-and-formula.jpg" alt="LaTeX formulas, a comparison table, and a function graph rendered inline in RediRecall" width="49%">
-  <img src="screenshots/notation-and-svg.jpg" alt="Sheet-music notation and an SVG geometry diagram rendered inline in RediRecall" width="49%">
+  <img src="screenshots/graph-and-formula.jpg" alt="LaTeX formulas, a comparison table, and a function graph rendered inline in VisualWeaver" width="49%">
+  <img src="screenshots/notation-and-svg.jpg" alt="Sheet-music notation and an SVG geometry diagram rendered inline in VisualWeaver" width="49%">
 </p>
 
 <p align="center"><sub>Left: LaTeX math, a table, and an exact function graph. &nbsp;&bull;&nbsp; Right: sheet-music notation and an SVG geometry diagram.</sub></p>
@@ -123,7 +123,7 @@ Each knowledge base is browsable: see what's indexed, scope a question to one do
 
 ### Docker (simplest)
 
-RediRecall runs as two containers: the **app** (a prebuilt multi-arch image — `linux/amd64` + `linux/arm64` — published to GitHub's Container Registry) and **Redis 8** with the query engine (from Docker Hub). Both are defined in [`docker-compose.yml`](docker-compose.yml).
+VisualWeaver runs as two containers: the **app** (a prebuilt multi-arch image — `linux/amd64` + `linux/arm64` — published to GitHub's Container Registry) and **Redis 8** with the query engine (from Docker Hub). Both are defined in [`docker-compose.yml`](docker-compose.yml).
 
 **Requires** Docker Engine with the Compose v2 plugin — verify with `docker compose version`.
 
@@ -133,7 +133,7 @@ RediRecall runs as two containers: the **app** (a prebuilt multi-arch image — 
 docker compose pull
 ```
 
-*(or pull them individually: `docker pull ghcr.io/sfcyris/redirecall:latest` and `docker pull redis:8`.)*
+*(or pull them individually: `docker pull ghcr.io/sfcyris/visualweaver:latest` and `docker pull redis:8`.)*
 
 **2. Start:**
 
@@ -150,7 +150,7 @@ docker compose stop     # stop the containers, keep them and your data
 docker compose down     # stop and remove the containers (the data volume persists)
 ```
 
-Your state lives in **two** named Docker volumes, both of which survive restarts and re-pulls: **`redirecall-data`** (config, uploads, logs, ingestion history) and **`redirecall-redis`** (the ingested, embedded knowledge base and its vector index — the AOF/RDB persistence). To upgrade, `docker compose pull && docker compose up -d`. **A full backup must capture both volumes** — saving only `redirecall-data` loses the entire index, forcing a full re-ingest.
+Your state lives in **two** named Docker volumes, both of which survive restarts and re-pulls: **`visualweaver-data`** (config, uploads, logs, ingestion history) and **`visualweaver-redis`** (the ingested, embedded knowledge base and its vector index — the AOF/RDB persistence). To upgrade, `docker compose pull && docker compose up -d`. **A full backup must capture both volumes** — saving only `visualweaver-data` loses the entire index, forcing a full re-ingest.
 
 > **Building from source instead:** comment the `image:` line and uncomment `build:` in `docker-compose.yml`, then `docker compose up -d --build`.
 
@@ -161,7 +161,7 @@ The image ships a **CPU-only build of PyTorch**. That is deliberate: the default
 If you have an NVIDIA GPU and want accelerated embeddings, install the CUDA build **yourself, on your own machine** — pick the channel matching your driver (`cu126`, `cu128`, `cu129`, `cu130`):
 
 ```bash
-docker compose exec redirecall pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu129
+docker compose exec visualweaver pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu129
 ```
 
 Add `--gpus all` (or a `deploy.resources` reservation in compose) so the container can see the GPU, and re-run it after any `docker compose pull`, since a fresh image is CPU-only again. For a permanent GPU image, change that one `pip install` line in the `Dockerfile` and build it yourself — the resulting image is then yours to distribute or not.
@@ -187,8 +187,8 @@ Settings are stored **outside the repo**, in a per-platform data directory:
 
 | Platform | Location |
 |---|---|
-| macOS | `~/Library/Application Support/RediRecall` |
-| Linux | `$XDG_DATA_HOME/redirecall` or `~/.local/share/redirecall` |
+| macOS | `~/Library/Application Support/VisualWeaver` |
+| Linux | `$XDG_DATA_HOME/visualweaver` or `~/.local/share/visualweaver` |
 
 That directory holds `config.json`, uploads, logs, and ingestion history. A clean template is in [`config.example.json`](config.example.json). Configure everything from the in-app **Settings** UI, or set provider keys via environment variables so they are never written to disk:
 
@@ -201,7 +201,7 @@ export DASHSCOPE_API_KEY=...    # Qwen
 export MISTRAL_API_KEY=...      # Mistral
 ```
 
-**Ports:** the web UI is **8420**; the dedicated Redis is **6389** (loopback only). Override the app port with `REDIRECALL_PORT`, or `./start.sh 9000`.
+**Ports:** the web UI is **8420**; the dedicated Redis is **6389** (loopback only). Override the app port with `VISUALWEAVER_PORT`, or `./start.sh 9000`.
 
 ---
 
@@ -231,11 +231,11 @@ export MISTRAL_API_KEY=...      # Mistral
 
 ## Security
 
-RediRecall has **no built-in authentication**. The **local runtime** (`start.sh`) binds to `127.0.0.1` (localhost only) by default. The **Docker Compose** setup, however, publishes port 8420 on all host interfaces (`0.0.0.0`), so it *is* reachable from your network — run it only on a trusted network, bind it to localhost by changing the mapping to `127.0.0.1:8420:8420` in [`docker-compose.yml`](docker-compose.yml), or put a reverse proxy with authentication in front of it (see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS setup). **Never expose the port on an untrusted network without an auth layer.**
+VisualWeaver has **no built-in authentication**. The **local runtime** (`start.sh`) binds to `127.0.0.1` (localhost only) by default. The **Docker Compose** setup, however, publishes port 8420 on all host interfaces (`0.0.0.0`), so it *is* reachable from your network — run it only on a trusted network, bind it to localhost by changing the mapping to `127.0.0.1:8420:8420` in [`docker-compose.yml`](docker-compose.yml), or put a reverse proxy with authentication in front of it (see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS setup). **Never expose the port on an untrusted network without an auth layer.**
 
 **Untrusted content.** Model and RAG output is treated as untrusted: rendered Markdown and every SVG/diagram is sanitised (DOMPurify) before it reaches the DOM, the `geometry` block accepts data only — never expressions — and a Content-Security-Policy restricts scripts to the app itself plus the two CDNs the renderers come from. Ingested pages can carry prompt injections, so this matters in normal use, not just under attack.
 
-One deliberate trade-off: `img-src` permits any `https:` source, because answers legitimately show images from the pages and documents you ingest, plus map tiles. In principle that is an exfiltration channel if script execution were ever achieved. `connect-src` is far narrower — `'self'` plus one fixed host, `https://paulrosen.github.io`, which abcjs fetches General-MIDI soundfont samples from for the `abc` Play button — so `img-src` remains the broad channel and `connect-src` is limited to that single static-asset host. If your deployment does not need remote images, tighten `img-src` in `_CSP` (`redirecall/appcore.py`) to `'self' data: blob:`; if you do not need `abc` audio playback, drop `https://paulrosen.github.io` from `connect-src` to bring it back to `'self'`.
+One deliberate trade-off: `img-src` permits any `https:` source, because answers legitimately show images from the pages and documents you ingest, plus map tiles. In principle that is an exfiltration channel if script execution were ever achieved. `connect-src` is far narrower — `'self'` plus one fixed host, `https://paulrosen.github.io`, which abcjs fetches General-MIDI soundfont samples from for the `abc` Play button — so `img-src` remains the broad channel and `connect-src` is limited to that single static-asset host. If your deployment does not need remote images, tighten `img-src` in `_CSP` (`visualweaver/appcore.py`) to `'self' data: blob:`; if you do not need `abc` audio playback, drop `https://paulrosen.github.io` from `connect-src` to bring it back to `'self'`.
 
 ---
 
@@ -249,7 +249,7 @@ One deliberate trade-off: `img-src` permits any `https:` source, because answers
 
 ## Acknowledgments
 
-RediRecall is built on excellent open-source projects:
+VisualWeaver is built on excellent open-source projects:
 
 - **[Redis](https://redis.io)** — in-memory datastore and vector/query engine *(AGPLv3)*
 - **Backend** — [FastAPI](https://fastapi.tiangolo.com) & [Uvicorn](https://www.uvicorn.org) *(MIT / BSD-3-Clause)*, [redis-py](https://github.com/redis/redis-py) and [RedisVL](https://github.com/redis/redis-vl-python) *(MIT)*, [NumPy](https://numpy.org) *(BSD-3-Clause)*, [sentence-transformers](https://www.sbert.net) *(Apache-2.0)*, [PyMuPDF](https://pymupdf.readthedocs.io) *(AGPLv3)*, [Trafilatura](https://trafilatura.readthedocs.io) *(Apache-2.0)*, [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) *(MIT)*, [Pillow](https://python-pillow.org) *(MIT-CMU)*, [httpx](https://www.python-httpx.org) *(BSD-3-Clause)*, and [Crawl4AI](https://github.com/unclecode/crawl4ai) + [Playwright](https://playwright.dev) *(Apache-2.0)*
@@ -278,14 +278,30 @@ RediRecall is built on excellent open-source projects:
 
 Map tiles are served by [OpenStreetMap](https://www.openstreetmap.org/copyright) — map data © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/) (attribution is shown on every rendered map).
 
-Each dependency is distributed under its own license; the full text ships with each package. A complete inventory of every dependency and its license — including the multi-licensed ones and which option RediRecall elects — is in **[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)**.
+Each dependency is distributed under its own license; the full text ships with each package. A complete inventory of every dependency and its license — including the multi-licensed ones and which option VisualWeaver elects — is in **[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)**.
 
 ---
 
+## Trademarks
+
+**Redis** is a registered trademark of Redis Ltd. VisualWeaver is an independent project that
+integrates with Redis® OSS. It is **not endorsed, supported, sponsored, or certified by
+Redis Ltd.**, and no affiliation is implied. The Redis logo and visual identity are not
+used anywhere in this project; Redis is referred to by name only, to identify the software
+VisualWeaver connects to.
+
+Docker, GitHub, Google Gemini, Anthropic Claude, OpenAI, Mistral, Ollama, Groq and Qwen —
+and every other product named in this documentation or in the application — are trademarks
+of their respective owners. They are used for identification only. None of those owners
+endorses, sponsors or is affiliated with VisualWeaver.
+
+A trademark is separate from the licence its software ships under: an open-source licence
+grants rights in the code, not in the name or the logo.
+
 ## License
 
-RediRecall is licensed under the **[AGPL-3.0-or-later](LICENSE)**.
+VisualWeaver is licensed under the **[AGPL-3.0-or-later](LICENSE)**.
 
-This matches what the dependency stack requires: **PyMuPDF** (PDF extraction) and **Redis 8** are themselves AGPLv3, and the other Python dependencies are permissive (MIT / BSD / MIT-CMU) or Apache-2.0 — all one-way compatible into AGPLv3, so the combined work is cleanly licensable under the AGPL. Using RediRecall under different terms would mean replacing the AGPL components (for example, obtaining a commercial PyMuPDF license from Artifex).
+This matches what the dependency stack requires: **PyMuPDF** (PDF extraction) and **Redis 8** are themselves AGPLv3, and the other Python dependencies are permissive (MIT / BSD / MIT-CMU) or Apache-2.0 — all one-way compatible into AGPLv3, so the combined work is cleanly licensable under the AGPL. Using VisualWeaver under different terms would mean replacing the AGPL components (for example, obtaining a commercial PyMuPDF license from Artifex).
 
-The browser rendering libraries are **not bundled or redistributed** — RediRecall ships only a URL, and the browser fetches each one from a public CDN at runtime. They are MIT / BSD / Apache-2.0 / MPL-2.0 (JSXGraph is dual MIT-or-LGPL, used here under MIT). One note for completeness: `viz.js` is MIT but embeds **Graphviz** 15.1.1, which is under the Eclipse Public License 2.0 — a license the FSF considers GPL-incompatible. Because it is loaded at runtime by the browser rather than distributed with RediRecall, it does not form a combined work with this AGPL codebase; anyone who chooses to *vendor* these libraries into a distributed build should review that themselves.
+The browser rendering libraries are **not bundled or redistributed** — VisualWeaver ships only a URL, and the browser fetches each one from a public CDN at runtime. They are MIT / BSD / Apache-2.0 / MPL-2.0 (JSXGraph is dual MIT-or-LGPL, used here under MIT). One note for completeness: `viz.js` is MIT but embeds **Graphviz** 15.1.1, which is under the Eclipse Public License 2.0 — a license the FSF considers GPL-incompatible. Because it is loaded at runtime by the browser rather than distributed with VisualWeaver, it does not form a combined work with this AGPL codebase; anyone who chooses to *vendor* these libraries into a distributed build should review that themselves.

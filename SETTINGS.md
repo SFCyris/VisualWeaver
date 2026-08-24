@@ -1,6 +1,6 @@
-# RediRecall — Settings Reference
+# VisualWeaver — Settings Reference
 
-This document explains the main settings in the application: what each controls, its default value, acceptable range, and what changing it implies. A few advanced options (reranker, HyDE, scheduled re-crawl, session persistence) have **no UI control** — they are set by hand-editing `config.json`; see the notes where each is mentioned.
+This document explains the main settings in the application: what each controls, its default value, acceptable range, and what changing it implies. A few advanced options (HyDE, scheduled re-crawl, session persistence) have **no UI control** — they are set by hand-editing `config.json`; see the notes where each is mentioned.
 
 ---
 
@@ -44,7 +44,7 @@ Found in **Settings → Redis**.
 ### Port
 - **Default:** `6379`
 - **What it does:** The TCP port Redis is listening on.
-- **Notes:** `6379` is the generic default for an external Redis. RediRecall's own bundled local instance runs on `127.0.0.1:6389`. Redis Enterprise databases often use ports in the 10000–19999 range.
+- **Notes:** `6379` is the generic default for an external Redis. VisualWeaver's own bundled local instance runs on `127.0.0.1:6389`. Redis Enterprise databases often use ports in the 10000–19999 range.
 
 ### Database Index
 - **Default:** `0`
@@ -54,8 +54,8 @@ Found in **Settings → Redis**.
 
 ### Password
 - **Default:** (empty)
-- **What it does:** The `AUTH` password for the Redis server. RediRecall's bundled local instance runs on loopback with no password.
-- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the Redis **host and port** can be overridden from the environment — `REDIRECALL_REDIS_HOST` / `REDIRECALL_REDIS_PORT` (used by the Docker image).
+- **What it does:** The `AUTH` password for the Redis server. VisualWeaver's bundled local instance runs on loopback with no password.
+- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the Redis **host and port** can be overridden from the environment — `VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT` (used by the Docker image).
 
 ### SSL / TLS
 - **Default:** Off
@@ -77,7 +77,7 @@ Found in **Settings → RAG**.
 - **Default:** `180` words
 - **Range:** 64 – 2048 words (practical) — but see the model limit below
 - **What it does:** Controls the target size of each text chunk stored in the knowledge base. Text is split at sentence boundaries, so actual chunk sizes vary slightly. Content with no sentence punctuation (CSV rows, tables, code) is split on line boundaries instead, and no chunk may exceed twice this value.
-- **⚠️ Bounded by the embedding model.** Each model encodes at most a fixed number of tokens — `intfloat/multilingual-e5-small` handles **256 tokens ≈ 190 English words** — and silently truncates the rest. Text past the limit is still stored and shown to the model, but is **not in the vector**, so semantic search cannot find it. Raising this above the model's limit therefore *reduces* recall while appearing to add context. RediRecall warns in the log when the configured size exceeds the active model's limit, and lowers a saved value that is already over it.
+- **⚠️ Bounded by the embedding model.** Each model encodes at most a fixed number of tokens — `intfloat/multilingual-e5-small` handles **256 tokens ≈ 190 English words** — and silently truncates the rest. Text past the limit is still stored and shown to the model, but is **not in the vector**, so semantic search cannot find it. Raising this above the model's limit therefore *reduces* recall while appearing to add context. VisualWeaver warns in the log when the configured size exceeds the active model's limit, and lowers a saved value that is already over it.
 - **Smaller values (e.g. 128–256):**
   - More precise retrieval — each chunk covers a narrower topic
   - Higher storage requirements (more chunks)
@@ -163,19 +163,34 @@ Found in **Settings → Cache**.
 - **When to disable:** During development or testing when you always want fresh LLM responses. When experimenting with different prompts or RAG configurations and do not want stale answers.
 
 ### Similarity Threshold
-- **Default:** `0.92`
+- **Default:** unset — the value follows the embedding model
 - **Range:** 0.0 – 1.0
 - **What it does:** The minimum cosine similarity between the current query and a cached query for a cache hit to be returned.
-- **Higher values (e.g. 0.97–0.99):**
-  - Only near-identical questions return cached answers
-  - Very conservative — low hit rate but high confidence that the cached answer is appropriate
-  - Effectively behaves like exact matching at 0.99
-- **Lower values (e.g. 0.80–0.85):**
-  - Paraphrases and related questions trigger cache hits
-  - Higher hit rate → lower LLM cost
-  - Risk: semantically related but different questions may return an inappropriate cached answer
-  - Example at 0.85: "What is Redis?" and "How does Redis work?" might share a cache entry
-- **Rule of thumb:** 0.92 is a good balance. Lower to 0.88–0.90 if you want to aggressively cache paraphrases. Raise to 0.96+ if you notice wrong cached answers.
+- **Set by the model when unset:**
+
+  | Embedding model | Threshold |
+  |---|---|
+  | `all-MiniLM-L6-v2` | 0.93 |
+  | `multilingual-e5-small` | 0.98 |
+  | `multilingual-e5-base` | 0.98 |
+  | `bge-m3` | 0.93 |
+  | anything else | 0.98 |
+
+- **The number is not portable between models.** Two questions about entirely different
+  subjects score about 0.10 apart under `all-MiniLM-L6-v2` and about 0.80 apart under
+  `multilingual-e5-base`. A threshold that is merely permissive under the first admits
+  unrelated questions under the second, so changing the embedding model resets this
+  setting along with the cached entries.
+- **Lowering it** raises the hit rate and, past the values above, starts returning answers
+  to questions that were not asked. The two mistakes are not equal: a wrong hit answers
+  something you did not ask, a miss costs one model call.
+- **What no threshold fixes.** Questions differing in one decisive word — *enable* against
+  *disable*, *Q1* against *Q2*, *back up* against *restore* — score higher than most
+  genuine rewordings. The defaults above are chosen to exclude them, which is why the hit
+  rate is deliberately modest.
+- **Setting it yourself** is respected and kept until the embedding model changes. The set
+  the defaults were measured on is `tests/fixtures/cache_calibration.py`, so you can
+  re-run the measurement against your own questions.
 
 ### TTL (Time to Live)
 - **Default:** `3600` seconds (1 hour)
@@ -450,7 +465,7 @@ Found in **Settings → Web Sources** when configuring a URL crawl.
 
 - The topbar shows this session's tokens: **↑ input · ↓ output · Σ total**. Exact numbers are the provider's own reported billed counts (stored with each answer); a `~` marks a session where at least one turn had to be estimated (≈ characters ÷ 4). Measured input counts the *full prompt the provider processed* — system prompt, re-sent history, retrieved context — so it grows with conversation length.
 - **All-time totals** live in **Analytics → 🔢 Token Usage**: every provider and model since the counter was last reset, with fresh input, cache reads, cache writes and output as separate columns, ordered by total tokens. `GET /api/usage` returns the same tally; `DELETE /api/usage` (the card's **Reset tally** button) zeroes it without touching your conversations.
-- **No cost figure.** RediRecall reports tokens only. Provider rates vary by model and change without notice, so an estimate baked into the app would go stale silently and read as an authority it is not — price these counts against your provider's own billing page.
+- **No cost figure.** VisualWeaver reports tokens only. Provider rates vary by model and change without notice, so an estimate baked into the app would go stale silently and read as an authority it is not — price these counts against your provider's own billing page.
 
 ---
 
@@ -492,6 +507,6 @@ Found in **Settings → Security**.
 
 ### Authentication
 
-RediRecall has **no built-in authentication**. The Settings → Security "password" field is stored in `config.json` (as plaintext, in the platform data directory) but is **not currently enforced** — access is not gated on it.
+VisualWeaver has **no built-in authentication**. The Settings → Security "password" field is stored in `config.json` (as plaintext, in the platform data directory) but is **not currently enforced** — access is not gated on it.
 
 By default the app binds to `127.0.0.1` (localhost only). Before exposing it on a LAN, VPN, or the internet, put it behind a **reverse proxy (nginx, Caddy) with HTTPS and authentication** — see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS starting point, and add an auth layer there before exposing sensitive data.

@@ -18,7 +18,7 @@ import re
 
 import pytest
 
-_INDEX = pathlib.Path(__file__).resolve().parents[1] / "redirecall" / "index.html"
+_INDEX = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
 
 
 def _html() -> str:

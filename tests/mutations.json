@@ -1,7 +1,7 @@
 [
   {
     "id": "M01_casesensitive_dropped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "\"attrs\": {\"separator\": \"|\", \"case_sensitive\": True}},",
     "replace": "\"attrs\": {\"separator\": \"|\"}},",
     "defect": "#7 per-document delete casefolds again: report.pdf deletes Report.pdf",
@@ -9,7 +9,7 @@
   },
   {
     "id": "M02_fixed_temp_name",
-    "file": "redirecall/config.py",
+    "file": "visualweaver/config.py",
     "find": "    _fd, _tmp_name = tempfile.mkstemp(dir=str(constants.CONFIG_PATH.parent),\n                                      prefix=f\".{constants.CONFIG_PATH.name}.\", suffix=\".tmp\")\n    os.close(_fd)\n    tmp = Path(_tmp_name)",
     "replace": "    tmp = constants.CONFIG_PATH.parent / f\".{constants.CONFIG_PATH.name}.tmp\"",
     "defect": "#17 fixed temp filename: two processes splice one config file",
@@ -17,7 +17,7 @@
   },
   {
     "id": "M03_append_log_unguarded",
-    "file": "redirecall/routes_sources.py",
+    "file": "visualweaver/routes_sources.py",
     "find": "        try:\n            config.append_log({\n                \"ts\": datetime.now(timezone.utc).isoformat(),\n                \"instance\": instance, \"source\": source,\n                \"chunks\": -deleted, \"status\": \"deleted\",\n            })\n        except Exception as le:\n            log.warning(f\"delete succeeded but could not be logged: {le}\")",
     "replace": "        config.append_log({\n            \"ts\": datetime.now(timezone.utc).isoformat(),\n            \"instance\": instance, \"source\": source,\n            \"chunks\": -deleted, \"status\": \"deleted\",\n        })",
     "defect": "#13 a journalling failure turns a completed delete into 'Delete failed'",
@@ -25,7 +25,7 @@
   },
   {
     "id": "M04_delete_loop_unbounded",
-    "file": "redirecall/routes_sources.py",
+    "file": "visualweaver/routes_sources.py",
     "find": "        for _batch in range(rag._MAX_DELETE_BATCHES):",
     "replace": "        while True:  # rag._MAX_DELETE_BATCHES",
     "defect": "#18 delete loop spins forever on an index entry that outlives its key",
@@ -33,7 +33,7 @@
   },
   {
     "id": "M05_feedback_cap_not_applied",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "        k: (v[:config._MAX_FEEDBACK_FIELD] if isinstance(v, str) else v)",
     "replace": "        k: v",
     "defect": "#9 unbounded POST body bloats the on-disk feedback store",
@@ -41,7 +41,7 @@
   },
   {
     "id": "M06_lexical_floor_unused",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "        lex_floor = threshold * _LEXICAL_FLOOR_RATIO",
     "replace": "        lex_floor = 0.0  # _LEXICAL_FLOOR_RATIO",
     "defect": "the whole BM25 tail reaches the prompt again",
@@ -49,7 +49,7 @@
   },
   {
     "id": "M07_ef_runtime_dropped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            ef_runtime=_HNSW_EF_RUNTIME,\n",
     "replace": "",
     "defect": "EF_RUNTIME back to the RediSearch default of 10: recall@10 0.839",
@@ -57,7 +57,7 @@
   },
   {
     "id": "M08_query_embedded_as_passage",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "    q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query, is_query=True).astype(np.float32)",
     "replace": "    q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query).astype(np.float32)",
     "defect": "search_rag embeds the question with the passage prefix",
@@ -65,7 +65,7 @@
   },
   {
     "id": "M09_upload_cap_removed",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "        if len(blob) > config._MAX_UPLOAD_BYTES:",
     "replace": "        if False:  # config._MAX_UPLOAD_BYTES",
     "defect": "#24 unbounded upload read into memory",
@@ -73,7 +73,7 @@
   },
   {
     "id": "M10_dedup_global_again",
-    "file": "redirecall/ingest.py",
+    "file": "visualweaver/ingest.py",
     "find": "        hashlib.sha256(f\"{source}\\x00{' '.join(c.lower().split())}\".encode()).hexdigest()",
     "replace": "        hashlib.sha256(f\"{' '.join(c.lower().split())}\".encode()).hexdigest()",
     "defect": "#8 global content hash: deleting doc A removes content doc B needs",
@@ -81,7 +81,7 @@
   },
   {
     "id": "M11_index_lock_removed",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "    with _index_ensure_locks.setdefault(instance, threading.Lock()):",
     "replace": "    if True:  # serialisation removed",
     "defect": "the 57k-vector migration runs twice concurrently (lock dropped at the call site)",
@@ -89,7 +89,7 @@
   },
   {
     "id": "M12_e5_prefix_not_applied",
-    "file": "redirecall/embeddings.py",
+    "file": "visualweaver/embeddings.py",
     "find": "    prefix = spec[\"query_prefix\"] if is_query else spec[\"passage_prefix\"]",
     "replace": "    prefix = \"\"  # query_prefix / passage_prefix",
     "defect": "E5 asymmetric prefixes silently dropped — retrieval degrades",
@@ -97,7 +97,7 @@
   },
   {
     "id": "M13_emb_model_not_stored",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            \"emb_model\":   str(_ns_embeddings.embedding_id_for()),",
     "replace": "",
     "defect": "chunks stop recording which model produced their vector",
@@ -105,7 +105,7 @@
   },
   {
     "id": "M14_mismatch_warner_gutted",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "def warn_if_vectors_are_from_another_model(",
     "replace": "def warn_if_vectors_are_from_another_model(*_a, **_k):\n    return\n\n\ndef _dead_warn_if_vectors_are_from_another_model(",
     "defect": "same-width model swap goes undetected: confident nonsense",
@@ -113,7 +113,7 @@
   },
   {
     "id": "M15_doc_id_indexed_again",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            {\"name\": \"ingested_at\", \"type\": \"numeric\", \"attrs\": {\"sortable\": True}},",
     "replace": "            {\"name\": \"doc_id\", \"type\": \"tag\"},\n            {\"name\": \"pos\", \"type\": \"numeric\", \"attrs\": {\"sortable\": True}},\n            {\"name\": \"ingested_at\", \"type\": \"numeric\", \"attrs\": {\"sortable\": True}},",
     "defect": "#16 unused fields force a full DROPINDEX + backfill",
@@ -121,7 +121,7 @@
   },
   {
     "id": "M16_dot_lane_reverted_to_new_Viz",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      const el=(await _vizInst()).renderSVGElement(src);",
     "replace": "      const el=new Viz().renderSVGElement(src);",
     "defect": "the exact API break the 1.5.0 upgrade was about: v3 has no `new Viz()`",
@@ -129,7 +129,7 @@
   },
   {
     "id": "M17_viz_cdn_404",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "@viz-js/viz@3.29.0/dist/viz-global.js",
     "replace": "@viz-js/viz@3.29.0/viz-global.js",
     "defect": "verified-404 path: the dot lane never loads",
@@ -137,7 +137,7 @@
   },
   {
     "id": "M18_katex_404",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "KaTeX/0.17.0/katex.min.js",
     "replace": "KaTeX/0.17.0/dist/katex.min.js",
     "defect": "verified-404 KaTeX JS path: all math renders as raw TeX",
@@ -145,7 +145,7 @@
   },
   {
     "id": "M19_mermaid_404",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "mermaid/11.12.0/mermaid.min.js",
     "replace": "mermaid/11.12.0/dist/mermaid.min.js",
     "defect": "verified-404 mermaid path: diagram/gantt/timeline lanes all dead",
@@ -153,7 +153,7 @@
   },
   {
     "id": "M20_enhance_tables_dropped_from_restore",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "renderRichBlocks(el);highlightCode(el);addCopyButtons(el);enhanceTables(el);}",
     "replace": "renderRichBlocks(el);highlightCode(el);addCopyButtons(el);}",
     "defect": "restored conversations lose table sorting",
@@ -161,7 +161,7 @@
   },
   {
     "id": "M21_enhance_tables_guard_reverted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "closest('.rich-output')",
     "replace": "closest('.rich-wrap')",
     "defect": "the chart Data table renders unsortable again",
@@ -169,7 +169,7 @@
   },
   {
     "id": "M22_gantt_tickinterval_dropped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "tickInterval:'1week',axisFormat:'%b %d'",
     "replace": "axisFormat:'%b %d'",
     "defect": "the gantt date axis smears into an unreadable band",
@@ -177,7 +177,7 @@
   },
   {
     "id": "M23_numeric_coercion_broken",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _RR_NUM=/^\\s*-?[$€£]?\\s*-?[\\d,.]+\\s*%?\\s*$/;",
     "replace": "const _RR_NUM=/^(?!)/;",
     "defect": "table sort falls back to lexical: '120' < '43', '$1,200.50' < '$980.00'",
@@ -185,7 +185,7 @@
   },
   {
     "id": "M24_newSession_remembers_id",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  S.sessions[id]={title:'New Conversation',messages:[]};",
     "replace": "  _rememberSessionId(id);\n  S.sessions[id]={title:'New Conversation',messages:[]};",
     "defect": "#6 empty sessions consume the 200-id cap and evict real conversations",
@@ -193,7 +193,7 @@
   },
   {
     "id": "M25_pendingRegen_leaks",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(!el){ _pendingRegen=null; return; }   // no target left — the regen is void",
     "replace": "  if(!el){ return; }   // no target left — the regen is void",
     "defect": "#10 a stale version history is grafted onto an unrelated answer",
@@ -201,7 +201,7 @@
   },
   {
     "id": "M26_source_scope_sticky",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "function newSession(){\n  _pendingRegen=null;\n  setSourceScope('');",
     "replace": "function newSession(){\n  _pendingRegen=null;",
     "defect": "#14 the source scope chip leaks from conversation A into B",
@@ -209,7 +209,7 @@
   },
   {
     "id": "M27_modal_title_double_escaped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "showModal(`Documents in “${r.name}”`",
     "replace": "showModal(`Documents in “${escHtml(r.name)}”`",
     "defect": "#15 an instance called A&B renders as A&amp;B",
@@ -217,7 +217,7 @@
   },
   {
     "id": "M28_geojson_lane_unregistered",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  geojson:{",
     "replace": "  geojson_DISABLED:{",
     "defect": "an advertised lane renders as a raw JSON code block",
@@ -225,7 +225,7 @@
   },
   {
     "id": "M29_sizeFromViewBox_not_called_timeline",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "_sizeFromViewBox(out)",
     "replace": "void 0 /*_sizeFromViewBox(out)*/",
     "defect": "mermaid timeline lays out 0x0 — the card looks empty",
@@ -233,7 +233,7 @@
   },
   {
     "id": "M30_abc_tune_not_stored",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "out._abcTune=",
     "replace": "out._abcTuneX=",
     "defect": "abc Play has nothing to play",
@@ -241,7 +241,7 @@
   },
   {
     "id": "M31_csp_soundfont_blocked",
-    "file": "redirecall/appcore.py",
+    "file": "visualweaver/appcore.py",
     "find": "    \"connect-src 'self' https://paulrosen.github.io; \"",
     "replace": "    \"connect-src 'self'; \"",
     "defect": "P01: host dropped from the connect-src DIRECTIVE (comment kept) — abc playback fails silently",
@@ -250,7 +250,7 @@
   },
   {
     "id": "M32_cache_hit_not_recorded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    case 'cache_hit':",
     "replace": "    case 'cache_hit_RENAMED':",
     "defect": "a cached answer breaks restore, regenerate, versions and feedback",
@@ -258,7 +258,7 @@
   },
   {
     "id": "M33_tag_escape_neutered",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "_TAG_ESCAPE_RE = re.compile",
     "replace": "_TAG_ESCAPE_RE_REAL = re.compile",
     "defect": "an unescaped '|' turns one source filter into an OR across every chunk",
@@ -266,7 +266,7 @@
   },
   {
     "id": "M34_chunk_guard_overcuts",
-    "file": "redirecall/textutil.py",
+    "file": "visualweaver/textutil.py",
     "find": "def chunk_text(",
     "replace": "def chunk_text(text, size=400, overlap=80, **_kw):\n    words = text.split()\n    step = max(1, (size - overlap) // 3)\n    return [\" \".join(words[i:i + size // 3]) for i in range(0, len(words), step)] or [text]\n\n\ndef _dead_chunk_text(",
     "defect": "#5 the token guard shreds the configured chunk size to ~40%",
@@ -274,7 +274,7 @@
   },
   {
     "id": "M35_feedback_limit_bypass",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "    n = max(1, min(int(limit or 0) or 1, config._MAX_FEEDBACK))",
     "replace": "    n = max(0, int(limit or 0))",
     "defect": "#9 limit<=0 leaks the whole feedback store",
@@ -282,7 +282,7 @@
   },
   {
     "id": "M36_sessions_unbounded",
-    "file": "redirecall/state.py",
+    "file": "visualweaver/state.py",
     "find": "_MAX_LIVE_SESSIONS",
     "replace": "_MAX_LIVE_SESSIONS_UNUSED",
     "defect": "#25 every conversation ever opened stays resident",
@@ -290,7 +290,7 @@
   },
   {
     "id": "M37_vector_field_hardcoded",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            {\"name\": _ns_embeddings.vector_field_for(), \"type\": \"vector\",",
     "replace": "            {\"name\": \"embedding\", \"type\": \"vector\",",
     "defect": "#29 the schema hardcodes 'embedding' while the helper advertises embedding_384",
@@ -298,7 +298,7 @@
   },
   {
     "id": "M38_migration_noop",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "def _migrate_vector_batch(",
     "replace": "def _migrate_vector_batch(*_a, **_k):\n    return 0\n\n\ndef _dead_migrate_vector_batch(",
     "defect": "#29 legacy vectors stay under a field nothing writes — searchable by nothing",
@@ -306,15 +306,15 @@
   },
   {
     "id": "M39_cli_ignores_argv",
-    "file": "redirecall/main.py",
+    "file": "visualweaver/main.py",
     "find": "def cli(",
     "replace": "def cli(*_a, **_k):\n    import uvicorn\n    uvicorn.run(app, host=\"127.0.0.1\", port=8420)\n\n\ndef _dead_cli(",
-    "defect": "`redirecall --help` starts a server and hangs until the CI timeout",
+    "defect": "`visualweaver --help` starts a server and hangs until the CI timeout",
     "expect": "test_cli_help_exits_instead_of_starting_a_server"
   },
   {
     "id": "M40_crawl_reaper_noop",
-    "file": "redirecall/state.py",
+    "file": "visualweaver/state.py",
     "find": "def reap_finished_crawls(",
     "replace": "def reap_finished_crawls(*_a, **_k):\n    return 0\n\n\ndef _dead_reap_finished_crawls(",
     "defect": "#25 every crawl leaks one task and one gate",
@@ -322,7 +322,7 @@
   },
   {
     "id": "M41_percent_indexed_dropped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "percent_indexed",
     "replace": "pct_indexed",
     "defect": "#11 a rebuild in progress is reported as a broken index",
@@ -330,7 +330,7 @@
   },
   {
     "id": "M42_config_quarantines_unreadable",
-    "file": "redirecall/config.py",
+    "file": "visualweaver/config.py",
     "find": "        except OSError as e:",
     "replace": "        except _NeverRaisedOSError as e:",
     "defect": "a PermissionError quarantines (destroys) a perfectly good config",
@@ -338,7 +338,7 @@
   },
   {
     "id": "M43_default_model_reverted",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "\"model\": \"intfloat/multilingual-e5-small\"",
     "replace": "\"model\": \"all-MiniLM-L6-v2\"",
     "defect": "the legacy default tokenises Thai/Chinese as [UNK]",
@@ -346,7 +346,7 @@
   },
   {
     "id": "M44_cache_scope_order_sensitive",
-    "file": "redirecall/cache.py",
+    "file": "visualweaver/cache.py",
     "find": "def _cache_scope(",
     "replace": "def _cache_scope(names):\n    return \"|\".join(names)\n\n\ndef _dead_cache_scope(",
     "defect": "instance order becomes part of the corpus identity; disabled instances cached",
@@ -354,7 +354,7 @@
   },
   {
     "id": "M45_lane_doc_removed",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "```geojson",
     "replace": "```geoj",
     "defect": "a lane the model is never told about is dead code",
@@ -362,7 +362,7 @@
   },
   {
     "id": "M46_gantt_usewidth_dropped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "{gantt:{useWidth:Math.max(520,Math.round(out.clientWidth||540)),useMaxWidth:false,",
     "replace": "{gantt:{useMaxWidth:true,",
     "defect": "mermaid measures its detached container as 0 → viewBox='0 0 0 h'",
@@ -370,7 +370,7 @@
   },
   {
     "id": "M47_hammerjs_typo",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "hammer.js/2.0.8/hammer.min.js",
     "replace": "hammerjs/2.0.8/hammer.min.js",
     "defect": "verified-404: chart pan/zoom gestures never load",
@@ -378,7 +378,7 @@
   },
   {
     "id": "M48_marked_min_js",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "marked/16.3.0/lib/marked.umd.js",
     "replace": "marked/16.3.0/marked.min.js",
     "defect": "verified-404 since marked v16: the whole app renders no markdown",
@@ -386,7 +386,7 @@
   },
   {
     "id": "M49_no_kb_badge_ungated",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "ragUsed===false",
     "replace": "ragUsed===undefined",
     "defect": "the no-KB badge fires when RAG was merely switched off",
@@ -394,7 +394,7 @@
   },
   {
     "id": "M50_crawl_pause_route_gone",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "\"/api/crawl/pause\"",
     "replace": "\"/api/crawl/pause_DISABLED\"",
     "defect": "ingestion can only be cancelled, discarding the queue and visited set",
@@ -402,7 +402,7 @@
   },
   {
     "id": "M51_katex_autorender_404",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "KaTeX/0.17.0/contrib/auto-render.min.js",
     "replace": "KaTeX/0.17.0/auto-render.min.js",
     "defect": "verified-404 auto-render path: $...$ never gets scanned",
@@ -410,7 +410,7 @@
   },
   {
     "id": "M52_enhance_tables_two_paths_lost",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "addCopyButtons(bubble);enhanceTables(bubble);\n",
     "replace": "addCopyButtons(bubble);\n",
     "defect": "two of the four render paths lose table sorting",
@@ -418,7 +418,7 @@
   },
   {
     "id": "M53_dompurify_dropped_from_dot",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      out.innerHTML=window.DOMPurify\n        ? DOMPurify.sanitize(el.outerHTML,{USE_PROFILES:{svg:true,svgFilters:true}})\n        : '';",
     "replace": "      out.innerHTML=el.outerHTML;",
     "defect": "XSS: unsanitised Graphviz SVG (javascript: URLs pass through verbatim)",
@@ -426,7 +426,7 @@
   },
   {
     "id": "M54_lane_lookup_prototype_pollution",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  return Object.prototype.hasOwnProperty.call(RICH_LANES, kind) ? RICH_LANES[kind] : null;",
     "replace": "  return RICH_LANES[kind] || null;",
     "defect": "a ```__proto__ fenced block is treated as a renderer",
@@ -434,7 +434,7 @@
   },
   {
     "id": "M56_schema_version_reverted",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "_RAG_SCHEMA_VERSION = 5",
     "replace": "_RAG_SCHEMA_VERSION = 4",
     "defect": "probe: is the schema-version assertion a floor or a rubber stamp?",
@@ -442,7 +442,7 @@
   },
   {
     "id": "M58_remember_id_past_the_900_char_window",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  connectWS(id);\n  renderSessionList();",
     "replace": "  connectWS(id);\n  _rememberSessionId(id);\n  renderSessionList();",
     "defect": "#6 reintroduced at char >900 of newSession(): outside the test's fixed slice",
@@ -450,7 +450,7 @@
   },
   {
     "id": "M59_showModal_switched_to_innerHTML",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  document.getElementById('modal-title').textContent=title;",
     "replace": "  document.getElementById('modal-title').innerHTML=title;",
     "defect": "#15 inverted: the title is now an XSS sink and NEEDS escaping — the test forbids it",
@@ -458,7 +458,7 @@
   },
   {
     "id": "M60_lane_registered_elsewhere_in_file",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  geojson:{",
     "replace": "  geojsonBROKEN:{",
     "defect": "RICH_LANES slice runs to EOF, so a lane key anywhere later satisfies it",
@@ -472,7 +472,7 @@
   },
   {
     "id": "M61_emb_guard_line_kept_body_gutted",
-    "file": "redirecall/routes_settings.py",
+    "file": "visualweaver/routes_settings.py",
     "find": "    if new_model and new_model != old_model:",
     "replace": "    if new_model and new_model != old_model and False:",
     "defect": "the model-change guard never fires; the exact source line the test counts is intact",
@@ -480,7 +480,7 @@
   },
   {
     "id": "M62_pause_never_clears_the_gate",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "    if paused:\n        gate.clear()\n    else:\n        gate.set()",
     "replace": "    if paused:\n        pass          # gate.clear() removed\n    else:\n        gate.set()",
     "defect": "P08: pause returns ok but never clears the gate; the worker never blocks",
@@ -489,7 +489,7 @@
   },
   {
     "id": "M63_switchSession_second_exit_leaks_regen",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "function switchSession(",
     "replace": "function switchSession(id){ if(id===S.sessionId) return; return _switchSession(id); }\nfunction _switchSession(",
     "defect": "#10/#14 an early exit added past the 400-char window clears neither _pendingRegen nor the scope",
@@ -497,7 +497,7 @@
   },
   {
     "id": "M64_feedback_aliases_dropped",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "    _ALIASES = {\"down\": {\"-1\"}, \"up\": {\"1\"}, \"negative\": {\"-1\"}, \"positive\": {\"1\"}}",
     "replace": "    _ALIASES = {}",
     "defect": "#12 ?value=down matches nothing again",
@@ -505,7 +505,7 @@
   },
   {
     "id": "M65_vector_field_keyed_by_model",
-    "file": "redirecall/embeddings.py",
+    "file": "visualweaver/embeddings.py",
     "find": "    dims = embedding_spec(repo).get(\"dims\") or 0\n    return f\"embedding_{dims}\" if dims else \"embedding\"",
     "replace": "    return \"embedding_\" + (repo or state._config.get(\"embedding\", {}).get(\"model\", \"\")).split(\"/\")[-1].replace(\"-\", \"_\")",
     "defect": "one vector field per MODEL, so two 384d models cannot share an index",
@@ -513,15 +513,15 @@
   },
   {
     "id": "M66_unknown_model_raises",
-    "file": "redirecall/embeddings.py",
-    "find": "    return {\"repo\": repo or \"\", \"dims\": 0, \"seq\": 256, \"label\": repo or \"custom\",\n            \"query_prefix\": \"\", \"passage_prefix\": \"\", \"multilingual\": False}",
-    "replace": "    raise KeyError(repo)",
+    "file": "visualweaver/embeddings.py",
+    "find": "    return {\"repo\": repo or \"\", \"dims\": 0, \"seq\": 256, \"label\": repo or \"custom\",\n            \"query_prefix\": \"\", \"passage_prefix\": \"\", \"multilingual\": False,",
+    "replace": "    raise KeyError(repo)\n    return {\"repo\": repo or \"\", \"dims\": 0, \"seq\": 256, \"label\": repo or \"custom\",\n            \"query_prefix\": \"\", \"passage_prefix\": \"\", \"multilingual\": False,",
     "defect": "a hand-edited config naming an unlisted model crashes the registry",
     "expect": "test_unknown_model_does_not_crash_the_registry"
   },
   {
     "id": "M67_registry_id_renumbered",
-    "file": "redirecall/embeddings.py",
+    "file": "visualweaver/embeddings.py",
     "find": "    0: {\n        \"repo\": \"all-MiniLM-L6-v2\", \"dims\": 384, \"seq\": 256,",
     "replace": "    9: {\n        \"repo\": \"all-MiniLM-L6-v2\", \"dims\": 384, \"seq\": 256,",
     "defect": "registry id 0 renumbered — every vector already in Redis is re-labelled",
@@ -529,7 +529,7 @@
   },
   {
     "id": "M68_disabled_instance_still_scoped",
-    "file": "redirecall/cache.py",
+    "file": "visualweaver/cache.py",
     "find": "            if (meta or {}).get(\"enabled\", True):\n                out.append(name)",
     "replace": "            out.append(name)",
     "defect": "an answer produced with an instance off replays once it is back on",
@@ -537,7 +537,7 @@
   },
   {
     "id": "M69_count_tokens_heuristic_only",
-    "file": "redirecall/textutil.py",
+    "file": "visualweaver/textutil.py",
     "find": "        tok = getattr(embeddings.get_embed_model(), \"tokenizer\", None)",
     "replace": "        tok = None",
     "defect": "count_tokens falls back to words*1.3: a 200 KB run counts as 3",
@@ -545,7 +545,7 @@
   },
   {
     "id": "M70_timeline_lane_unregistered",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  timeline:{",
     "replace": "  timelineX:{",
     "defect": "the timeline lane renders as a raw code block",
@@ -553,7 +553,7 @@
   },
   {
     "id": "M71_network_lane_undocumented",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "```network",
     "replace": "```netwrk",
     "defect": "the model is never told the network lane exists",
@@ -561,7 +561,7 @@
   },
   {
     "id": "M72_empty_instance_not_memoised",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "_dim_mismatch_warned.add",
     "replace": "_dim_mismatch_warned.discard",
     "defect": "an empty instance re-scans the whole keyspace on every query",
@@ -569,7 +569,7 @@
   },
   {
     "id": "M73_overlap_never_carried",
-    "file": "redirecall/textutil.py",
+    "file": "visualweaver/textutil.py",
     "find": "        if overlap == 0 or j >= len(sentences):",
     "replace": "        if True or overlap == 0 or j >= len(sentences):",
     "defect": "#5 adjacent chunks stop sharing context: zero-overlap boundaries back to 89%",
@@ -577,7 +577,7 @@
   },
   {
     "id": "M74_upload_written_before_the_cap_check",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "        blob = await f.read()\n        if len(blob) > config._MAX_UPLOAD_BYTES:",
     "replace": "        blob = await f.read()\n        dest.write_bytes(blob)\n        if len(blob) > config._MAX_UPLOAD_BYTES:",
     "defect": "#24 the oversized body is written to disk before the 413 — the cap protects nothing",
@@ -585,7 +585,7 @@
   },
   {
     "id": "M75_e5_query_prefix_used_for_passages",
-    "file": "redirecall/embeddings.py",
+    "file": "visualweaver/embeddings.py",
     "find": "    prefix = spec[\"query_prefix\"] if is_query else spec[\"passage_prefix\"]",
     "replace": "    prefix = spec[\"query_prefix\"]",
     "defect": "E5 asymmetry inverted: stored chunks get 'query: ' — silently degraded retrieval",
@@ -593,7 +593,7 @@
   },
   {
     "id": "M76_lane_lookup_uses_the_in_operator",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  return Object.prototype.hasOwnProperty.call(RICH_LANES, kind) ? RICH_LANES[kind] : null;",
     "replace": "  return (kind in RICH_LANES) ? RICH_LANES[kind] : null;",
     "defect": "`in` walks the prototype chain too, so ```toString is still dispatched as a renderer",
@@ -601,7 +601,7 @@
   },
   {
     "id": "M77_feedback_cap_only_on_one_field",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "        k: (v[:config._MAX_FEEDBACK_FIELD] if isinstance(v, str) else v)",
     "replace": "        k: (v[:config._MAX_FEEDBACK_FIELD] if k == \"comment\" and isinstance(v, str) else v)",
     "defect": "#9 only `comment` is capped; the answer body still bloats the store unbounded",
@@ -609,7 +609,7 @@
   },
   {
     "id": "M78_dot_lane_label_lost",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    label:'◈ Graph',",
     "replace": "",
     "defect": "the dot card renders with an `undefined` header and no maximise affordance",
@@ -617,7 +617,7 @@
   },
   {
     "id": "M79_gantt_lane_unregistered",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  gantt:{\n    label:'📅 Gantt',",
     "replace": "  ganttX:{\n    label:'📅 Gantt',",
     "defect": "```gantt is advertised to the model but not in RICH_LANES — it renders as raw text",
@@ -625,7 +625,7 @@
   },
   {
     "id": "M80_network_lane_unregistered",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  network:{\n    label:'🕸 Network', fixed:'420px',",
     "replace": "  networkX:{\n    label:'🕸 Network', fixed:'420px',",
     "defect": "```network advertised but unregistered — the user sees raw JSON",
@@ -633,7 +633,7 @@
   },
   {
     "id": "M81_gantt_doc_removed",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "- ```gantt — a project schedule.",
     "replace": "- gantt — a project schedule.",
     "defect": "the gantt lane exists but the model is never told about it — dead code",
@@ -641,7 +641,7 @@
   },
   {
     "id": "M82_timeline_doc_removed",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "- ```timeline — a sequence of dated events.",
     "replace": "- timeline — a sequence of dated events.",
     "defect": "the timeline lane exists but the model is never told about it — dead code",
@@ -649,7 +649,7 @@
   },
   {
     "id": "M83_chart_lane_label_lost",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  chart:{\n    label:'📊 Chart', fixed:'340px',",
     "replace": "  chart:{\n    fixed:'340px',",
     "defect": "the chart card renders with an `undefined` header and no maximise affordance",
@@ -657,7 +657,7 @@
   },
   {
     "id": "MA1a_chart_minrange_token_1e9",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      const limits={x:{minRange:_cat?2:_floor(_span(p=>_pt(p)?p.x:NaN))},\n                    y:{minRange:_floor(_span(p=>_pt(p)?p.y:p))}};",
     "replace": "      const limits={x:{minRange:1e-9},y:{minRange:1e-9}};",
     "defect": "A1 zoom trap: a token minRange is no limit — six ctrl+wheel notches take a five-label x axis to [2,2], zero width, and a linear axis 9 orders below its data",
@@ -665,7 +665,7 @@
   },
   {
     "id": "MA1b_chart_onzoom_callback_dropped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "mode:'xy',onZoom:showReset},",
     "replace": "mode:'xy'},",
     "defect": "A1: nothing unhides the reset button after a wheel zoom — offsetHeight 0, a real click times out, the zoom is unrecoverable without a page reload",
@@ -673,7 +673,7 @@
   },
   {
     "id": "MA1c_chart_onpan_callback_dropped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "pan:{enabled:true,mode:'xy',onPan:showReset},",
     "replace": "pan:{enabled:true,mode:'xy'},",
     "defect": "A1: a drag-pan leaves the reset button hidden, so a chart panned off its data cannot be brought back",
@@ -681,7 +681,7 @@
   },
   {
     "id": "MA1d_chart_reset_button_never_resets",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "try{ inst?.obj?.resetZoom?.(); }catch(e){}",
     "replace": "try{ void inst; }catch(e){}",
     "defect": "A1: the reset button hides itself but never restores the axes — the visible control is a no-op",
@@ -689,7 +689,7 @@
   },
   {
     "id": "MA2a_chart_data_rows_from_labels_only",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(labels.length){",
     "replace": "    if(true){",
     "defect": "A2: forcing the data table down the labels path (the per-point else branch made unreachable) rebuilds rows from data.labels, which scatter and bubble do not have — the shipped defect, measured rows: []; the exact inverse of MA2b",
@@ -697,7 +697,7 @@
   },
   {
     "id": "MA2b_chart_data_label_path_bypassed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(labels.length){",
     "replace": "    if(false){",
     "defect": "A2 regression in the other direction: a labelled bar/line chart routed through the per-point path loses its label column",
@@ -705,7 +705,7 @@
   },
   {
     "id": "MA2c_chart_data_bubble_radius_dropped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      const hasR=sets.some(s=>pts(s).some(p=>p&&typeof p==='object'&&p.r!=null));",
     "replace": "      const hasR=false;",
     "defect": "A2: the bubble radius column is dropped — hasR forced false, so the 'r' dimension (the only place a bubble point's size is written down) never reaches the table head or rows",
@@ -713,7 +713,7 @@
   },
   {
     "id": "MA1e_reset_button_looked_up_from_the_canvas",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      const card=out.closest?.('.rich-wrap');\n      const showReset=({chart})=>{\n        const w=card||chart?.canvas?.closest?.('.rich-wrap');",
     "replace": "      const showReset=({chart})=>{\n        const w=chart?.canvas?.closest?.('.rich-wrap');",
     "defect": "A1 while maximized: openMaximize moves .rich-output into the overlay, so canvas.closest('.rich-wrap') is null and a zoom made in the big view leaves the restored card zoomed with the reset button hidden",
@@ -721,7 +721,7 @@
   },
   {
     "id": "M84_b1_currency_paired_with_math",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "((?:\\\\[^\\n]|[^\\\\$\\n])*?(?:\\\\[^\\s\\n]|[^\\\\\\s$\\n]))",
     "replace": "((?:\\\\[^\\n]|[^\\\\$\\n])+?)",
     "defect": "B1: currency + math in one line ('$20 ... $e$') corrupts the sentence — the currency $ pairs with the math $ (data-tex='20 if the error')",
@@ -729,7 +729,7 @@
   },
   {
     "id": "M85_inline_math_regex_redos",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "((?:\\\\[^\\n]|[^\\\\$\\n])*?(?:\\\\[^\\s\\n]|[^\\\\\\s$\\n]))",
     "replace": "((?:\\\\.|[^$\\n])*?[^\\s$\\n])",
     "defect": "ReDoS: overlapping content alternatives hang the browser on '$' + many 'a\\' pairs with no closing $",
@@ -737,7 +737,7 @@
   },
   {
     "id": "M86_currency_only_read_as_math",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "((?:\\\\[^\\n]|[^\\\\$\\n])*?(?:\\\\[^\\s\\n]|[^\\\\\\s$\\n]))\\$(?!\\d)",
     "replace": "([^$\\n]+?)\\$",
     "defect": "plain currency '$5 and $10' is mis-rendered as a math span",
@@ -745,7 +745,7 @@
   },
   {
     "id": "M87_image_alt_math_span_injection",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "if(ts && ts.some(t=>t.type==='rrMath')){",
     "replace": "if(false && ts && ts.some(t=>t.type==='rrMath')){",
     "defect": "B3: $x^2$ in an image alt becomes an rr-math <span> rendered into the alt attribute (card reads 🖼 <SPAN CLASS=)",
@@ -753,7 +753,7 @@
   },
   {
     "id": "M88_math_preextracted_sentinel_leaks_into_url",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _rrMathFinalize=!!opts.math;",
     "replace": "  _rrMathFinalize=!!opts.math; text=text.replace(/\\$([^$\\n]+?)\\$/g,(m,t)=>''+t+'');",
     "defect": "B3: $ inside a link/image URL pre-extracted to a PUA sentinel that marked encodeURI's into %EE%80%80…, a dead link",
@@ -761,7 +761,7 @@
   },
   {
     "id": "M95_b4_molecule_svg_uncapped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ".rich-wrap[data-kind=\"molecule\"] .rich-output svg{max-height:100%;width:auto;height:auto;max-width:100%}",
     "replace": "/* b4-mutation: molecule svg height cap removed */",
     "defect": "B4 molecule card clips ~40%: the square SVG (measured 530x530) overflows the fixed 320px card, scrollHeight 439 > clientHeight 320, sliced at both ends",
@@ -769,7 +769,7 @@
   },
   {
     "id": "M96_b5_geometry_labels_black_in_dark",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        JXG.Options.label.strokeColor      = _dark?'#e6e6e6':_d.label;",
     "replace": "        JXG.Options.label.strokeColor      = _d.label;",
     "defect": "B5 geometry axis/tick/name labels paint pure black on the dark card (~2:1, below the 4.5:1 WCAG AA floor)",
@@ -777,7 +777,7 @@
   },
   {
     "id": "M97_b5_geometry_dark_label_leaks_to_light",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        JXG.Options.label.strokeColor      = _dark?'#e6e6e6':_d.label;",
     "replace": "        JXG.Options.label.strokeColor      = '#e6e6e6';",
     "defect": "B5 the process-wide JXG.Options dark colour leaks: a light board after a dark one paints light labels on the light card",
@@ -785,7 +785,7 @@
   },
   {
     "id": "M98_b6_simplify_reverted_to_plain_simplify",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "            else if(/^simplify$/i.test(op))   b.textContent=_solveSimplify(expr);",
     "replace": "            else if(/^simplify$/i.test(op))   b.textContent=math.simplify(expr).toString();",
     "defect": "B6 simplify:(x^2-1)/(x-1) comes back unchanged — the documented main.py:304 example is a no-op",
@@ -793,7 +793,7 @@
   },
   {
     "id": "M99_b6_expand_reverted_to_scope_bug",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "            else if(/^expand$/i.test(op))     b.textContent=_solveExpand(expr);",
     "replace": "            else if(/^expand$/i.test(op))     b.textContent=math.simplify(expr,{},{exactFractions:false}).toString();",
     "defect": "B6 expand:(x+1)^2 never expands — {} is read by mathjs as the scope slot, so it returns the input for every case",
@@ -801,7 +801,7 @@
   },
   {
     "id": "M100_b7_legend_title_not_normalised",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      _titleFix(spec.layout.legend);",
     "replace": "      /* b7-mutation: legend title not normalised */",
     "defect": "B7 layout.legend.title string is not wrapped to {text}, so Plotly 3 drops it silently",
@@ -809,7 +809,7 @@
   },
   {
     "id": "M101_b7_coloraxis_colorbar_title_not_normalised",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      if(spec.layout.coloraxis) _titleFix(spec.layout.coloraxis.colorbar);",
     "replace": "      /* b7-mutation: coloraxis colorbar title not normalised */",
     "defect": "B7 layout.coloraxis.colorbar.title string is not wrapped to {text}, dropped under Plotly 3",
@@ -817,7 +817,7 @@
   },
   {
     "id": "M102_b7_trace_colorbar_titles_not_normalised",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      spec.data.forEach(t=>{ if(!t||typeof t!=='object')return;\n        _titleFix(t.colorbar);\n        if(t.marker) _titleFix(t.marker.colorbar);\n        if(t.line)   _titleFix(t.line.colorbar); });",
     "replace": "      /* b7-mutation: trace colorbar titles not normalised */",
     "defect": "B7 per-trace colorbar/marker.colorbar/line.colorbar title strings are not wrapped to {text}, dropped under Plotly 3",
@@ -825,7 +825,7 @@
   },
   {
     "id": "M103_b8_reset_duration_source_zeroed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const secs = synth && typeof synth.duration==='number' ? synth.duration : 0;",
     "replace": "  const secs = 0;",
     "defect": "B8 the reset delay is computed from a zero duration, so ms=0 and the timer never fires — the Play button stays 'Stop' forever",
@@ -833,7 +833,7 @@
   },
   {
     "id": "M104_b8_reset_reverted_to_gettotaltime",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    const ms=_abcDurationMs(out._abcSynth);",
     "replace": "    const ms=Math.round(((out._abcTune?.getTotalTime?.()||0)*1000)||0);",
     "defect": "B8 the reset delay reverts to out._abcTune.getTotalTime(), which returns null -> ms=0 -> button never resets",
@@ -841,7 +841,7 @@
   },
   {
     "id": "M105_csp_drops_jsdelivr",
-    "file": "redirecall/appcore.py",
+    "file": "visualweaver/appcore.py",
     "find": "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; ",
     "replace": "https://cdnjs.cloudflare.com; ",
     "defect": "CSP script-src drops cdn.jsdelivr.net: the dot (viz) and molecule (smiles-drawer) lane scripts are blocked and never define their renderer",
@@ -858,7 +858,7 @@
   {
     "id": "M107_licenses_drop_soundfont_attribution",
     "file": "THIRD-PARTY-LICENSES.md",
-    "find": "- **FluidR3_GM soundfont (CC-BY-3.0 — attribution required).** The `abc` Play button synthesises audio with abcjs, which fetches General-MIDI instrument samples at play time from `https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/` (the [midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) project's `gh-pages`). The **FluidR3_GM** SoundFont was created by **Frank Wen** and is distributed there under the **Creative Commons Attribution 3.0** license ([CC-BY-3.0](https://creativecommons.org/licenses/by/3.0/)) — this notice is the attribution that license requires. The samples are static files fetched over GET; no content-derived data is sent. If you do not need `abc` audio playback, remove `https://paulrosen.github.io` from `connect-src` in `_CSP` (`redirecall/main.py`) and the fetch never happens.\n",
+    "find": "- **FluidR3_GM soundfont (CC-BY-3.0 — attribution required).** The `abc` Play button synthesises audio with abcjs, which fetches General-MIDI instrument samples at play time from `https://paulrosen.github.io/midi-js-soundfonts/FluidR3_GM/` (the [midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) project's `gh-pages`). The **FluidR3_GM** SoundFont was created by **Frank Wen** and is distributed there under the **Creative Commons Attribution 3.0** license ([CC-BY-3.0](https://creativecommons.org/licenses/by/3.0/)) — this notice is the attribution that license requires. The samples are static files fetched over GET; no content-derived data is sent. If you do not need `abc` audio playback, remove `https://paulrosen.github.io` from `connect-src` in `_CSP` (`visualweaver/main.py`) and the fetch never happens.\n",
     "replace": "",
     "defect": "FluidR3_GM soundfont is fetched at abc play time but its required CC-BY-3.0 attribution (Frank Wen) is absent",
     "expect": "test_fluidr3_soundfont_is_attributed"
@@ -897,7 +897,7 @@
   },
   {
     "id": "M112_ef_runtime_wholeline_comment",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            ef_runtime=_HNSW_EF_RUNTIME,",
     "replace": "            ef_runtime=10,\n            # ef_runtime=_HNSW_EF_RUNTIME",
     "sites": 2,
@@ -906,7 +906,7 @@
   },
   {
     "id": "M113_ef_runtime_sameline_comment",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            ef_runtime=_HNSW_EF_RUNTIME,",
     "replace": "            ef_runtime=10,  # ef_runtime=_HNSW_EF_RUNTIME",
     "sites": 2,
@@ -915,7 +915,7 @@
   },
   {
     "id": "M114_vector_field_width_pinned",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            {\"name\": _ns_embeddings.vector_field_for(), \"type\": \"vector\",  \"attrs\": {",
     "replace": "            # width pinned; _ns_embeddings.vector_field_for() kept in this comment as a decoy\n            {\"name\": \"embedding_384\", \"type\": \"vector\",  \"attrs\": {",
     "sites": 1,
@@ -924,7 +924,7 @@
   },
   {
     "id": "M115_no_kb_gate_inverted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(ragUsed===false) return;",
     "replace": "    // was: if(ragUsed===false) return;\n    if(ragUsed===true) return;",
     "sites": 1,
@@ -933,7 +933,7 @@
   },
   {
     "id": "M116_doc_id_write_dropped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            \"doc_id\":      doc_id_for(src),\n",
     "replace": "",
     "sites": 1,
@@ -942,7 +942,7 @@
   },
   {
     "id": "M117_http_cache_hit_not_persisted",
-    "file": "redirecall/routes_chat.py",
+    "file": "visualweaver/routes_chat.py",
     "find": "            await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])\n            return {\"session_id\": sid, \"response\": hit[\"response\"]",
     "replace": "            if False:\n                await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])\n            return {\"session_id\": sid, \"response\": hit[\"response\"]",
     "sites": 1,
@@ -951,7 +951,7 @@
   },
   {
     "id": "M118_cdn_asset_via_template_literal",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "function _loadScript(url){",
     "replace": "function _rrProbeTpl(){ _loadScript(`${CDN}totally-made-up/9.9.9/nope.min.js`); }\nfunction _loadScript(url){",
     "sites": 1,
@@ -960,7 +960,7 @@
   },
   {
     "id": "M119_cdn_asset_via_variable",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "function _loadScript(url){",
     "replace": "const _RR_NOPE='totally-made-up/9.9.9/nope.min.js';\nfunction _rrProbeVar(){ _loadScript(CDN+_RR_NOPE); }\nfunction _loadScript(url){",
     "sites": 1,
@@ -969,7 +969,7 @@
   },
   {
     "id": "M120_rich_wrap_guard_past_the_window",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    bar.appendChild(filter);",
     "replace": "    if(bar.closest('.rich-wrap')) return;\n    bar.appendChild(filter);",
     "sites": 1,
@@ -978,7 +978,7 @@
   },
   {
     "id": "M121_molecule_fence_removed",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "- ```molecule —",
     "replace": "- ```moleculeXX —",
     "sites": 1,
@@ -987,7 +987,7 @@
   },
   {
     "id": "M122_reaper_drops_running_crawls",
-    "file": "redirecall/state.py",
+    "file": "visualweaver/state.py",
     "find": "    done = [u for u, t in _crawl_tasks.items() if t.done()]",
     "replace": "    done = list(_crawl_tasks)",
     "sites": 1,
@@ -996,7 +996,7 @@
   },
   {
     "id": "M123_lane_load_runtime_error",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      await _loadScript(CDN+'vis-network/10.1.0/dist/vis-network.min.js');",
     "replace": "      await _loadScript(CDN+'vis-network/10.1.0/dist/vis-network.min.js'); _rrProbeUndefinedHelper();",
     "sites": 1,
@@ -1005,7 +1005,7 @@
   },
   {
     "id": "M124_molecule_lane_unregistered",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "\n  molecule:{",
     "replace": "\n  moleculeGONE:{",
     "sites": 1,
@@ -1014,7 +1014,7 @@
   },
   {
     "id": "M125_plot_defs_not_inserted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "wrap.insertAdjacentHTML('beforebegin', defs);",
     "replace": "void defs;",
     "defect": "the function-definition block is never placed in front of the plot card",
@@ -1022,7 +1022,7 @@
   },
   {
     "id": "M126_plot_defs_drop_expression",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "<b>${_plotEsc(f.name)}</b> = ${_plotEsc(f.expr)}",
     "replace": "<b>${_plotEsc(f.name)}</b>",
     "defect": "the defs block shows only the name f(x), not the actual expression sin(x)",
@@ -1030,7 +1030,7 @@
   },
   {
     "id": "M127_plot_defs_domain_as_function",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "if(dm){ const a=_plotNum(dm[1]),b=_plotNum(dm[2]); if(isFinite(a)&&isFinite(b)&&b>a) return; }",
     "replace": "if(dm){ const a=_plotNum(dm[1]),b=_plotNum(dm[2]); if(false) return; }",
     "defect": "the domain line x = a .. b is listed as a bogus function x(x) = a .. b",
@@ -1038,7 +1038,7 @@
   },
   {
     "id": "M128_history_window_leading_assistant",
-    "file": "redirecall/sessions.py",
+    "file": "visualweaver/sessions.py",
     "find": "    while out and out[0].get(\"role\") == \"assistant\":\n        out.pop(0)\n    return out",
     "replace": "    return out",
     "defect": "token-budget history window can start with an assistant turn -> Anthropic/Gemini reject 'first message must use the user role'",
@@ -1046,7 +1046,7 @@
   },
   {
     "id": "M129_visual_gating_no_op",
-    "file": "redirecall/config.py",
+    "file": "visualweaver/config.py",
     "find": "            base = base[:cut].rstrip()",
     "replace": "            base = base",
     "defect": "visual_instructions=False no longer drops the ~2k-token chart-authoring section (no token saving)",
@@ -1054,7 +1054,7 @@
   },
   {
     "id": "M130_cache_key_not_normalized",
-    "file": "redirecall/cache.py",
+    "file": "visualweaver/cache.py",
     "find": "    return \" \".join((q or \"\").split()).casefold()",
     "replace": "    return (q or \"\")",
     "defect": "cache key not normalized -> case/whitespace variants create separate entries and miss",
@@ -1062,7 +1062,7 @@
   },
   {
     "id": "M131_ellipse_svg_form_not_reshaped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(type==='ellipse'){",
     "replace": "  if(false){",
     "defect": "SVG-style ellipse([cx,cy],[rx,ry]) is passed to JSXGraph as-is -> 2-parent conic throws 'Cannot read properties of undefined (reading length)' and blanks the whole figure",
@@ -1070,7 +1070,7 @@
   },
   {
     "id": "M132_point_nested_not_unwrapped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(type==='point'&&nums.length===1&&Array.isArray(nums[0])&&nums[0].length===2)",
     "replace": "  if(false)",
     "defect": "point handed as a single nested [[x,y]] is not unwrapped -> JSXGraph point rejects it",
@@ -1078,7 +1078,7 @@
   },
   {
     "id": "M133_circle_flat_not_reshaped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(nums.length===3&&nums.every(n=>typeof n==='number')) return [[nums[0],nums[1]],nums[2]];",
     "replace": "    if(false) return [[nums[0],nums[1]],nums[2]];",
     "defect": "SVG circle [cx,cy,r] not reshaped to [point,radius] -> JSXGraph throws on three bare numbers",
@@ -1086,7 +1086,7 @@
   },
   {
     "id": "M134_circle_radius_attr_ignored",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      const r=attrs&&(typeof attrs.radius==='number'?attrs.radius:parseFloat(attrs.radius));",
     "replace": "      const r=undefined;",
     "defect": "circle centre-only with radius in attrs is not rescued -> JSXGraph throws (no radius parent)",
@@ -1094,7 +1094,7 @@
   },
   {
     "id": "M135_arc_sector_angle_not_converted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(type==='arc'||type==='sector'){",
     "replace": "  if(false){",
     "defect": "arc/sector centre+radius+angle form not converted to three points -> JSXGraph throws",
@@ -1102,7 +1102,7 @@
   },
   {
     "id": "M136_midpoint_not_in_pointlist",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ",'midpoint','bisector']);",
     "replace": ",'bisector']);",
     "defect": "midpoint dropped from the flat->points reshape set -> flat [x1,y1,x2,y2] midpoint throws",
@@ -1110,7 +1110,7 @@
   },
   {
     "id": "M137_bisector_not_in_pointlist",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "'midpoint','bisector']);",
     "replace": "'midpoint']);",
     "defect": "bisector dropped from the flat->points reshape set -> flat 6-number bisector throws",
@@ -1118,7 +1118,7 @@
   },
   {
     "id": "M138_dash_not_coerced",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "if(k==='dash')",
     "replace": "if(k==='__nodash__')",
     "defect": "SVG dash form ([5,5]/'5,5'/9) not coerced to a 0-6 style index -> solid render or a throw",
@@ -1126,7 +1126,7 @@
   },
   {
     "id": "M139_vector_alias_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _GEO_TYPE_ALIAS={vector:'arrow',rect:'polygon',rectangle:'polygon'};",
     "replace": "const _GEO_TYPE_ALIAS={rect:'polygon',rectangle:'polygon'};",
     "defect": "vector no longer aliased to arrow -> JSXGraph 'Unknown element type vector' blanks the figure",
@@ -1134,7 +1134,7 @@
   },
   {
     "id": "M140_relational_type_readvertised",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  'sector','midpoint','arrow','vector','bisector','rect','rectangle']);",
     "replace": "  'sector','midpoint','perpendicular','arrow','vector','bisector','rect','rectangle']);",
     "defect": "a reference-only relational type is advertised again although it can never build data-only",
@@ -1142,7 +1142,7 @@
   },
   {
     "id": "M141_geometry_element_not_isolated",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        }catch(err){ _skipped.push('#'+(i+1)+' '+(t||'?')+' — '+((err&&err.message)||err)); }",
     "replace": "        }catch(err){ throw err; }",
     "defect": "one bad geometry element re-throws instead of being skipped -> the whole figure is blanked",
@@ -1150,7 +1150,7 @@
   },
   {
     "id": "M142_rect_corners_not_expanded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(x1!==undefined) return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];",
     "replace": "    if(false) return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];",
     "defect": "rect two-corner form not expanded to a 4-point polygon -> 2 points given to polygon, throws/degenerate",
@@ -1158,7 +1158,7 @@
   },
   {
     "id": "M143_rect_alias_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _GEO_TYPE_ALIAS={vector:'arrow',rect:'polygon',rectangle:'polygon'};",
     "replace": "const _GEO_TYPE_ALIAS={vector:'arrow'};",
     "defect": "rect/rectangle no longer aliased to polygon -> JSXGraph 'Unknown element type rect' skipped",
@@ -1166,7 +1166,7 @@
   },
   {
     "id": "M144_polygon_vertices_shown",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(type==='polygon'||type==='rect'||type==='rectangle') out.vertices={visible:false,fixed:true};",
     "replace": "  if(false) out.vertices={visible:false,fixed:true};",
     "defect": "polygon/rect corner vertices are shown as drag-handle dots on a filled shape",
@@ -1174,7 +1174,7 @@
   },
   {
     "id": "M145_arc_control_points_shown",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(type==='arc'||type==='sector'){ const h={visible:false}; out.center=h; out.radiuspoint=h; out.anglepoint=h; }",
     "replace": "  if(false){ const h={visible:false}; out.center=h; out.radiuspoint=h; out.anglepoint=h; }",
     "defect": "arc/sector control points (center/radius/angle) show as A/B/C dots on the curve",
@@ -1182,7 +1182,7 @@
   },
   {
     "id": "M146_boundingbox_not_coerced",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const n=v.slice(0,4).map(Number);",
     "replace": "  const n=v.slice(0,4);",
     "defect": "boundingbox numbers not coerced -> a quoted-number box is passed through as strings",
@@ -1190,7 +1190,7 @@
   },
   {
     "id": "M147_mermaid_labels_not_wrapped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    return push('[\"'+NL(foldQuotes(inner))+'\"]');",
     "replace": "    return m;",
     "defect": "flowchart labels not wrapped -> unquoted specials like () and \" break mermaid, blanking the diagram",
@@ -1198,7 +1198,7 @@
   },
   {
     "id": "M148_mermaid_transform_not_wired",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      src=_mermaidSafeLabels(src);   // rescue special chars in unquoted flowchart labels",
     "replace": "      // label sanitiser removed by mutation",
     "defect": "the mermaid lane no longer runs source through the label sanitiser before render",
@@ -1206,7 +1206,7 @@
   },
   {
     "id": "M149_mermaid_quoted_label_not_protected",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/\\[\"([^\"\\n]*)\"\\]/g,(m,i)=>push('[\"'+NL(i)+'\"]'));",
     "replace": "  s=s;",
     "defect": "already-quoted flowchart labels not protected -> a quoted label containing [ ] (arr[0]) is re-split and breaks",
@@ -1214,7 +1214,7 @@
   },
   {
     "id": "M150_mermaid_parallelogram_not_skipped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(/^[/\\\\][\\s\\S]*[/\\\\]$/.test(t))return m;",
     "replace": "    if(false)return m;",
     "defect": "parallelogram/trapezoid [/x/] shapes wrapped as rectangles, delimiters become literal text",
@@ -1222,7 +1222,7 @@
   },
   {
     "id": "M151_mermaid_gate_ignores_leading_comment",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const head=String(src).replace(/^(?:\\s|%%\\{[\\s\\S]*?\\}%%|%%[^\\n]*\\n)*/,'');",
     "replace": "  const head=String(src);",
     "defect": "diagram-type sniff not tolerant of a leading %% comment -> a real flowchart behind a comment is not fixed",
@@ -1230,7 +1230,7 @@
   },
   {
     "id": "M152_geobox_degenerate_not_rejected",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(n[0]===n[2]||n[1]===n[3])return d;",
     "replace": "  if(false)return d;",
     "defect": "zero-area boundingbox not rejected -> initBoard scales to NaN and silently blanks the whole card",
@@ -1238,7 +1238,7 @@
   },
   {
     "id": "M153_mermaid_lt_not_rewritten",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/\"[^\"\\n]*\"/g,q=>q.replace(/&lt;|</g,'#lt;'));",
     "replace": "  ;",
     "defect": "a literal < in a quoted flowchart label is not rewritten to #lt; -> renders as literal &lt;",
@@ -1246,7 +1246,7 @@
   },
   {
     "id": "M154_mermaid_node_lt_not_fullwidth",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const NL=x=>x.replace(/&lt;|</g,'＜');",
     "replace": "const NL=x=>x;",
     "defect": "a < in a NODE label is not rewritten to the fullwidth ＜ -> #lt; leaks as literal &lt; in node labels",
@@ -1254,7 +1254,7 @@
   },
   {
     "id": "M155_context_relevance_gate_removed",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "\"- If none of it bears on the question, IGNORE it entirely: do not describe \"",
     "replace": "\"- Answer using the context. \"",
     "defect": "the relevance gate is gone -> an irrelevant weak match makes the model summarise it and abstain instead of answering",
@@ -1262,7 +1262,7 @@
   },
   {
     "id": "M156_fractal_iter_clamp_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    out.iter=Math.round(_fracNum(s.iter,256,16,_FRAC_MAX_ITER));",
     "replace": "    out.iter=Math.round(Number(s.iter)||256);",
     "defect": "escape-time iter unbounded -> a hallucinated iter:1e9 spec freezes the tab",
@@ -1270,7 +1270,7 @@
   },
   {
     "id": "M157_fractal_lsystem_cap_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      if(out.length>cap)throw new Error('L-system exceeds '+cap+' symbols — reduce depth');",
     "replace": "      ;",
     "defect": "L-system expansion uncapped -> exponential rewrite (F->FFFF at depth 14) exhausts memory",
@@ -1278,7 +1278,7 @@
   },
   {
     "id": "M158_fractal_fern_preset_broken",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  fern:      {type:'ifs',maps:[[0,0,0,0.16,0,0,0.01],[0.85,0.04,-0.04,0.85,0,1.6,0.85],",
     "replace": "  fern:      {type:'ifs',maps:[[0,0,0,0.16,0,0,0.01],[0.85,0.04,-0.04,0.5,0,1.6,0.85],",
     "defect": "Barnsley fern preset coefficients corrupted -> {\"type\":\"fern\"} draws a mangled attractor",
@@ -1286,7 +1286,7 @@
   },
   {
     "id": "M159_fractal_lsystem_charset_open",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    const ok=/^[A-Za-z+\\-\\[\\]]*$/;",
     "replace": "    const ok=/^[\\s\\S]*$/;",
     "defect": "L-system strings accept any characters -> the data-only contract for rule strings is gone",
@@ -1294,7 +1294,7 @@
   },
   {
     "id": "M160_fractal_steering_weakened",
-    "file": "redirecall/constants.py",
+    "file": "visualweaver/constants.py",
     "find": "- ```fractal — REQUIRED for every Mandelbrot set, Julia set, IFS/chaos-game attractor (fern, Sierpinski gasket/triangle), or L-system (dragon curve, Koch curve/snowflake, plant). Do not hand-draw or approximate these with ```geometry (a handful of static polygons is not a fractal — it has no iteration) or ```svg (decorative art, not the actual structure) — ```fractal genuinely computes and renders the iteration client-side; nothing else in this app can. Body: JSON.",
     "replace": "- ```fractal — an option. Body: JSON.",
     "defect": "the fractal bullet loses its REQUIRED/do-not-fake-with-geometry-or-svg steering -> a real report: the model hand-drew a fake Sierpinski in geometry and a static SVG blob captioned Julia Set instead of using the fractal lane",
@@ -1302,7 +1302,7 @@
   },
   {
     "id": "M161_fractal_fraction_fix_not_wired",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  try{s=typeof raw==='string'?JSON.parse(_fracFixFractions(raw)):raw;}",
     "replace": "  try{s=typeof raw==='string'?JSON.parse(raw):raw;}",
     "defect": "the fraction-literal reshape is not applied before JSON.parse -> a model-written probability like 1/3 (a real report) throws and blanks the card",
@@ -1310,7 +1310,7 @@
   },
   {
     "id": "M162_rich_reset_snapshot_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        code._originalSrc=code.textContent;",
     "replace": "        ;",
     "defect": "the pristine source is never snapshotted -> Reset has nothing to restore and silently no-ops forever",
@@ -1318,7 +1318,7 @@
   },
   {
     "id": "M163_fractal_reset_view_shares_object",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        view:{...origView},",
     "replace": "        view:origView,",
     "defect": "the live view aliases origView instead of copying it -> zooming mutates origView too, so Reset restores the zoomed-in view, not the original",
@@ -1326,7 +1326,7 @@
   },
   {
     "id": "M164_fractal_click_zoom_button_reveal_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "          const b=card?.querySelector('[data-act=\"fractal-reset\"]');\n          if(b)b.style.display='';",
     "replace": "          ;",
     "defect": "click-zoom never reveals the Reset zoom button -> the user has no way back to the original view",
@@ -1334,7 +1334,7 @@
   },
   {
     "id": "M165_pipe_anchor_single_char",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/((?:-{2,}|-\\.-*|={2,})[>xo]?)\\|([^|\\n]+)\\|/g,(m,link,inner)=>{",
     "replace": "  s=s.replace(/([-.=>ox])\\|([^|\\n]+)\\|/g,(m,link,inner)=>{",
     "defect": "pipe wrap anchored on a single arrow-tail char -> the 'o' of Ratio| and 'x' of Max| match, mis-pairing two node labels across the arrow and corrupting both",
@@ -1342,7 +1342,7 @@
   },
   {
     "id": "M166_placeholder_restore_single_pass",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  for(let pass=0;pass<held.length+1&&/￿\\d+￿/.test(s);pass++)\n    s=s.replace(/￿(\\d+)￿/g,(m,i)=>held[+i]??m);\n  return s;",
     "replace": "  return s.replace(/￿(\\d+)￿/g,(m,i)=>held[+i]??m);",
     "defect": "single restore pass leaves a placeholder nested inside a pushed value unresolved -> raw U+FFFF reaches mermaid",
@@ -1350,7 +1350,7 @@
   },
   {
     "id": "M167_sentinel_not_stripped_from_source",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  let s=String(src).replace(/￿/g,'');",
     "replace": "  let s=String(src);",
     "defect": "a U+FFFF present in the model's own output is read as a placeholder and swapped for another label's content",
@@ -1358,7 +1358,7 @@
   },
   {
     "id": "M168_stadium_demoted_to_round",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(shape(String.raw`\\(\\[`,  String.raw`\\]\\)`,  String.raw`[^\\[\\]\\n]*?`),wrap('([', '])'));",
     "replace": "",
     "defect": "without the stadium pass the round matcher claims A([x]) and emits a ROUND node whose label literally reads [x]",
@@ -1366,7 +1366,7 @@
   },
   {
     "id": "M169_subgraph_title_uses_node_glyph",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/(\\bsubgraph\\s+)\"([^\"\\n]*)\"/gi,(m,p,i)=>push(p+'\"'+EL(i)+'\"'));",
     "replace": "  s=s.replace(/(\\bsubgraph\\s+)\"([^\"\\n]*)\"/gi,(m,p,i)=>push(p+'\"'+NL(i)+'\"'));",
     "defect": "subgraph titles decode #lt; to a real '<'; using the node fullwidth glyph there shows a look-alike instead",
@@ -1374,7 +1374,7 @@
   },
   {
     "id": "M170_cache_write_not_tallied",
-    "file": "redirecall/sessions.py",
+    "file": "visualweaver/sessions.py",
     "find": "        if usage.get(\"cache_write\"):   # Claude cache-creation tokens, billed ~1.25x input\n            pipe.hincrby(_USAGE_KEY, f\"{pfx}:cache_write\", int(usage[\"cache_write\"]))",
     "replace": "        pass",
     "defect": "cache-creation tokens dropped from the cumulative tally -> all-time cost under-reports the most expensive token class",
@@ -1382,7 +1382,7 @@
   },
   {
     "id": "M171_clear_usage_noop",
-    "file": "redirecall/sessions.py",
+    "file": "visualweaver/sessions.py",
     "find": "        redis_store.r().delete(_USAGE_KEY)",
     "replace": "        pass",
     "defect": "Reset tally silently does nothing -> the counter keeps growing after the user resets it",
@@ -1390,7 +1390,7 @@
   },
   {
     "id": "M172_focus_trap_includes_docked_panel",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const dlg=_openModalEls()[0];   // modal layers only — never the docked pinned panel",
     "replace": "  const dlg=_openDialogEls()[0];",
     "defect": "Tab is captured by the non-modal pinned panel -> keyboard trap, composer unreachable (WCAG 2.1.2)",
@@ -1398,7 +1398,7 @@
   },
   {
     "id": "M173_dialog_autofocuses_destructive_action",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    const safe=items.find(el=>el.classList.contains('btn-secondary'))\n             ||items.find(el=>/^(cancel|close|keep|not now)\\b/i.test((el.textContent||'').trim()))\n             ||items.find(el=>!el.classList.contains('btn-danger')&&!el.classList.contains('btn-primary'))\n             ||items[0];\n    safe.focus();",
     "replace": "    items[0].focus();",
     "defect": "the confirm dialog focuses Export & Delete / Clear Chunks -> Enter destroys the instance the dialog exists to protect",
@@ -1406,7 +1406,7 @@
   },
   {
     "id": "M174_search_escape_closes_two_layers",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "onkeydown=\"if(event.key==='Escape'){event.stopPropagation();closeSearch();}\"",
     "replace": "onkeydown=\"if(event.key==='Escape')closeSearch()\"",
     "defect": "Escape in the search box closes search AND the layer beneath it",
@@ -1414,7 +1414,7 @@
   },
   {
     "id": "M175_smil_animates_under_reduced_motion",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const anim = s => still ? '' : s;",
     "replace": "  const anim = s => s;",
     "defect": "the streaming avatar keeps animating under prefers-reduced-motion (SMIL is unreachable by CSS) — WCAG 2.2.2",
@@ -1422,7 +1422,7 @@
   },
   {
     "id": "M176_endpoint_name_in_js_string",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      <button class=\"btn btn-danger btn-sm\" data-ep-del=\"${escHtml(ep.name)}\"",
     "replace": "      <button class=\"btn btn-danger btn-sm\" onclick=\"deleteRedisEndpoint('${escHtml(ep.name)}')\" data-x=\"${escHtml(ep.name)}\"",
     "defect": "endpoint name interpolated into a JS string context -> an endpoint named ');alert(1);// executes",
@@ -1430,7 +1430,7 @@
   },
   {
     "id": "M177_crawl_cancel_swallowed",
-    "file": "redirecall/crawler.py",
+    "file": "visualweaver/crawler.py",
     "find": "                raise asyncio.CancelledError",
     "replace": "                pass",
     "defect": "a cancelled crawl reports success and task.cancelled() is False",
@@ -1438,7 +1438,7 @@
   },
   {
     "id": "M178_import_skips_vector_width_check",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "            if emb_bytes and expect_bytes and len(emb_bytes) != expect_bytes:",
     "replace": "            if False:",
     "defect": "a vector of the wrong width is imported and silently rejected by the index -> instance holds all its data and finds nothing",
@@ -1446,7 +1446,7 @@
   },
   {
     "id": "M179_retry_error_discarded",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "            raise e from retry_err",
     "replace": "            raise e from None",
     "defect": "the retry error (e.g. a 429 after a 400) is discarded with no trace anywhere",
@@ -1454,7 +1454,7 @@
   },
   {
     "id": "M180_export_remainder_reads_legacy_field",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "            emb_raw = d.get(field) or d.get(b\"embedding\", b\"\")   # legacy rows predate the rename",
     "replace": "            emb_raw = d.get(b\"embedding\", b\"\")",
     "defect": "the export remainder reads the legacy vector field -> the final partial batch exports empty vectors",
@@ -1462,7 +1462,7 @@
   },
   {
     "id": "M181_replace_from_accepts_bool",
-    "file": "redirecall/routes_chat.py",
+    "file": "visualweaver/routes_chat.py",
     "find": "    if isinstance(value, bool) or not isinstance(value, int):\n        return False",
     "replace": "    if not isinstance(value, (int, bool)):\n        return False",
     "defect": "a JSON true is accepted as index 1 -> regenerate deletes the whole conversation",
@@ -1470,7 +1470,7 @@
   },
   {
     "id": "M182_prefix_glob_not_escaped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "    return f\"{prefix.translate(_GLOB_META)}:chunk:*\"",
     "replace": "    return f\"{prefix}:chunk:*\"",
     "defect": "the prefix-based glob helper stops escaping -> export/source scans widen across instances",
@@ -1478,7 +1478,7 @@
   },
   {
     "id": "M183_ingest_stream_url_not_normalised",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "    url = crawler._strip_fragment(url)",
     "replace": "    pass",
     "defect": "the streaming crawl registers its gate under the raw URL -> pause/cancel silently no-op",
@@ -1486,7 +1486,7 @@
   },
   {
     "id": "M185_directive_hold_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/%%\\{[\\s\\S]*?\\}%%/g,m=>push(m));\n",
     "replace": "",
     "defect": "a multi-line %%{init}%% directive is rewritten -> rgb(1,2,3) becomes rgb(\"1,2,3\") and the JSON breaks",
@@ -1494,7 +1494,7 @@
   },
   {
     "id": "M186_click_style_hold_removed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  s=s.replace(/^[ \\t]*(?:click|style|classDef|linkStyle)[^\\n]*/gim,m=>push(m));\n",
     "replace": "",
     "defect": "click/style statements are treated as labels -> click A call myFn(1,2) becomes myFn(\"1,2\")",
@@ -1502,7 +1502,7 @@
   },
   {
     "id": "M187_icon_buttons_unnamed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "<button id=\"toggle-sidebar\" onclick=\"toggleSidebar()\" title=\"Toggle sidebar\" aria-label=\"Toggle sidebar\">☰</button>",
     "replace": "<button id=\"toggle-sidebar\" onclick=\"toggleSidebar()\">☰</button>",
     "defect": "an icon-only button loses its accessible name -> announced as an unnamed button",
@@ -1510,7 +1510,7 @@
   },
   {
     "id": "M189_csv_fields_not_quoted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const csv=rows.map(r=>r.map(v=>`\"${String(v??'').replace(/\"/g,'\"\"')}\"`).join(',')).join('\\n');",
     "replace": "  const csv=rows.map(r=>r.join(',')).join('\\n');",
     "defect": "a model id containing a comma splits into an extra CSV column and shifts every later value",
@@ -1518,7 +1518,7 @@
   },
   {
     "id": "M190_form_control_labels_unlinked",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "<label for=\"s-chunk-size\">",
     "replace": "<label>",
     "defect": "a slider loses its programmatic label -> announced as an unnamed control",
@@ -1526,7 +1526,7 @@
   },
   {
     "id": "M191_overlay_escape_double_closes",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      if(_isOpen(document.getElementById('img-lightbox'))\n         ||_isOpen(document.getElementById('viz-max-overlay')))return;\n",
     "replace": "",
     "defect": "Escape closes the lightbox AND the layer underneath it in one press",
@@ -1534,7 +1534,7 @@
   },
   {
     "id": "M192_fork_anchor_ignores_prefix",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "        if m.get(\"role\") == role and c.startswith(prefix):",
     "replace": "        if m.get(\"role\") == role:",
     "defect": "fork anchors on position rather than content -> forks at the wrong message after an aborted answer",
@@ -1542,7 +1542,7 @@
   },
   {
     "id": "M193_fork_shares_message_objects",
-    "file": "redirecall/routes_misc.py",
+    "file": "visualweaver/routes_misc.py",
     "find": "    state._sessions[new_sid] = [copy.deepcopy(m) for m in msgs[:at + 1]]",
     "replace": "    state._sessions[new_sid] = msgs[:at + 1]",
     "defect": "the fork shares message objects with the original -> editing one mutates the other",
@@ -1550,7 +1550,7 @@
   },
   {
     "id": "M194_crawl_progress_only_when_capped",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "} else if(found>0){",
     "replace": "} else if(false){",
     "defect": "crawl progress ignores the discovered count, so the default (max_pages=0) crawl shows an indeterminate bar start to finish",
@@ -1558,7 +1558,7 @@
   },
   {
     "id": "M195_reattach_hardcoded_half",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  bar.style.background='';\n  _renderCrawlProgress(c);",
     "replace": "  bar.style.background='';\n  bar.style.width='50%';",
     "defect": "re-attaching to a running crawl paints a literal 50% that means nothing",
@@ -1566,7 +1566,7 @@
   },
   {
     "id": "M196_reattach_clobbers_url_box",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _crawlUrl=_crawlKeyOf(c.url)||null;\n  _crawlPaused=!!c.paused;",
     "replace": "  document.getElementById('crawl-url').value=c.url||'';\n  _crawlUrl=_crawlKeyOf(c.url)||null;\n  _crawlPaused=!!c.paused;",
     "defect": "re-attaching overwrites the URL the user is part-way through typing",
@@ -1574,7 +1574,7 @@
   },
   {
     "id": "M197_reattach_ignores_paused",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _crawlPaused=!!c.paused;",
     "replace": "  _crawlPaused=false;",
     "defect": "re-attaching shows a paused crawl as running, so the button offers to pause it again",
@@ -1582,7 +1582,7 @@
   },
   {
     "id": "M198_other_crawls_hidden",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const others=(running||[]).filter(c=>_crawlKeyOf(c.url)!==_crawlUrl);",
     "replace": "  const others=[];",
     "defect": "a second running crawl is unreachable from the panel",
@@ -1590,7 +1590,7 @@
   },
   {
     "id": "M199_pause_reads_url_box",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "async function togglePauseCrawl(){\n  const url=_crawlUrl;",
     "replace": "async function togglePauseCrawl(){\n  const url=document.getElementById('crawl-url').value.trim();",
     "defect": "Pause acts on the URL input rather than the attached crawl, so editing that field pauses nothing",
@@ -1598,7 +1598,7 @@
   },
   {
     "id": "M200_cancel_reads_url_box",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "async function cancelCrawl(){\n  const url=_crawlUrl;",
     "replace": "async function cancelCrawl(){\n  const url=document.getElementById('crawl-url').value.trim();",
     "defect": "Cancel acts on the URL input rather than the attached crawl, so the crawl runs on after the UI says stopped",
@@ -1606,7 +1606,7 @@
   },
   {
     "id": "M201_ingest_cancel_hidden",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const btn=document.getElementById('ingest-cancel-btn');\n  if(btn){btn.style.display='inline-flex';btn.disabled=false;}\n}",
     "replace": "  const btn=document.getElementById('ingest-cancel-btn');\n  if(btn){btn.style.display='none';btn.disabled=false;}\n}",
     "defect": "a running file ingest offers no cancel control",
@@ -1614,7 +1614,7 @@
   },
   {
     "id": "M202_settings_dirty_never_true",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(!_settingsTouched||_settingsBaseline===null)return false;",
     "replace": "  return false;\n  if(!_settingsTouched||_settingsBaseline===null)return false;",
     "defect": "closing Settings discards staged edits without asking",
@@ -1622,7 +1622,7 @@
   },
   {
     "id": "M203_first_run_gate_off",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const ready=_providerReady();",
     "replace": "  const ready=true;",
     "defect": "the welcome screen offers suggestion chips that cannot work when no model is configured",
@@ -1630,7 +1630,7 @@
   },
   {
     "id": "M204_status_drops_providers",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  ['mistral','Mistral'],['groq','Groq'],['gemini','Gemini'],\n];",
     "replace": "];",
     "defect": "System Status covers only some providers",
@@ -1638,7 +1638,7 @@
   },
   {
     "id": "M205_provider_dots_unpainted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    el.style.background=s.ok?'var(--green)':(configured?'var(--red)':'var(--text3)');",
     "replace": "    /* dot left unpainted */",
     "defect": "the per-provider dots are never painted, so all seven stay at the not-configured grey",
@@ -1646,7 +1646,7 @@
   },
   {
     "id": "M206_recrawl_not_saved",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    recrawl:{enabled:getCheck('s-recrawl-enabled'),\n             interval_minutes:parseInt(getVal('s-recrawl-interval'))||60},",
     "replace": "",
     "defect": "the scheduled-re-crawl toggle and interval are omitted from the saved config, so both controls are inert",
@@ -1654,7 +1654,7 @@
   },
   {
     "id": "M207_recrawl_blank_instance",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "body:JSON.stringify({url,instance:instance||'default',depth})",
     "replace": "body:JSON.stringify({url,instance,depth})",
     "defect": "scheduling before the instance list loads stores the URL against an instance no crawl writes to",
@@ -1662,7 +1662,7 @@
   },
   {
     "id": "M208_error_toast_expires",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _TOAST_MS={success:3000,info:3000,warning:6000,error:0};",
     "replace": "const _TOAST_MS={success:3000,info:3000,warning:3000,error:3000};",
     "defect": "an error message self-destructs after three seconds",
@@ -1670,7 +1670,7 @@
   },
   {
     "id": "M209_toast_not_dismissable",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    +`<button class=\"toast-close\" aria-label=\"Dismiss this message\" title=\"Dismiss\">✕</button>`;",
     "replace": "    ;",
     "defect": "a message that never expires has no dismiss control, so it covers the app for good",
@@ -1678,7 +1678,7 @@
   },
   {
     "id": "M210_no_notification_log",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _toastLog.push({ts:Date.now(),type,msg:String(msg)});",
     "replace": "",
     "defect": "messages are not recorded, so an error cannot be read after it has gone",
@@ -1686,7 +1686,7 @@
   },
   {
     "id": "M211_cmd_f_hijacked",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(mod&&e.shiftKey&&(e.key==='f'||e.key==='F')){e.preventDefault();openSearch();}",
     "replace": "    if(mod&&e.key==='f'){e.preventDefault();openSearch();}",
     "defect": "the browser's own find is intercepted and replaced with a weaker search",
@@ -1694,7 +1694,7 @@
   },
   {
     "id": "M212_search_no_count",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  countEl.textContent=hits.length\n    ? `${hits.length} match${hits.length===1?'':'es'}${all?` in ${new Set(hits.map(h=>h.id)).size} conversation(s)`:''}`\n    : 'no matches';",
     "replace": "  countEl.textContent='';",
     "defect": "search reports no match count",
@@ -1702,7 +1702,7 @@
   },
   {
     "id": "M213_search_current_session_only",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  let ids=[S.sessionId];\n  if(all){",
     "replace": "  let ids=[S.sessionId];\n  if(false){",
     "defect": "search cannot reach any conversation but the current one",
@@ -1710,7 +1710,7 @@
   },
   {
     "id": "M214_search_skips_chunks",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      if(withChunks)(m.meta?.chunks||[]).forEach(c=>{",
     "replace": "      if(false)(m.meta?.chunks||[]).forEach(c=>{",
     "defect": "search cannot reach retrieved source text",
@@ -1718,7 +1718,7 @@
   },
   {
     "id": "M215_btn_ghost_undefined",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ".btn-ghost{background:transparent;color:var(--text2);border:1px solid transparent}",
     "replace": "",
     "defect": "a button class referenced by a dialog is never defined, so that button renders unstyled",
@@ -1726,7 +1726,7 @@
   },
   {
     "id": "M216_inspector_labels_by_position",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "'Cosine similarity to your question'}\">#${c.n} ${(rel(c)*100).toFixed(1)}%",
     "replace": "'Cosine similarity to your question'}\">#${i+1} ${(rel(c)*100).toFixed(1)}%",
     "defect": "the sources panel numbers a chunk by its position on screen, so [n] in the answer and #n in the panel can differ",
@@ -1734,7 +1734,7 @@
   },
   {
     "id": "M217_citations_inert",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    _linkCitations(el,msgId,chunks.length);",
     "replace": "",
     "defect": "the [n] markers in an answer are inert text with no route to the source",
@@ -1742,7 +1742,7 @@
   },
   {
     "id": "M218_citations_rewrite_code",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ".closest('pre,code,a,.cite-ref,.rag-inspector,.see-also')",
     "replace": ".closest('a,.cite-ref,.rag-inspector,.see-also')",
     "defect": "a bracketed number inside a code sample is turned into a citation button",
@@ -1750,7 +1750,7 @@
   },
   {
     "id": "M219_crawler_frontier_stat",
-    "file": "redirecall/crawler.py",
+    "file": "visualweaver/crawler.py",
     "find": "            stats[\"discovered\"] = len(visited_urls)",
     "replace": "            stats[\"discovered\"] = 1",
     "defect": "the crawler reports a frontier size unrelated to what it has discovered",
@@ -1758,7 +1758,7 @@
   },
   {
     "id": "M220_citation_stamp_dropped",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "        c[\"n\"] = i",
     "replace": "        pass",
     "defect": "chunks are not stamped with the citation number, so the stored turn cannot line [n] up with its source",
@@ -1766,7 +1766,7 @@
   },
   {
     "id": "M221_stored_turn_drops_n",
-    "file": "redirecall/sessions.py",
+    "file": "visualweaver/sessions.py",
     "find": "            \"n\":         c.get(\"n\", i),",
     "replace": "",
     "defect": "the stored-turn projection drops the citation number",
@@ -1774,7 +1774,7 @@
   },
   {
     "id": "M222_no_configured_flag",
-    "file": "redirecall/routes_settings.py",
+    "file": "visualweaver/routes_settings.py",
     "find": "{\"ok\": False, \"configured\": False, \"error\": \"No API key",
     "replace": "{\"ok\": False, \"error\": \"No API key",
     "defect": "a keyless provider is indistinguishable from a failing one except by its error prose",
@@ -1783,7 +1783,7 @@
   },
   {
     "id": "M223_ingest_cancel_ignored",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "                if cancel.is_set():\n                    break",
     "replace": "                if False:\n                    break",
     "defect": "the ingest loop never checks its cancel flag, so cancelling indexes every remaining file anyway",
@@ -1791,7 +1791,7 @@
   },
   {
     "id": "M224_ingest_job_unannounced",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "            yield f\"data: {json.dumps({'job': job, 'total': len(saved)})}\\n\\n\"",
     "replace": "            pass",
     "defect": "the ingest stream never sends its job id, so there is nothing to cancel by",
@@ -1799,7 +1799,7 @@
   },
   {
     "id": "M225_ingest_history_unbounded",
-    "file": "redirecall/state.py",
+    "file": "visualweaver/state.py",
     "find": "    stale = finished[:-_INGEST_HISTORY] if len(finished) > _INGEST_HISTORY else []",
     "replace": "    stale = []",
     "defect": "finished ingest jobs are kept for the life of the process",
@@ -1807,7 +1807,7 @@
   },
   {
     "id": "M226_ingest_cancel_lies",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "    if ev is None:\n        raise HTTPException(404, \"No active ingest with that id\")",
     "replace": "    if ev is None:\n        return {\"ok\": True}",
     "defect": "cancelling an ingest that is not running reports success",
@@ -1815,7 +1815,7 @@
   },
   {
     "id": "M227_citations_never_linked_live",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    _linkCitations(el,id,_citationCount(id));\n",
     "replace": "",
     "defect": "the [n] markers are linked only where the chunks arrive, which on a live answer is before the first token — so they stay inert on every real turn",
@@ -1823,7 +1823,7 @@
   },
   {
     "id": "M228_version_switch_drops_citations",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _linkCitations(el,msgId,_citationCount(msgId));\n  renderVersionSwitcher(msgId,versions,idx);",
     "replace": "  renderVersionSwitcher(msgId,versions,idx);",
     "defect": "stepping between regenerated versions rewrites the bubble and leaves the citation markers inert",
@@ -1831,7 +1831,7 @@
   },
   {
     "id": "M229_citation_count_ignores_stored_turn",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const msgs=S.sessions[S.sessionId]?.messages||[];\n  return (msgs.find(m=>m.meta?.id===msgId)?.meta?.chunks||[]).length;",
     "replace": "  return 0;",
     "defect": "the source count is read only from the live side-channel meta, which is deleted once the turn lands — so a later re-link finds nothing to link",
@@ -1839,7 +1839,7 @@
   },
   {
     "id": "M230_citation_relink_nests_buttons",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ".closest('pre,code,a,.cite-ref,.rag-inspector,.see-also')",
     "replace": ".closest('pre,code,a,.rag-inspector,.see-also')",
     "defect": "a second linking pass reads the marker inside the button it already made and nests another button in it",
@@ -1847,7 +1847,7 @@
   },
   {
     "id": "M231_paren_shape_unbounded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  let _paren=String.raw`[^()\\n]*`;\n  for(let d=0;d<3;d++)_paren=String.raw`(?:[^()\\n]|\\(`+_paren+String.raw`\\))*`;\n  const paren=_paren+'?';",
     "replace": "  const paren=String.raw`(?:[^\\n]|\\((?:[^\\n]|\\((?:[^\\n])*\\))*\\))*?`;",
     "defect": "the paren-shape pattern nests an unbounded quantifier, so a malformed diagram hangs the tab",
@@ -1855,7 +1855,7 @@
   },
   {
     "id": "M232_paren_shape_backtracks",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  let _paren=String.raw`[^()\\n]*`;\n  for(let d=0;d<3;d++)_paren=String.raw`(?:[^()\\n]|\\(`+_paren+String.raw`\\))*`;\n  const paren=_paren+'?';",
     "replace": "  const paren=String.raw`(?:[^()\\n]*|\\([^()\\n]*\\))*?`;",
     "defect": "the paren-shape pattern's first alternative can match empty — the classic nested-quantifier blowup — so a malformed diagram hangs the tab",
@@ -1863,7 +1863,7 @@
   },
   {
     "id": "M233_toast_repeats_pile_up",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const dup=[...c.querySelectorAll('.toast')].find(\n    el=>el.dataset.toastMsg===String(msg)&&el.dataset.toastType===type);",
     "replace": "  const dup=null;",
     "defect": "an error raised many times over stacks identical never-expiring toasts, each needing its own dismissal",
@@ -1871,7 +1871,7 @@
   },
   {
     "id": "M234_rectangle_label_unheld",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    return push('[\"'+NL(foldQuotes(inner))+'\"]');",
     "replace": "    return '[\"'+NL(foldQuotes(inner))+'\"]';",
     "defect": "a rectangle label is returned unprotected, so a later pass reads the '--' inside it as a link and splits the label through its own middle",
@@ -1879,7 +1879,7 @@
   },
   {
     "id": "M235_node_id_matches_inside_label",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const ID=String.raw`(^|[^\\w￿\\[\\](){}\"])([A-Za-z0-9_]+)`;",
     "replace": "  const ID=String.raw`(^|[^\\w￿])([A-Za-z0-9_]+)`;",
     "defect": "a word inside a label is read as a node id, so A[cost(usd)] is rewritten to A[\"cost(\"usd\")\"] and stops rendering",
@@ -1887,7 +1887,7 @@
   },
   {
     "id": "M236_chips_hidden_attr_only",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ".suggestion-chips[hidden]{display:none}",
     "replace": "",
     "defect": "the suggestion chips are hidden by an attribute a display:flex rule overrides, so they stay on screen and clickable with no model configured",
@@ -1895,7 +1895,7 @@
   },
   {
     "id": "M237_cancel_aborts_any_stream",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(_crawlAbort&&_crawlStreamUrl===url){_crawlAbort.abort();_crawlAbort=null;_crawlStreamUrl=null;}",
     "replace": "  if(_crawlAbort){_crawlAbort.abort();_crawlAbort=null;_crawlStreamUrl=null;}",
     "defect": "Cancel aborts this tab's SSE stream whichever crawl the panel is attached to",
@@ -1903,7 +1903,7 @@
   },
   {
     "id": "M238_crawl_poll_never_stops",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      _stopCrawlTimers();\n      _crawlUrl=null;_crawlPaused=false;_renderAttached([]);",
     "replace": "      _crawlUrl=null;_crawlPaused=false;_renderAttached([]);",
     "defect": "the crawl poll keeps hitting the server once a second after its crawl is gone",
@@ -1911,7 +1911,7 @@
   },
   {
     "id": "M239_poll_survives_close",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(_crawlPollTimer){clearInterval(_crawlPollTimer);_crawlPollTimer=null;}\n  _stopIngestPoll();\n  document.getElementById('settings-overlay').classList.remove('open');",
     "replace": "  document.getElementById('settings-overlay').classList.remove('open');",
     "defect": "closing Settings leaves its polls running behind a hidden dialog",
@@ -1919,7 +1919,7 @@
   },
   {
     "id": "M240_tab_click_loads_nothing",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  try{ _TAB_ONENTER[tab]?.(); }catch(e){ console.warn('tab '+tab+' failed to load',e); }",
     "replace": "",
     "defect": "entering a settings tab by clicking its button loads none of its data",
@@ -1927,7 +1927,7 @@
   },
   {
     "id": "M241_provider_switch_not_dirty",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _markSettingsEdited();\n  // Awaited, and the toast reports the outcome.",
     "replace": "  // Awaited, and the toast reports the outcome.",
     "defect": "switching provider changes what Save Settings posts without marking the panel dirty, so closing it discards the change silently",
@@ -1935,7 +1935,7 @@
   },
   {
     "id": "M242_settings_focus_on_export",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(!_SAFE_BUTTON_DIALOGS.includes(id)){",
     "replace": "    if(false){",
     "defect": "opening Settings puts keyboard focus on Export Config, so Enter downloads every stored API key",
@@ -1943,7 +1943,7 @@
   },
   {
     "id": "M243_toast_stack_unbounded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  for(const old of [...c.querySelectorAll('.toast')].slice(0,-_TOAST_MAX_VISIBLE))old.remove();",
     "replace": "",
     "defect": "a run of never-expiring errors grows past the top of the viewport where the toasts cannot be reached",
@@ -1951,7 +1951,7 @@
   },
   {
     "id": "M244_crawl_key_keeps_fragment",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _crawlKeyOf=u=>String(u||'').split('#')[0];",
     "replace": "const _crawlKeyOf=u=>String(u||'');",
     "defect": "the client tracks a crawl by a URL the server strips the fragment from, so every comparison fails",
@@ -1959,7 +1959,7 @@
   },
   {
     "id": "M245_ingest_panel_never_refreshes",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  _ingestPollTimer=setInterval(async()=>{",
     "replace": "  if(0)_ingestPollTimer=setInterval(async()=>{",
     "defect": "an adopted ingest paints one snapshot and holds it after the job has finished",
@@ -1967,7 +1967,7 @@
   },
   {
     "id": "M246_ingest_name_double_encoded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    `Indexing ${j.current||''} (${(j.index|0)+1}/${j.total|0})`",
     "replace": "    `Indexing ${escHtml(j.current||'')} (${(j.index|0)+1}/${j.total|0})`",
     "defect": "a filename is HTML-escaped into textContent, so Q&A shows as Q&amp;A",
@@ -1975,7 +1975,7 @@
   },
   {
     "id": "M247_search_refetches_per_key",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(!_hydrating.has(id))\n    _hydrating.set(id, _hydrateQuiet(id).finally(()=>_hydrating.delete(id)));\n  return _hydrating.get(id);",
     "replace": "  return _hydrateQuiet(id);",
     "defect": "overlapping searches each re-fetch every conversation instead of sharing the work",
@@ -1983,7 +1983,7 @@
   },
   {
     "id": "M248_progress_divides_by_indexed",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    pct=Math.min(98,Math.round(resolved/Math.max(found,1)*100));",
     "replace": "    pct=Math.min(98,Math.round(done/Math.max(found,1)*100));",
     "defect": "progress divides pages indexed by pages discovered, so an incremental re-crawl shows a bar that never moves",
@@ -1991,7 +1991,7 @@
   },
   {
     "id": "M249_failed_file_counted_ok",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "                    status = result.get(\"status\", \"ok\")\n                    if status == \"ok\":\n                        st[\"ok\"] += 1\n                    else:\n                        st[\"errors\"] += 1",
     "replace": "                    status = result.get(\"status\", \"ok\")\n                    st[\"ok\"] += 1",
     "defect": "a file the indexer reports as failed is tallied as a success",
@@ -1999,7 +1999,7 @@
   },
   {
     "id": "M250_unstarted_job_immortal",
-    "file": "redirecall/state.py",
+    "file": "visualweaver/state.py",
     "find": "        if st.get(\"done\") or st.get(\"started\"):\n            continue",
     "replace": "        if True:\n            continue",
     "defect": "an ingest whose stream never began is never cleared, and the UI attaches to that phantom for good",
@@ -2007,7 +2007,7 @@
   },
   {
     "id": "M251_streaming_upload_uncapped",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "        if len(blob) > config._MAX_UPLOAD_BYTES:\n            for done_path, _ in saved:\n                _unlink_quietly(done_path)",
     "replace": "        if False:\n            for done_path, _ in saved:\n                _unlink_quietly(done_path)",
     "defect": "the upload size limit is not enforced on the route the UI actually uses",
@@ -2015,7 +2015,7 @@
   },
   {
     "id": "M252_route_withholds_stats",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "                stats=_ns_state._active_crawls.get(url),\n",
     "replace": "",
     "defect": "the crawl route never hands the crawler a stats dict, so the API reports a frontier of zero",
@@ -2023,7 +2023,7 @@
   },
   {
     "id": "M253_resolved_not_counted",
-    "file": "redirecall/crawler.py",
+    "file": "visualweaver/crawler.py",
     "find": "            _resolved[\"n\"] += 1",
     "replace": "            _resolved[\"n\"] += 0",
     "defect": "the crawler does not count the pages it has resolved, so the progress bar has no numerator",
@@ -2031,7 +2031,7 @@
   },
   {
     "id": "M254_no_text_ingest_route",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "@appcore.app.post(\"/api/rag/{instance}/ingest/text\")",
     "replace": "@appcore.app.post(\"/api/rag/{instance}/ingest/text-DISABLED\")",
     "defect": "there is no way to index text that did not come from a file or a crawl, so an answer worth keeping cannot be kept",
@@ -2039,7 +2039,7 @@
   },
   {
     "id": "M255_saved_text_unattributable",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "    if not source:\n        # Chunks with no source are unattributable",
     "replace": "    if False:\n        # Chunks with no source are unattributable",
     "defect": "text can be indexed with no source, making those chunks impossible to attribute or to delete short of resetting the instance",
@@ -2047,7 +2047,7 @@
   },
   {
     "id": "M256_saved_text_uncapped",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "    if size > config._MAX_UPLOAD_BYTES:",
     "replace": "    if False:",
     "defect": "the text-ingest route has no size limit, unlike every other ingest route",
@@ -2055,7 +2055,7 @@
   },
   {
     "id": "M257_duplicate_save_reported_as_new",
-    "file": "redirecall/routes_ingestion.py",
+    "file": "visualweaver/routes_ingestion.py",
     "find": "            \"chunks\": chunks, \"duplicate\": chunks == 0}",
     "replace": "            \"chunks\": chunks, \"duplicate\": False}",
     "defect": "re-saving unchanged text reports a successful save of nothing",
@@ -2063,7 +2063,7 @@
   },
   {
     "id": "M258_keep_dialog_edit_discarded",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const body=(getVal('sv-answer')||'').trim();",
     "replace": "  const body=_answerForSaving(0).answer||'x';",
     "defect": "the review dialog's edits are discarded and the original answer is indexed instead",
@@ -2071,7 +2071,7 @@
   },
   {
     "id": "M259_kept_answer_loses_its_question",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const text=(question?`Q: ${question}\\n\\nA: ${body}`:body)",
     "replace": "  const text=(body)",
     "defect": "a kept answer is stored without the question, losing the wording a later search matches on",
@@ -2079,7 +2079,7 @@
   },
   {
     "id": "M260_kept_answer_loses_provenance",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "            +(getCheck('sv-sources')?_provenanceBlock(chunks):'');",
     "replace": "            +'';",
     "defect": "a kept answer is stored without the sources it cited, so it reads later as original source material",
@@ -2087,7 +2087,7 @@
   },
   {
     "id": "M261_kept_answer_unlabelled",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const source=`answer://${_isoDay()} ${title||'saved answer'}`;",
     "replace": "  const source=`${title||'saved answer'}`;",
     "defect": "a kept answer is stored under a label that does not mark it as model output",
@@ -2095,7 +2095,7 @@
   },
   {
     "id": "M262_saved_instance_not_created",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(!(S.ragInstances||[]).some(r=>r.name===instance)){",
     "replace": "    if(false){",
     "defect": "saving into an instance that does not exist yet builds an index with no metadata",
@@ -2103,7 +2103,7 @@
   },
   {
     "id": "M263_saved_answer_wrong_endpoint",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    const ep=(S.ragInstances||[]).find(r=>r.name===instance)?.redis_endpoint||'default';\n    const r=await fetch(`/api/rag/${encodeURIComponent(instance)}/ingest/text`\n                       +`?endpoint=${encodeURIComponent(ep)}`,{",
     "replace": "    const r=await fetch(`/api/rag/${encodeURIComponent(instance)}/ingest/text`,{",
     "defect": "a kept answer is written to the default Redis rather than the endpoint its instance lives on, landing in an index nothing queries",
@@ -2111,7 +2111,7 @@
   },
   {
     "id": "M264_timeline_lane_skips_repair",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "      await RICH_LANES.mermaid.draw(out,_timelineSafeColons(body),uid);",
     "replace": "      await RICH_LANES.mermaid.draw(out,body,uid);",
     "defect": "the timeline lane renders the source as written, so a clock time in a period makes the whole diagram unrenderable",
@@ -2119,7 +2119,7 @@
   },
   {
     "id": "M265_timeline_period_colon_kept",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    return head.replace(/:/g,'#58;')+(sep<0?'':line.slice(sep));",
     "replace": "    return head+(sep<0?'':line.slice(sep));",
     "defect": "a colon inside a timeline period is left as written, which mermaid's lexer rejects",
@@ -2127,7 +2127,7 @@
   },
   {
     "id": "M266_timeline_separator_misfound",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    const sep=line.search(/:(?=\\s|$)/);        // the period/event separator, if any",
     "replace": "    const sep=line.indexOf(':');        // the period/event separator, if any",
     "defect": "the period/event separator is taken as the first colon rather than the first colon followed by whitespace, so a clock time is mistaken for it",
@@ -2135,7 +2135,7 @@
   },
   {
     "id": "M267_timeline_title_rewritten",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(/^\\s*(?:timeline|title)\\b/i.test(line))return line;",
     "replace": "    if(/^\\s*(?:timeline)\\b/i.test(line))return line;",
     "defect": "a colon in a timeline title is rewritten to an entity, which the title renders verbatim so the reader sees '#58;'",
@@ -2143,7 +2143,7 @@
   },
   {
     "id": "M268_timeline_acc_lines_exempted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(/^\\s*(?:timeline|title)\\b/i.test(line))return line;",
     "replace": "    if(/^\\s*(?:timeline|title|acc_title|acc_descr)\\b/i.test(line))return line;",
     "defect": "acc_title and acc_descr are exempted alongside title — they read the same and do not behave the same, so a clock time in one leaves the diagram unrenderable",
@@ -2151,7 +2151,7 @@
   },
   {
     "id": "M269_timeline_section_exempted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(/^\\s*(?:timeline|title)\\b/i.test(line))return line;",
     "replace": "    if(/^\\s*(?:timeline|title|section)\\b/i.test(line))return line;",
     "defect": "section is exempted alongside title, but a colon in a section label is a parse error",
@@ -2159,7 +2159,7 @@
   },
   {
     "id": "M270_aggregate_reads_one_page",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "            res = rc.execute_command(\"FT.CURSOR\", \"READ\", idx_name, cursor)\n            rows.extend(res[0][1:])\n            cursor = res[1]",
     "replace": "            cursor = 0",
     "defect": "an aggregate is read as a single page, so listing documents returns only the first page and silently loses the rest",
@@ -2167,7 +2167,7 @@
   },
   {
     "id": "M271_aggregate_drops_first_page",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "    rows, cursor = list(res[0][1:]), res[1]",
     "replace": "    rows, cursor = [], res[1]",
     "defect": "the first page of an aggregate is discarded, so a result set that fits in one page comes back empty",
@@ -2175,7 +2175,7 @@
   },
   {
     "id": "M272_aggregate_uses_unbounded_limit",
-    "file": "redirecall/rag.py",
+    "file": "visualweaver/rag.py",
     "find": "                             \"WITHCURSOR\", \"COUNT\", str(_AGG_PAGE), \"DIALECT\", \"2\")",
     "replace": "                             \"LIMIT\", \"0\", \"1000000\", \"DIALECT\", \"2\")",
     "defect": "an aggregate asks for more rows than MAXAGGREGATERESULTS allows, which Redis refuses outright — the route 500s on a stock Redis Stack",
@@ -2183,7 +2183,7 @@
   },
   {
     "id": "M273_gemini_capability_gate_removed",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "if _GEMINI_CHAT_ACTION not in set(actions or ()):\n        return False",
     "replace": "if False:\n        return False",
     "defect": "Gemini models with no generateContent (embeddings, native-audio, live-translate) reach the model picker and fail on send",
@@ -2191,7 +2191,7 @@
   },
   {
     "id": "M274_gemini_purpose_gate_removed",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "return not any(tok in model_id for tok in _GEMINI_NON_CHAT)",
     "replace": "return True",
     "defect": "TTS, image, robotics and computer-use Gemini models are offered as chat models",
@@ -2199,7 +2199,7 @@
   },
   {
     "id": "M275_mistral_chat_filter_removed",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "if not mid or not caps.get(\"completion_chat\"):",
     "replace": "if not mid:",
     "defect": "Mistral embedding, OCR, moderation and voxtral audio models are listed as chat models",
@@ -2207,7 +2207,7 @@
   },
   {
     "id": "M276_mistral_vision_guessed_from_name",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "\"vision\": bool(caps.get(\"vision\"))}",
     "replace": "\"vision\": supports_vision(mid)}",
     "defect": "Mistral vision is guessed from the name table instead of the capabilities the API reports, so vision models lose their attach button",
@@ -2215,7 +2215,7 @@
   },
   {
     "id": "M277_o3_mini_gains_vision",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "_VISION_EXACT = {\"o1\", \"o3\", \"o4-mini\"}",
     "replace": "_VISION_EXACT = {\"o1\", \"o4-mini\"}\n_VISION_PREFIXES = _VISION_PREFIXES + (\"o3\",)",
     "defect": "o3-mini is matched by an o3 prefix and offers an attach button that errors on send",
@@ -2223,7 +2223,7 @@
   },
   {
     "id": "M278_stamp_vision_mutates_statics",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "return [dict(m, vision=m.get(\"vision\", supports_vision(m.get(\"id\", \"\"))))\n            for m in models]",
     "replace": "for m in models:\n        m.setdefault(\"vision\", supports_vision(m.get(\"id\", \"\")))\n    return models",
     "defect": "stamp_vision writes into the module-level *_STATIC lists, so the constants carry a vision key for the life of the process",
@@ -2231,7 +2231,7 @@
   },
   {
     "id": "M279_hosted_models_keyed_on_name",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": ":{id:m.id,  label:m.name||m.id,vision:!!m.vision,context:m.context||0})",
     "replace": ":{id:m.name,label:m.name||m.id,vision:!!m.vision,context:m.context||0})",
     "defect": "hosted models are keyed on their display name, so selectModel never finds them and the attach button stays disabled on every vision model",
@@ -2239,7 +2239,7 @@
   },
   {
     "id": "M280_model_without_id_kept",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    .filter(m=>m.id);",
     "replace": "    ;",
     "defect": "a model entry with no id renders a nameless row that selects an empty model",
@@ -2247,7 +2247,7 @@
   },
   {
     "id": "M281_selected_model_not_pinned_first",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(m.id===S.currentModel)return 0;\n",
     "replace": "",
     "defect": "the model in use can be hidden behind “Show all N” in its own picker",
@@ -2255,7 +2255,7 @@
   },
   {
     "id": "M282_snapshots_not_demoted",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(/\\d{4}(?:-\\d{2})?$|-\\d{2}-\\d{4}$/.test(m.id))return 4;\n",
     "replace": "",
     "defect": "pinned dated snapshots crowd out the stable model names in the collapsed list",
@@ -2263,7 +2263,7 @@
   },
   {
     "id": "M283_scope_always_saved_as_all",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "ragScope:S.noRag?'__none__':(S.ragAllMode?'__all__':(_activeRagKey?.()||'')),",
     "replace": "ragScope:'__all__',",
     "defect": "every reload re-scopes retrieval to all knowledge bases regardless of what was chosen",
@@ -2271,7 +2271,7 @@
   },
   {
     "id": "M284_topbar_loses_its_stacking_escape",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "flex-shrink:0;position:relative;z-index:30}",
     "replace": "flex-shrink:0}",
     "defect": "#topbar's backdrop-filter traps the model picker's popover in its stacking context, so the menu renders underneath answer cards and tables",
@@ -2279,7 +2279,7 @@
   },
   {
     "id": "M285_default_model_not_marked",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const isDefault=(m.id===dflt);",
     "replace": "const isDefault=false;",
     "defect": "the provider's default model (the free-tier one on Gemini and Mistral) is indistinguishable from every other entry",
@@ -2287,7 +2287,7 @@
   },
   {
     "id": "M286_default_not_ranked",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  if(prov&&m.id===_mpDefaultFor(prov))return 1;\n",
     "replace": "",
     "defect": "the provider's default model can be hidden behind “Show all N”",
@@ -2295,7 +2295,7 @@
   },
   {
     "id": "M287_mistral_curated_names_dropped",
-    "file": "redirecall/providers.py",
+    "file": "visualweaver/providers.py",
     "find": "        name = next((x[\"name\"] for x in MISTRAL_MODELS_STATIC if x[\"id\"] == mid), mid)\n",
     "replace": "        name = mid\n",
     "defect": "the live Mistral list shows bare ids, losing the curated labels that mark the free-tier models",
@@ -2303,7 +2303,7 @@
   },
   {
     "id": "M290_topbar_back_to_two_rows",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "#topbar{display:flex;flex-direction:row;align-items:center;gap:12px;min-height:52px;",
     "replace": "#topbar{display:flex;flex-direction:column;align-items:stretch;gap:12px;min-height:52px;",
     "defect": "the top bar stacks again, taking a second row of chat height and leaving a large empty area beside the title",
@@ -2311,7 +2311,7 @@
   },
   {
     "id": "M291_topbar_controls_never_yield",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "@media (max-width:1150px){.token-counter{display:none!important}}\n",
     "replace": "",
     "defect": "the top-bar controls keep their full width on a narrow window and run off the edge of the bar",
@@ -2319,7 +2319,7 @@
   },
   {
     "id": "M292_clear_chat_leaves_the_sidebar",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    <button class=\"sidebar-btn sidebar-btn-danger\" onclick=\"confirmClearChat()\"\n            aria-label=\"Clear this conversation\"><span class=\"icon\">🗑</span>Clear Chat</button>\n",
     "replace": "",
     "defect": "Clear chat is unreachable — it is in neither the top bar nor the sidebar",
@@ -2327,7 +2327,7 @@
   },
   {
     "id": "M293_grouped_citations_not_linked",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "  const GROUP=/\\[(\\d+(?:\\s*,\\s*\\d+)*)\\]/g;",
     "replace": "  const GROUP=/\\[(\\d+)\\]/g;",
     "defect": "a grouped citation marker like [3, 4] stays inert text — visible as a citation but opening nothing",
@@ -2335,7 +2335,7 @@
   },
   {
     "id": "M188_csv_omits_token_rows",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    rows.push([],['Provider','Model','Input','Cached','Cache write','Output']);",
     "replace": "    if(false){}",
     "defect": "the analytics CSV loses its token rows -> the one table worth reconciling against a bill cannot leave the app",
@@ -2343,7 +2343,7 @@
   },
   {
     "id": "M294_token_card_quotes_money_again",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "        ${th('Output')}</tr></thead>",
     "replace": "        ${th('Output')}${th('Cost')}</tr></thead>",
     "defect": "the Token Usage card advertises a Cost column the app has no verified rate to fill",
@@ -2351,7 +2351,7 @@
   },
   {
     "id": "M295_token_card_drops_the_bill_note",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": " Rates differ per\n      provider, per model and over time, so work the cost out against your own bill.",
     "replace": "",
     "defect": "the card shows tokens with no word on why there is no cost figure, so it reads as a missing feature",
@@ -2359,7 +2359,7 @@
   },
   {
     "id": "M296_plot_def_requires_literal_x",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "const _PLOT_DEF=/^\\s*([A-Za-z]\\w*)\\s*(\\(\\s*[^()=]*?\\s*\\))?\\s*=\\s*(.+)$/;",
     "replace": "const _PLOT_DEF=/^\\s*([A-Za-z]\\w*)\\s*(\\(\\s*x\\s*\\))?\\s*=\\s*(.+)$/;",
     "defect": "a definition whose argument is not literally x (log(N) = -D * log(x)) is treated as an expression, read by mathjs as a function definition, and the plot dies with \"no finite values\"",
@@ -2367,7 +2367,7 @@
   },
   {
     "id": "M297_plot_label_drops_the_argument",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "function _plotDefLabel(m){ return m[1]+(m[2]?'('+m[2].slice(1,-1).trim()+')':'(x)'); }",
     "replace": "function _plotDefLabel(m){ return m[1]+'(x)'; }",
     "defect": "every plotted curve is labelled name(x) whatever the author wrote, so four log(N_*) series all read log(x)",
@@ -2375,10 +2375,610 @@
   },
   {
     "id": "M298_plot_non_number_unreported",
-    "file": "redirecall/index.html",
+    "file": "visualweaver/index.html",
     "find": "    if(nonNumeric&&!pts.some(p=>isFinite(p.y)))\n      throw new Error(`\"${f.expr}\" evaluates to a ${nonNumeric}, not a number — put the value to plot on the right of the \"=\".`);\n",
     "replace": "",
     "defect": "an expression that compiles and evaluates to a non-number (writing \"sin\" for \"sin(x)\") reports the generic \"no finite values\", naming nothing",
     "expect": "test_an_expression_that_is_not_a_number_says_so"
+  },
+  {
+    "id": "M299_shortcut_table_advertises_unbound_key",
+    "file": "visualweaver/index.html",
+    "find": "<tr><td><span class=\"kbd\">⌘/Ctrl+Shift+F</span></td><td>Search conversations</td></tr>",
+    "replace": "<tr><td><span class=\"kbd\">⌘/Ctrl+F</span></td><td>Search chat</td></tr>",
+    "defect": "the shortcut list offers a combination the app does not bind, and omits the one it does",
+    "expect": "test_search_is_documented_with_its_shift_modifier"
+  },
+  {
+    "id": "M300_search_rebound_without_the_table",
+    "file": "visualweaver/index.html",
+    "find": "if(mod&&e.shiftKey&&(e.key==='f'||e.key==='F')){e.preventDefault();openSearch();}",
+    "replace": "if(mod&&(e.key==='f'||e.key==='F')){e.preventDefault();openSearch();}",
+    "defect": "search is rebound while the shortcut list keeps describing the old combination — the drift that shipped in 1.8.0",
+    "expect": "test_search_is_documented_with_its_shift_modifier"
+  },
+  {
+    "id": "M301_composer_keys_undocumented",
+    "file": "visualweaver/index.html",
+    "find": "          <tr><td><span class=\"kbd\">Enter</span></td><td>Send message</td></tr>\n          <tr><td><span class=\"kbd\">Shift+Enter</span></td><td>New line in input</td></tr>\n",
+    "replace": "",
+    "defect": "Enter and Shift+Enter — the two most-used keys in the app — are absent from the only list that describes the shortcuts",
+    "expect": "test_the_composer_keys_are_documented_and_bound"
+  },
+  {
+    "id": "M302_pass_rate_off_by_one",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    return sum(1 for x in sample if x >= threshold) / len(sample)",
+    "replace": "    return sum(1 for x in sample if x > threshold) / len(sample)",
+    "defect": "the reported pass rate stops matching the runtime predicate, so a corpus scoring exactly at the threshold is reported as failing",
+    "expect": "test_the_pass_rate_matches_the_runtime_predicate_exactly"
+  },
+  {
+    "id": "M303_preset_hardcodes_threshold",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        \"pass_target\": 0.60,        # strict: 40% of queries keep no vector hit\n        \"values\": {\"rag.top_k\": 5,",
+    "replace": "        \"pass_target\": 0.60,        # strict: 40% of queries keep no vector hit\n        \"values\": {\"rag.similarity_threshold\": 0.75, \"rag.top_k\": 5,",
+    "defect": "a preset carries a fixed similarity threshold again, which is selective on one corpus and switches vector search off entirely on another",
+    "expect": "test_no_preset_hardcodes_a_similarity_threshold"
+  },
+  {
+    "id": "M304_deepest_rank_is_the_extreme",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        run += n\n        if run >= total * coverage:\n            return i + 1",
+    "replace": "        run += n\n        if n:\n            deepest = i + 1\n    if True:\n        return deepest",
+    "defect": "one curious answer that reached a deep chunk holds top_k open for every answer after it",
+    "expect": "test_one_deep_outlier_does_not_hold_top_k_open"
+  },
+  {
+    "id": "M305_stale_rank_unclamped",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        stale = deepest > effective_k\n        deepest = min(deepest, effective_k)",
+    "replace": "        stale = False",
+    "defect": "a rank recorded under a larger top_k is reported as in use under a smaller one, in green, which the current setting makes impossible",
+    "expect": "test_a_rank_the_current_top_k_cannot_produce_never_reaches_the_ui"
+  },
+  {
+    "id": "M306_panels_disagree_on_one_fact",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    if not hybrid and n >= MIN_QUERIES and pass_now < 0.25:",
+    "replace": "    if not hybrid and n >= MIN_QUERIES and pass_rate(t[\"raw_hist\"], thr) < 0.25:",
+    "defect": "the threshold and hybrid panels compute the same fact by two different routes and print contradictory answers about one corpus",
+    "expect": "test_the_threshold_and_hybrid_panels_cannot_contradict_each_other"
+  },
+  {
+    "id": "M307_errors_scored_as_a_threshold_problem",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    if failing and not cons[\"voters\"]:",
+    "replace": "    if False:",
+    "defect": "failing retrieval is blamed on the similarity threshold, and the advice offers a button setting it toward zero",
+    "expect": "test_failing_retrieval_is_named_as_such_not_blamed_on_the_threshold"
+  },
+  {
+    "id": "M308_top_k_judged_past_the_reranker",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        effective_k = (min(top_k, int(rr_cfg.get(\"top_n\") or top_k))\n                       if rr_cfg.get(\"enabled\") else top_k)",
+    "replace": "        effective_k = top_k",
+    "defect": "top_k is judged against chunks the reranker never sent to the model, so a healthy setting is reported as wasteful",
+    "expect": "test_top_k_is_judged_against_what_actually_reaches_the_model"
+  },
+  {
+    "id": "M309_preset_reports_only_its_diff",
+    "file": "visualweaver/rag_advice.py",
+    "find": "            \"values\": values,\n            \"note\": note,",
+    "replace": "            \"values\": {c[\"path\"]: c[\"to\"] for c in changes},\n            \"note\": note,",
+    "defect": "applying a preset skips any control the user had staged differently, so the preset is not what it says it is",
+    "expect": "test_a_preset_reports_the_full_value_map_not_just_the_diff"
+  },
+  {
+    "id": "M310_code_fences_vote_as_citations",
+    "file": "visualweaver/routes_chat.py",
+    "find": "    prose = _CODE_RE.sub(\" \", answer)",
+    "replace": "    prose = answer",
+    "defect": "array subscripts in fenced code are counted as chunk citations, inflating the counters on exactly the corpora most likely to be developer documentation",
+    "expect": "test_a_fenced_code_block_does_not_vote"
+  },
+  {
+    "id": "M311_one_answer_counted_per_corpus",
+    "file": "visualweaver/routes_chat.py",
+    "find": "        state.record_citations(inst, rs, count_answer=(inst == owner))",
+    "replace": "        state.record_citations(inst, rs)",
+    "defect": "an answer citing two corpora counts as two answers, unlocking the advice on a fraction of the evidence it requires",
+    "expect": "test_an_answer_citing_two_corpora_counts_as_one_answer"
+  },
+  {
+    "id": "M312_stats_row_shape_depends_on_history",
+    "file": "visualweaver/state.py",
+    "find": "    \"answers_with_citations\": 0,\n",
+    "replace": "",
+    "defect": "a counter row is missing fields until the recorder that owns them has run, so reading one raises KeyError",
+    "expect": "test_a_fresh_row_carries_every_counter"
+  },
+  {
+    "id": "M313_deleted_corpus_keeps_steering_advice",
+    "file": "visualweaver/routes_instances.py",
+    "find": "    state.drop_rag_stats(instance)\n    rag_admin.save_rag_stats()\n",
+    "replace": "",
+    "defect": "a deleted corpus keeps its retrieval statistics, which go on steering the advice and return on every restart",
+    "expect": "test_the_delete_route_actually_drops_the_statistics"
+  },
+  {
+    "id": "M314_stats_endpoint_iterates_live_dict",
+    "file": "visualweaver/routes_redis.py",
+    "find": "    for inst, s in list(state._rag_stats.items()):",
+    "replace": "    for inst, s in state._rag_stats.items():",
+    "defect": "/api/rag/stats iterates counters that executor threads mutate, so it raises \"dictionary changed size during iteration\" when a new instance's first query lands mid-request",
+    "expect": "test_every_reader_of_the_live_counters_materialises_first"
+  },
+  {
+    "id": "M315_preset_applies_only_its_diff",
+    "file": "visualweaver/index.html",
+    "find": "  for(const [path, val] of Object.entries(p.values || {})) _setByPath(path, val);",
+    "replace": "  for(const c of (p.changes || [])) _setByPath(c.path, c.to);",
+    "defect": "a preset skips any control the user had already staged differently, so it is not what the toast says it is",
+    "expect": "test_a_preset_writes_every_value_it_names_not_only_its_diff"
+  },
+  {
+    "id": "M316_unmeasurable_settings_shown_anyway",
+    "file": "visualweaver/index.html",
+    "find": "    if(a.status === 'static' || (a.status === 'ok' && !a.suggested\n                                 && /^(On|Off)$/.test(a.headline))){\n      line.hidden = true; continue;\n    }",
+    "replace": "    if(false){ line.hidden = true; continue; }",
+    "defect": "three identical \"Not measurable here\" lines and two restating the toggle above them drown the lines that carry a finding",
+    "expect": "test_settings_no_measurement_can_speak_to_show_no_verdict"
+  },
+  {
+    "id": "M317_severity_not_spoken",
+    "file": "visualweaver/index.html",
+    "find": "    const spoken = {bad:'Problem: ', warn:'Warning: ', ok:'', unknown:''}[a.status] || '';",
+    "replace": "    const spoken = '';",
+    "defect": "the colour is the only carrier of severity, so a screen reader gets no verdict at all",
+    "expect": "test_a_screen_reader_is_told_the_severity"
+  },
+  {
+    "id": "M318_boolean_suggestion_reads_as_a_value",
+    "file": "visualweaver/index.html",
+    "find": "    const label = (sv === true) ? 'turn on' : (sv === false) ? 'turn off'\n                                            : 'use ' + escHtml(String(sv));",
+    "replace": "    const label = 'use ' + escHtml(String(sv));",
+    "defect": "a boolean suggestion renders as \"use true\", which reads as a bug rather than an instruction",
+    "expect": "test_a_boolean_suggestion_reads_as_an_instruction_not_a_value"
+  },
+  {
+    "id": "M319_headline_injected_as_markup",
+    "file": "visualweaver/index.html",
+    "find": "      + `<span class=\"adv-head\">${escHtml(a.headline)}</span>${apply}</span>`;",
+    "replace": "      + `<span class=\"adv-head\">${a.headline}</span>${apply}</span>`;",
+    "defect": "a headline built from an instance name is parsed as markup, so a crafted name executes",
+    "expect": "test_a_headline_from_the_server_cannot_execute"
+  },
+  {
+    "id": "M320_missing_value_reads_as_undefined",
+    "file": "visualweaver/index.html",
+    "find": "  const fmt = v => (v === null || v === undefined) ? 'not set' : String(v);",
+    "replace": "  const fmt = v => String(v);",
+    "defect": "a setting with no current value shows the user the word \"undefined\"",
+    "expect": "test_a_setting_with_no_current_value_reads_as_not_set"
+  },
+  {
+    "id": "M321_threshold_silently_omitted",
+    "file": "visualweaver/index.html",
+    "find": "    + (p.note ? `<p style=\"color:var(--yellow);font-size:12px;margin-top:8px\">`\n              + `${escHtml(p.note)}</p>` : '')",
+    "replace": "    + ''",
+    "defect": "the preset drops the threshold without saying so, which reads as \"this preset does not change it\" rather than \"there is not enough data to choose one\"",
+    "expect": "test_the_preview_says_the_threshold_was_left_alone_and_why"
+  },
+  {
+    "id": "M322_no_op_preset_offers_apply",
+    "file": "visualweaver/index.html",
+    "find": "      + '<p style=\"color:var(--text2);font-size:12px\">Every value is already set this way — nothing to change.</p>',\n      [{label:'Close', cls:'btn-secondary'}]);",
+    "replace": "      + '<p style=\"color:var(--text2);font-size:12px\">Every value is already set this way — nothing to change.</p>',\n      [{label:'Cancel', cls:'btn-secondary'}, {label:'Apply '+p.name, cls:'btn-primary', cb:()=>_applyPreset(p)}]);",
+    "defect": "a preset that would change nothing still offers an Apply button, implying it does something",
+    "expect": "test_the_preview_says_when_it_would_change_nothing"
+  },
+  {
+    "id": "M323_severity_colours_collapse",
+    "file": "visualweaver/index.html",
+    "find": ".adv-bad  .adv-head{color:var(--red)}",
+    "replace": ".adv-bad  .adv-head{color:var(--text2)}",
+    "defect": "a problem verdict renders in the same grey as an unmeasured one, so the colour coding says nothing",
+    "expect": "test_each_severity_renders_in_its_own_colour"
+  },
+  {
+    "id": "M324_glyphs_collapse_to_one",
+    "file": "visualweaver/index.html",
+    "find": "const _ADV_MARK = {ok: '●', warn: '▲', bad: '■', unknown: '○', static: '○'};",
+    "replace": "const _ADV_MARK = {ok: '●', warn: '●', bad: '●', unknown: '●', static: '●'};",
+    "defect": "every severity renders the same glyph, leaving colour as the only carrier for anyone who cannot separate red from green",
+    "expect": "test_the_severity_is_carried_by_a_glyph_as_well_as_a_colour"
+  },
+  {
+    "id": "M325_range_value_set_without_its_readout",
+    "file": "visualweaver/index.html",
+    "find": "  else if(el.type === 'range'){ setRange(el.id, val); }",
+    "replace": "  else if(el.type === 'range'){ el.value = val; }",
+    "defect": "a preset moves the slider but the number printed beside it keeps the old value",
+    "expect": "test_a_value_reaches_a_checkbox_a_number_and_a_slider"
+  },
+  {
+    "id": "M326_suggestion_reads_as_a_universal_default",
+    "file": "visualweaver/index.html",
+    "find": "          + `<b>${escHtml(String(a.suggested))}</b>. It is a starting point measured from `\n          + `your own retrieval history, not a universal default.</p>`",
+    "replace": "          + `<b>${escHtml(String(a.suggested))}</b>.</p>`",
+    "defect": "a value derived from this deployment's own scores reads as a recommended setting, which is the static-table framing the feature exists to avoid",
+    "expect": "test_the_info_popup_carries_the_measurement_and_names_it_as_local"
+  },
+  {
+    "id": "M327_preset_saves_instead_of_staging",
+    "file": "visualweaver/index.html",
+    "find": "  _markSettingsEdited();\n  _updateHistMarker(S.ragAdvice?.advice?.settings?.similarity_threshold);",
+    "replace": "  _markSettingsEdited();\n  saveSettings();",
+    "defect": "one click on a one-word button rewrites six settings and persists them, with no step at which the user sees what changed",
+    "expect": "test_applying_a_preset_stages_it_and_saves_nothing"
+  },
+  {
+    "id": "M328_sample_stored_at_full_repr",
+    "file": "visualweaver/state.py",
+    "find": "        res.append(round(float(score), RAW_SAMPLE_DP))",
+    "replace": "        res.append(float(score))",
+    "defect": "every grounded turn writes more than twice the bytes it needs to Redis, for digits a threshold that steps in 0.01 cannot use",
+    "expect": "test_scores_are_stored_at_the_precision_the_slider_can_use"
+  },
+  {
+    "id": "M329_persisted_sample_not_rounded_on_load",
+    "file": "visualweaver/rag_admin.py",
+    "find": "    row[\"raw_sample\"] = ([round(float(x), state.RAW_SAMPLE_DP)\n                          for x in samp[:state.RAW_SAMPLE_SIZE]]",
+    "replace": "    row[\"raw_sample\"] = ([float(x) for x in samp[:state.RAW_SAMPLE_SIZE]]",
+    "defect": "a blob written before the reservoir rounded keeps paying full float repr on every flush until its entries roll over",
+    "expect": "test_a_row_written_before_rounding_is_rounded_on_the_way_in"
+  },
+  {
+    "id": "M330_cache_settings_frozen_at_build",
+    "file": "visualweaver/cache.py",
+    "find": "        _apply_cache_config(state._semantic_cache)\n        return state._semantic_cache",
+    "replace": "        return state._semantic_cache",
+    "defect": "the cache threshold and TTL set in Settings never reach the running cache; redisvl keeps filtering at the build-time distance, so lowering the threshold cannot widen what matches and entries keep the old TTL",
+    "expect": "test_the_memoised_cache_is_reconfigured_on_every_lookup"
+  },
+  {
+    "id": "M331_stale_vectors_after_model_change",
+    "file": "visualweaver/cache.py",
+    "find": "    if _cache_model_changed():",
+    "replace": "    if False:",
+    "defect": "changing the embedding model leaves every cached prompt as a vector from the old model, so lookups score against incomparable geometry and can replay an unrelated answer as a hit",
+    "expect": "test_the_lookup_path_discards_stale_vectors_before_using_them"
+  },
+  {
+    "id": "M332_visual_rule_back_to_keywords",
+    "file": "visualweaver/cache.py",
+    "find": "    if _VISUAL_REQUEST_RE.search(q) or _VISUAL_STRONG_RE.search(q):\n        return True\n    if _INFO_OPENER_RE.match(q):\n        return False\n    return bool(_VISUAL_PHRASE_RE.search(q))",
+    "replace": "    return bool(_VISUAL_PHRASE_RE.search(q) or _VISUAL_REQUEST_RE.search(q))",
+    "defect": "ordinary questions are excluded from the cache because they name a picture — for a Redis product \"graph\", \"plot\" and \"diagram\" are domain vocabulary, and 11 of 20 plain questions paid a full LLM call they never needed",
+    "expect": "test_a_question_that_merely_names_a_picture_is_cacheable"
+  },
+  {
+    "id": "M333_threshold_pooled_across_corpora",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    vals = [r[\"pass_now\"] for r in rows if r[\"votes\"] and r[\"pass_now\"] is not None]\n    return min(vals) if vals else None",
+    "replace": "    vals = [r[\"pass_now\"] for r in rows if r[\"votes\"] and r[\"pass_now\"] is not None]\n    return (sum(vals) / len(vals)) if vals else None",
+    "defect": "a corpus that never matches and one that always does average into \"fine\", and the panel prints that in green while half the deployment retrieves nothing",
+    "expect": "test_a_dark_corpus_is_not_averaged_away_by_a_healthy_one"
+  },
+  {
+    "id": "M334_consensus_takes_the_strictest",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    lo = min(voters, key=lambda r: r[\"wants\"])\n    hi = max(voters, key=lambda r: r[\"wants\"])\n    out[\"suggested\"] = lo[\"wants\"]",
+    "replace": "    lo = min(voters, key=lambda r: r[\"wants\"])\n    hi = max(voters, key=lambda r: r[\"wants\"])\n    out[\"suggested\"] = hi[\"wants\"]",
+    "defect": "the suggested threshold is the strictest corpus's, which switches vector retrieval off entirely for every other corpus",
+    "expect": "test_the_suggestion_is_the_highest_value_every_corpus_can_meet"
+  },
+  {
+    "id": "M335_empty_retrieval_scored_as_zero",
+    "file": "visualweaver/state.py",
+    "find": "        s[\"no_candidates\"] += 1\n        _rag_stats_dirty.add(instance)\n        return",
+    "replace": "        s[\"no_candidates\"] += 1",
+    "defect": "a search that retrieved nothing records \"best score 0.00\" as evidence, so one empty corpus drags every derived threshold to 0.00 — which accepts every chunk",
+    "expect": "test_an_empty_corpus_does_not_score_zero_into_the_distribution"
+  },
+  {
+    "id": "M336_hyde_and_question_scores_pooled",
+    "file": "visualweaver/state.py",
+    "find": "    reg = current_regime()\n    if s.get(\"regime\") != reg:\n        _switch_regime(s, reg)",
+    "replace": "    reg = current_regime()",
+    "defect": "scores from question-mode and HyDE-mode retrieval share one sample, so the derived threshold is a value neither mode ever produced",
+    "expect": "test_toggling_hyde_starts_a_clean_sample"
+  },
+  {
+    "id": "M337_regime_lost_on_restart",
+    "file": "visualweaver/rag_admin.py",
+    "find": "    row[\"regime\"] = reg if isinstance(reg, str) and reg else state.UNKNOWN_REGIME",
+    "replace": "    row[\"regime\"] = state.UNKNOWN_REGIME",
+    "defect": "the retrieval regime is dropped when statistics are loaded, so the modes silently re-pool on the next restart",
+    "expect": "test_the_split_survives_a_restart"
+  },
+  {
+    "id": "M338_regime_budget_multiplied",
+    "file": "visualweaver/state.py",
+    "find": "    cap = regime_budget(s)",
+    "replace": "    cap = RAW_SAMPLE_SIZE",
+    "defect": "each regime keeps a full reservoir instead of a share, so toggling HyDE grows the blob written on every grounded turn by a whole sample",
+    "expect": "test_the_sample_budget_is_shared_not_multiplied"
+  },
+  {
+    "id": "M339_cache_replays_uncounted",
+    "file": "visualweaver/state.py",
+    "find": "    s[\"cache_replays\"] = s.get(\"cache_replays\", 0) + 1",
+    "replace": "    pass",
+    "defect": "the panel cannot say how much traffic its numbers speak for; at a 90% hit rate it reads as a quiet deployment rather than a well-cached one",
+    "expect": "test_a_replayed_question_is_counted_for_coverage"
+  },
+  {
+    "id": "M340_coverage_not_disclosed",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    replays = sum(int((r or {}).get(\"cache_replays\") or 0)",
+    "replace": "    replays = 0 * sum(int((r or {}).get(\"cache_replays\") or 0)",
+    "defect": "the numbers are presented as if they covered all traffic when most questions were answered from cache and never measured",
+    "expect": "test_the_coverage_note_names_what_was_not_measured"
+  },
+  {
+    "id": "M342_zero_wanting_corpus_still_votes",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        if ci is not None and ci[0] <= 0:\n            st, ci = \"no_signal\", None",
+    "replace": "        pass",
+    "defect": "a corpus whose derived threshold is zero is reported as voting while the consensus refuses it, so the row contradicts the verdict built from it",
+    "expect": "test_a_mostly_floored_distribution_is_reported_not_tuned"
+  },
+  {
+    "id": "M343_regime_splits_only_the_sample",
+    "file": "visualweaver/state.py",
+    "find": "    s[\"raw_hist\"] = list(prev.get(\"h\") or [0] * RAW_HIST_BUCKETS) if prev \\\n        else [0] * RAW_HIST_BUCKETS\n    s[\"scored\"] = int(prev.get(\"n\") or 0) if prev else 0\n    s[\"raw_score_sum\"] = float(prev.get(\"sum\") or 0.0) if prev else 0.0",
+    "replace": "    pass",
+    "defect": "the histogram, the mean and the scored count stay pooled across retrieval modes, so the chart drawn under the slider and the percentage drawn on top of it come from different populations",
+    "expect": "test_the_histogram_is_split_too_not_just_the_sample"
+  },
+  {
+    "id": "M344_upgrade_reports_no_history",
+    "file": "visualweaver/rag_admin.py",
+    "find": "    if not s.get(\"scored\"):\n        row[\"scored\"] = sum(row[\"raw_hist\"]) or int(row.get(\"queries\") or 0)",
+    "replace": "    pass",
+    "defect": "a row written before the scored counter existed reports no history, routing a corpus with hundreds of searches down the histogram-only path where legacy zeros derive a threshold of 0.00",
+    "expect": "test_a_row_from_before_scored_existed_reports_its_real_size"
+  },
+  {
+    "id": "M345_stale_index_width_unchecked",
+    "file": "visualweaver/cache.py",
+    "find": "    return _cache_index_dim() is not None",
+    "replace": "    return False",
+    "defect": "a cache of unknown provenance is scored against instead of discarded once: two models can share a vector width, and a same-width swap collapses every score so the cache never hits again while its entry count keeps reporting the entries for the whole TTL",
+    "expect": "test_a_cache_of_unknown_provenance_is_discarded_once"
+  },
+  {
+    "id": "M346_restored_turn_asserts_a_lookup",
+    "file": "visualweaver/index.html",
+    "find": "  if(!info) return '';",
+    "replace": "  info = info || {};",
+    "defect": "every answer in a reopened conversation claims no similar question was cached, including answers that came from the cache — asserting a lookup that never happened on this page",
+    "expect": "test_a_turn_from_before_this_was_recorded_shows_no_badge"
+  },
+  {
+    "id": "M347_visual_idioms_block_the_cache",
+    "file": "visualweaver/cache.py",
+    "find": "    if _NOT_VISUAL_RE.search(q):\n        return False\n",
+    "replace": "",
+    "defect": "fixed idioms that borrow a drawing verb — draw up a plan, draw your own conclusions, the plot summary, render the template — are treated as requests for a chart and excluded from the cache",
+    "expect": "test_a_question_that_merely_names_a_picture_is_cacheable"
+  },
+  {
+    "id": "M348_visual_question_forms_missed",
+    "file": "visualweaver/cache.py",
+    "find": "    if _VISUAL_REQUEST_RE.search(q) or _VISUAL_STRONG_RE.search(q):",
+    "replace": "    if _VISUAL_REQUEST_RE.search(q):",
+    "defect": "a request to see something phrased as a question — as a chart, into a flowchart — is cached and can replay a stale chart for a different question",
+    "expect": "test_a_request_to_see_something_is_excluded_from_the_cache"
+  },
+  {
+    "id": "M349_chart_shows_a_different_population",
+    "file": "visualweaver/rag_advice.py",
+    "find": "            \"hist\": worst_hist}",
+    "replace": "            \"hist\": list(t[\"raw_hist\"])}",
+    "defect": "the histogram drawn under the slider pools every corpus while the percentage drawn on top of it is one corpus's, so the tallest bar on screen belongs to the population that percentage excludes",
+    "expect": "test_the_chart_shows_the_corpus_the_number_is_about"
+  },
+  {
+    "id": "M350_silent_corpus_erased_from_the_panel",
+    "file": "visualweaver/rag_advice.py",
+    "find": "            if len(rows) > 1:\n                head += f\" on {worst['id']}\"",
+    "replace": "            if cons[\"voters\"] > 1:\n                head += f\" on {worst['id']}\"",
+    "defect": "with one voter beside a dead corpus the headline names no corpus and no disclosure renders, so the dead one vanishes from the panel entirely",
+    "expect": "test_a_single_voter_beside_a_dead_corpus_still_names_itself"
+  },
+  {
+    "id": "M351_coverage_counts_searches_not_questions",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    asked = measured_q + replays",
+    "replace": "    asked = n + replays\n    measured_q = n",
+    "defect": "the coverage ratio divides per-corpus searches by questions, so it is wrong by the number of corpora — the one number the disclosure exists to state",
+    "expect": "test_coverage_counts_questions_not_per_corpus_searches"
+  },
+  {
+    "id": "M352_token_cost_ignores_reranking",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    approx_tokens = int(sent_k * chunk_size * 1.35)     # ~1.35 tokens per word",
+    "replace": "    approx_tokens = int(top_k * chunk_size * 1.35)     # ~1.35 tokens per word",
+    "defect": "the context cost is quoted for top_k while the reranker discards all but top_n, overstating what is sent by up to four times",
+    "expect": "test_the_token_cost_counts_only_what_is_sent"
+  },
+  {
+    "id": "M353_reranker_graded_without_evidence",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    elif (t[\"answers_with_citations\"] >= MIN_CITED_ANSWERS\n          and cited_coverage_rank(t[\"cited_hist\"]) and top_k > cited_coverage_rank(t[\"cited_hist\"]) + TOPK_HEADROOM):",
+    "replace": "    elif top_k > 8:",
+    "defect": "an amber verdict with a one-click apply is shown for reranking on a deployment that has measured nothing, from a constant this module chose — the static recommended value the feature exists to abolish",
+    "expect": "test_nothing_is_graded_before_anything_is_measured"
+  },
+  {
+    "id": "M354_hybrid_graded_without_evidence",
+    "file": "visualweaver/rag_advice.py",
+    "find": "        graded = (not hybrid) and n >= MIN_QUERIES",
+    "replace": "        graded = not hybrid",
+    "defect": "hybrid search is graded amber with a one-click apply purely because the toggle is off, with no counter behind it, and survives the reset that promises every verdict returns to not-enough-data",
+    "expect": "test_nothing_is_graded_before_anything_is_measured"
+  },
+  {
+    "id": "M355_parked_histogram_lost_on_restart",
+    "file": "visualweaver/rag_admin.py",
+    "find": "                \"h\": list(h),\n",
+    "replace": "",
+    "defect": "the parked regime's histogram is dropped when statistics are loaded, so after a restart the chart shows a handful of searches while the verdict is computed from hundreds",
+    "expect": "test_a_parked_regime_keeps_its_histogram_across_a_restart"
+  },
+  {
+    "id": "M356_analytics_mean_divided_by_lifetime_queries",
+    "file": "visualweaver/routes_redis.py",
+    "find": "            \"avg_best_raw_score\": (round(s.get(\"raw_score_sum\", 0.0) / sc, 4)\n                                   if (sc := int(s.get(\"scored\") or 0)) else 0.0),",
+    "replace": "            \"avg_best_raw_score\": round(s.get(\"raw_score_sum\", 0.0) / q, 4) if q else 0.0,",
+    "defect": "the average best score divides a per-regime sum by a lifetime query count, collapsing to a fraction of the truth after any embedding-model or HyDE change — and DOCS points users at it as the diagnostic for a too-strict threshold",
+    "expect": "test_the_analytics_mean_survives_a_regime_change"
+  },
+  {
+    "id": "M357_advice_not_staled_by_taking_it",
+    "file": "visualweaver/index.html",
+    "find": "      _staleAdvice(true);\n      toast('Staged — press Save Settings to apply', 'info');",
+    "replace": "      toast('Staged — press Save Settings to apply', 'info');",
+    "defect": "clicking the panel's own apply button leaves every verdict at full strength describing the value the user just changed",
+    "expect": "test_taking_the_advice_marks_the_verdicts_as_measured_before_it"
+  },
+  {
+    "id": "M358_chart_stuck_on_the_preclick_value",
+    "file": "visualweaver/index.html",
+    "find": "      _updateHistMarker(S.ragAdvice?.advice?.settings?.similarity_threshold);\n      // And the verdicts",
+    "replace": "      // And the verdicts",
+    "defect": "clicking apply moves the slider but leaves the histogram marker and the cost readout on the previous value",
+    "expect": "test_taking_the_advice_moves_the_chart_with_the_slider"
+  },
+  {
+    "id": "M359_template_rebinds_on_delete",
+    "file": "visualweaver/index.html",
+    "find": "  const keepName=sel.dataset.pick;",
+    "replace": "  const keepName=S.templates[parseInt(sel.value)]?.name;",
+    "defect": "deleting a template silently rebinds the chat to whichever one takes its index — a different system prompt and a different cache scope, with nothing on screen to say so",
+    "expect": "test_deleting_a_template_does_not_rebind_the_chat_to_another_one"
+  },
+  {
+    "id": "M360_preset_overrides_the_evidence",
+    "file": "visualweaver/rag_advice.py",
+    "find": "    cap_note = _cap_by_evidence(values, cited_hist or [], cited_answers)",
+    "replace": "    cap_note = None",
+    "defect": "a preset sends more chunks than the citations show are read, contradicting the verdict directly above it — the panel says ranks up to 3 are in use while the button raises the kept-chunk count to 8",
+    "expect": "test_a_preset_cannot_send_more_chunks_than_the_citations_show_are_read"
+  },
+  {
+    "id": "M361_target_share_never_stated",
+    "file": "visualweaver/rag_advice.py",
+    "find": "                detail += (f\" Aiming to keep {int(TARGET_PASS * 100)}% of searches \"\n                           f\"retrieving, that is {sug:.2f}.\")",
+    "replace": "                pass",
+    "defect": "the share the suggested threshold is read at is never shown, so a number chosen by this module reads as the only one the user's data supports",
+    "expect": "test_the_threshold_detail_names_the_target_that_picked_it"
+  },
+  {
+    "id": "M362_cache_threshold_not_model_calibrated",
+    "file": "visualweaver/cache.py",
+    "find": "    return embeddings.cache_threshold_for(\n        (state._config.get(\"embedding\") or {}).get(\"model\"))",
+    "replace": "    return 0.92",
+    "defect": "one similarity threshold is used for every embedding model, but the models do not share a scale — a value that is merely permissive under all-MiniLM-L6-v2 admits unrelated questions under multilingual-e5-base and serves an answer to a question that was never asked",
+    "expect": "test_an_unset_threshold_follows_the_model"
+  },
+  {
+    "id": "M363_unknown_model_guessed_loosely",
+    "file": "visualweaver/embeddings.py",
+    "find": "UNCALIBRATED_CACHE_THRESHOLD = 0.98",
+    "replace": "UNCALIBRATED_CACHE_THRESHOLD = 0.85",
+    "defect": "an unmeasured embedding model gets a threshold looser than any measured one needed, so the first cache hits on it can be answers to different questions",
+    "expect": "test_an_unregistered_model_gets_the_strictest_measured_value"
+  },
+  {
+    "id": "M364_threshold_survives_a_model_change",
+    "file": "visualweaver/cache.py",
+    "find": "        _reset_threshold_for_new_model()\n    if state._semantic_cache is not None:",
+    "replace": "    if state._semantic_cache is not None:",
+    "defect": "a threshold calibrated for the previous embedding model is kept after the model changes, which is how a deployment ends up admitting unrelated questions on a number it never chose for that model",
+    "expect": "test_the_lookup_path_resets_the_threshold_when_the_model_changed"
+  },
+  {
+    "id": "M365_shipped_default_pins_a_number",
+    "file": "visualweaver/constants.py",
+    "find": "\"cache\": {\"enabled\": True, \"similarity_threshold\": None, \"ttl\": 3600},",
+    "replace": "\"cache\": {\"enabled\": True, \"similarity_threshold\": 0.92, \"ttl\": 3600},",
+    "defect": "the shipped default pins one threshold for every embedding model instead of following the model's own calibration",
+    "expect": "test_the_shipped_default_is_unset"
+  },
+  {
+    "id": "M366_settings_save_pins_the_auto_value",
+    "file": "visualweaver/index.html",
+    "find": "           similarity_threshold:getCheck('s-cache-threshold-auto')?null:parseFloat(getVal('s-cache-threshold')),",
+    "replace": "           similarity_threshold:parseFloat(getVal('s-cache-threshold')),",
+    "defect": "opening Settings and saving anything freezes the automatically calibrated threshold into an explicit number, after which it silently stops following the embedding model",
+    "expect": "test_following_the_model_posts_no_number"
+  },
+  {
+    "id": "M367_reset_pins_instead_of_clearing",
+    "file": "visualweaver/cache.py",
+    "find": "    cfg[\"similarity_threshold\"] = None\n    log.info(\"Cache similarity threshold %.2f cleared",
+    "replace": "    cfg[\"similarity_threshold\"] = new\n    log.info(\"Cache similarity threshold %.2f cleared",
+    "defect": "resetting the threshold after a model change writes the figure that model wants today instead of returning to automatic, which silently opts the deployment out of the next calibration",
+    "expect": "test_a_model_change_drops_a_threshold_calibrated_for_the_old_one"
+  },
+  {
+    "id": "M368_skip_reason_hidden_in_a_tooltip",
+    "file": "visualweaver/index.html",
+    "find": "         + `🚫 Not cached${info.label?' · '+escHtml(info.label):''}</span>`;",
+    "replace": "         + `🚫 Not cached</span>`;",
+    "defect": "the reason a turn was not cached lives only in a title attribute, invisible on touch and to anyone not hunting for it, so a cache working exactly as instructed reads as broken",
+    "expect": "test_the_reason_is_on_the_badge_not_only_in_a_tooltip"
+  },
+  {
+    "id": "M369_badge_below_the_contrast_floor",
+    "file": "visualweaver/index.html",
+    "find": ".cache-skip{background:rgba(161,98,7,.12);border:1px solid rgba(161,98,7,.28);color:#854d0e}",
+    "replace": ".cache-skip{background:rgba(161,98,7,.12);border:1px solid rgba(161,98,7,.28);color:var(--yellow)}",
+    "defect": "the not-cached badge renders 10px text at 3.8:1 against its own tinted background, under the readability floor",
+    "expect": "test_the_badge_clears_the_contrast_floor_in_both_themes"
+  },
+  {
+    "id": "M370_drawings_matched_by_similarity",
+    "file": "visualweaver/routes_chat.py",
+    "find": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, exact_only)",
+    "replace": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, False)",
+    "defect": "a request to draw something is matched by similarity, so a bar chart request is served a pie chart and sin(x) is served sin(2x) — measured at 0.971 and 0.979, above any usable threshold",
+    "expect": "test_both_chat_paths_route_drawings_to_the_exact_partition"
+  },
+  {
+    "id": "M371_drawings_share_the_text_partition",
+    "file": "visualweaver/cache.py",
+    "find": "        \"v\" if visual else \"t\",",
+    "replace": "        \"t\",",
+    "defect": "drawing requests and ordinary questions share one cache partition, so a question about a diagram can be answered with a diagram and the reverse",
+    "expect": "test_a_drawing_and_a_question_never_share_a_partition"
+  },
+  {
+    "id": "M372_question_hash_not_stored",
+    "file": "visualweaver/cache.py",
+    "find": "                    filters={\"scope\": scope or \"_none\", \"qhash\": _qhash(query)})",
+    "replace": "                    filters={\"scope\": scope or \"_none\"})",
+    "defect": "entries carry no question hash, so the exact-match partition can never return anything and repeated drawing requests are never served",
+    "expect": "test_every_entry_carries_its_hash"
+  },
+  {
+    "id": "M373_cache_ignores_the_models_prefix",
+    "file": "visualweaver/cache.py",
+    "find": "    prefix = embeddings.embedding_spec(raw).get(\"query_prefix\") or \"\"",
+    "replace": "    prefix = \"\"",
+    "defect": "the cache embeds without the prefix the model is trained with while the RAG path applies it, so the two halves of the app place the same sentence differently and the cache serves a third of what it could",
+    "expect": "test_the_cache_vectorizer_applies_the_models_prefix"
+  },
+  {
+    "id": "M374_prefix_not_part_of_the_marker",
+    "file": "visualweaver/cache.py",
+    "find": "    return f\"{canonical}|{pre}\" if pre else canonical",
+    "replace": "    return canonical",
+    "defect": "changing whether the model prefix is applied leaves the old vectors in place, and lookups are scored against text embedded a different way",
+    "expect": "test_the_marker_covers_the_prefix_too"
   }
 ]

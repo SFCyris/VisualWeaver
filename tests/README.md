@@ -8,14 +8,14 @@ venv/bin/python3 -m pytest tests/ -q
 
 Tests that need Redis look for one on `127.0.0.1:6390` and **skip** if none is
 reachable, so the suite still runs on a bare checkout. Override with
-`REDIRECALL_TEST_REDIS_HOST` / `REDIRECALL_TEST_REDIS_PORT`.
+`VISUALWEAVER_TEST_REDIS_HOST` / `VISUALWEAVER_TEST_REDIS_PORT`.
 
 Two tests reach outside the process:
 
 * frontend tests under `test_lanes_js.py` shell out to `node` and **skip** without
   it. They need no browser, no network and no dev server.
 * `test_manifest_urls_are_live` HEADs every CDN asset and only runs with
-  `REDIRECALL_TEST_NETWORK=1`, because the mutation sweep runs the suite ~76 times
+  `VISUALWEAVER_TEST_NETWORK=1`, because the mutation sweep runs the suite ~76 times
   and would otherwise issue ~1,800 requests to cdnjs per sweep.
 
 ## Safety
@@ -27,7 +27,7 @@ destroy the corpus of whoever runs the suite. Use the `clean_redis` fixture and
 build keys with `rc.key("...")`.
 
 Tests that touch config or sessions get an isolated `DATA_DIR`; `conftest.py`
-sets `REDIRECALL_DATA_DIR` before `redirecall.main` is imported, because the
+sets `VISUALWEAVER_DATA_DIR` before `visualweaver.main` is imported, because the
 module resolves that path at import time.
 
 ## The gate: `tests/mutation_sweep.py`

@@ -23,7 +23,7 @@ import pytest
 
 from _jsrun import run_node
 
-_INDEX = pathlib.Path(__file__).resolve().parents[1] / "redirecall" / "index.html"
+_INDEX = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
 
 
 def _prelude() -> str:

@@ -3,7 +3,7 @@
 
 Every test runs against a throwaway DATA_DIR and a dedicated Redis logical DB, so
 a test run can never read or overwrite a real install's config, sessions or
-vectors. The env var is set before ``redirecall.main`` is imported because the
+vectors. The env var is set before ``visualweaver.main`` is imported because the
 module resolves DATA_DIR at import time.
 """
 import os
@@ -13,31 +13,41 @@ from pathlib import Path
 
 import pytest
 
-_TMP_DATA = tempfile.mkdtemp(prefix="redirecall-tests-")
-os.environ["REDIRECALL_DATA_DIR"] = _TMP_DATA
+_TMP_DATA = tempfile.mkdtemp(prefix="visualweaver-tests-")
+os.environ["VISUALWEAVER_DATA_DIR"] = _TMP_DATA
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Redis used by the integration tests. RediSearch refuses FT.CREATE on any db but
 # 0, so tests MUST share db 0 with real data. They therefore namespace every key
 # under a per-run prefix and delete only that prefix — never FLUSHDB, which would
 # destroy the user's corpus.
-REDIS_HOST = os.environ.get("REDIRECALL_TEST_REDIS_HOST", "127.0.0.1")
-REDIS_PORT = int(os.environ.get("REDIRECALL_TEST_REDIS_PORT", "6390"))
+REDIS_HOST = os.environ.get("VISUALWEAVER_TEST_REDIS_HOST", "127.0.0.1")
+REDIS_PORT = int(os.environ.get("VISUALWEAVER_TEST_REDIS_PORT", "6390"))
 REDIS_DB = 0
 KEY_PREFIX = f"__rrtest_{os.getpid()}__"
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--runslow", action="store_true", default=False,
+        help="run tests that download embedding models (cache-threshold calibration)")
 
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "network: reaches the public internet; runs only with REDIRECALL_TEST_NETWORK=1",
+        "network: reaches the public internet; runs only with VISUALWEAVER_TEST_NETWORK=1",
+    )
+    config.addinivalue_line(
+        "markers",
+        "slow: downloads embedding models; runs only with --runslow",
     )
 
 
 @pytest.fixture(scope="session")
 def app_module():
     """The imported application module, pointed at the test data dir."""
-    import redirecall.main as m
+    import visualweaver.main as m
     return m
 
 
@@ -100,5 +110,5 @@ def clean_redis(redis_client):
 @pytest.fixture
 def data_dir():
     """An isolated directory for tests that write config or session files."""
-    with tempfile.TemporaryDirectory(prefix="redirecall-case-") as d:
+    with tempfile.TemporaryDirectory(prefix="visualweaver-case-") as d:
         yield Path(d)

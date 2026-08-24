@@ -15,10 +15,10 @@ synth, none of which node has:
     returns ``null`` and the reset timer got ms=0. Needs the real abcjs synth, whose
     ``duration`` (seconds) is the value the fix must use instead.
 
-Everything measured is extracted verbatim from ``redirecall/index.html`` — the two
+Everything measured is extracted verbatim from ``visualweaver/index.html`` — the two
 lanes, the geometry helpers, the card markup, the loaders, the whole stylesheet and
 the theme variables — so a change to any of them changes what is measured. Library
-bundles are served from ``~/.cache/redirecall-test-assets`` (downloaded once, then
+bundles are served from ``~/.cache/visualweaver-test-assets`` (downloaded once, then
 offline), same as ``browser_probe.py``.
 """
 from __future__ import annotations
@@ -31,8 +31,8 @@ import sys
 import urllib.request
 
 ASSET_DIR = pathlib.Path(
-    os.environ.get("REDIRECALL_TEST_ASSET_DIR",
-                   pathlib.Path.home() / ".cache" / "redirecall-test-assets"))
+    os.environ.get("VISUALWEAVER_TEST_ASSET_DIR",
+                   pathlib.Path.home() / ".cache" / "visualweaver-test-assets"))
 
 ABCJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/abcjs/6.6.4/abcjs-basic-min.min.js"
 SMILES_URL = "https://cdn.jsdelivr.net/npm/smiles-drawer@2.4.1/dist/smiles-drawer.min.js"
@@ -177,7 +177,7 @@ def _asset(url: str) -> bytes | None:
     if path.exists():
         return path.read_bytes()
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "redirecall-test"})
+        req = urllib.request.Request(url, headers={"User-Agent": "visualweaver-test"})
         with urllib.request.urlopen(req, timeout=30) as r:
             if r.status != 200:
                 return None

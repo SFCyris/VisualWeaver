@@ -20,11 +20,11 @@ import sys
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_INDEX = _ROOT / "redirecall" / "index.html"
+_INDEX = _ROOT / "visualweaver" / "index.html"
 _PROBE = pathlib.Path(__file__).with_name("a11y_probe.py")
 
 _CANDIDATE_PYTHONS = [
-    os.environ.get("REDIRECALL_TEST_PLAYWRIGHT_PYTHON"),
+    os.environ.get("VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON"),
     sys.executable,
     shutil.which("python3"),
     shutil.which("python"),
@@ -41,13 +41,13 @@ def _no_browser():
     """Skip — or FAIL when CI insists the browser tests must really run.
 
     A silent skip is indistinguishable from a pass in CI output: the suite would be a
-    no-op with nothing saying so. REDIRECALL_REQUIRE_BROWSER_TESTS=1 makes a missing
+    no-op with nothing saying so. VISUALWEAVER_REQUIRE_BROWSER_TESTS=1 makes a missing
     interpreter a hard failure, so a pipeline can assert these actually executed.
     """
     msg = ("no interpreter with playwright installed "
-           "(set REDIRECALL_TEST_PLAYWRIGHT_PYTHON)")
-    if os.environ.get("REDIRECALL_REQUIRE_BROWSER_TESTS") == "1":
-        pytest.fail(msg + " — required because REDIRECALL_REQUIRE_BROWSER_TESTS=1")
+           "(set VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON)")
+    if os.environ.get("VISUALWEAVER_REQUIRE_BROWSER_TESTS") == "1":
+        pytest.fail(msg + " — required because VISUALWEAVER_REQUIRE_BROWSER_TESTS=1")
     pytest.skip(msg)
 
 
@@ -98,20 +98,20 @@ def a11y():
 
 def test_a_missing_browser_skips_by_default_and_fails_when_ci_demands_one(monkeypatch):
     """On CI a silent skip is indistinguishable from a pass — these tests would be a
-    no-op with nothing in the output saying so. REDIRECALL_REQUIRE_BROWSER_TESTS=1 turns
+    no-op with nothing in the output saying so. VISUALWEAVER_REQUIRE_BROWSER_TESTS=1 turns
     a missing interpreter into a failure, so a pipeline can assert the suite really ran."""
     import _pytest.outcomes as outcomes
     import test_a11y_browser as mod
 
-    monkeypatch.delenv("REDIRECALL_REQUIRE_BROWSER_TESTS", raising=False)
+    monkeypatch.delenv("VISUALWEAVER_REQUIRE_BROWSER_TESTS", raising=False)
     with pytest.raises(outcomes.Skipped) as skipped:
         mod._no_browser()
     assert "playwright" in str(skipped.value).lower()
 
-    monkeypatch.setenv("REDIRECALL_REQUIRE_BROWSER_TESTS", "1")
+    monkeypatch.setenv("VISUALWEAVER_REQUIRE_BROWSER_TESTS", "1")
     with pytest.raises(outcomes.Failed) as failed:
         mod._no_browser()
-    assert "REDIRECALL_REQUIRE_BROWSER_TESTS=1" in str(failed.value)
+    assert "VISUALWEAVER_REQUIRE_BROWSER_TESTS=1" in str(failed.value)
 
 
 # ── contrast (WCAG 1.4.3) ────────────────────────────────────────────────────

@@ -17,13 +17,13 @@ import pytest
 
 from conftest import KEY_PREFIX
 
-from redirecall import constants
+from visualweaver import constants
 
 
 # ── citation numbering ───────────────────────────────────────────────────────
 
 def test_number_chunks_stamps_the_position_the_prompt_will_show(app_module):
-    from redirecall import rag
+    from visualweaver import rag
     chunks = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
     assert [c["n"] for c in rag.number_chunks(chunks)] == [1, 2, 3]
 
@@ -33,7 +33,7 @@ def test_the_prompt_numbers_match_the_stamp_not_the_list_position(app_module):
     re-derived it from enumerate() the two could drift apart the moment anything reordered
     the list between stamping and rendering — which is exactly what the browser was doing.
     """
-    from redirecall import rag
+    from visualweaver import rag
     chunks = rag.number_chunks([{"text": "first"}, {"text": "second"}])
     chunks.reverse()                       # a reorder after numbering
     prompt = rag.build_context_prompt(chunks)
@@ -46,7 +46,7 @@ def test_the_prompt_numbers_match_the_stamp_not_the_list_position(app_module):
 def test_a_stored_turn_carries_the_citation_number(app_module):
     """Without it a reopened conversation cannot line its [n] markers up with the
     inspector: the projection in _turn_meta drops every field it does not name."""
-    from redirecall import sessions
+    from visualweaver import sessions
     meta = sessions._turn_meta(chunks=[{"text": "x", "n": 7}, {"text": "y", "n": 8}])
     assert [c["n"] for c in meta["chunks"]] == [7, 8]
 
@@ -54,7 +54,7 @@ def test_a_stored_turn_carries_the_citation_number(app_module):
 def test_a_turn_stored_before_the_stamp_existed_still_gets_numbers(app_module):
     """Sessions already in Redis have no `n`; falling back to the position keeps the
     inspector labelling those turns rather than rendering "#undefined"."""
-    from redirecall import sessions
+    from visualweaver import sessions
     meta = sessions._turn_meta(chunks=[{"text": "x"}, {"text": "y"}])
     assert [c["n"] for c in meta["chunks"]] == [1, 2]
 
@@ -66,7 +66,7 @@ def test_a_keyless_provider_reports_itself_unconfigured(app_module, cfg, provide
     """The only signal used to be the error PROSE, so the UI had to string-match
     "No API key configured" to tell a provider nobody set up from one that is broken."""
     from fastapi.testclient import TestClient
-    from redirecall import appcore
+    from visualweaver import appcore
 
     cfg.setdefault(provider, {})["api_key"] = ""
     with TestClient(appcore.app) as client:
@@ -81,7 +81,7 @@ def test_reap_finished_ingests_keeps_recent_outcomes_and_drops_the_rest(app_modu
     """Finished jobs are kept on purpose — a browser that reconnects after the stream ended
     still needs to learn how it ended — but keeping every one for the life of the process
     is the leak the crawl equivalent has."""
-    from redirecall import state
+    from visualweaver import state
     state._active_ingests.clear()
     for i in range(state._INGEST_HISTORY + 5):
         state._active_ingests[f"j{i}"] = {"job": f"j{i}", "done": True}
@@ -103,7 +103,7 @@ def _sse_events(text: str) -> list[dict]:
 def stub_indexer(monkeypatch, app_module):
     """Replace the real indexer so the route's own control flow is what the test measures.
     Records which files it was actually asked to index."""
-    from redirecall import ingest, rag_admin
+    from visualweaver import ingest, rag_admin
     seen: list[str] = []
 
     async def fake_ingest_file(instance, path, name, rc):
@@ -120,7 +120,7 @@ def test_an_ingest_announces_a_job_id_and_appears_in_the_active_list(app_module,
     """Both are what make a running ingest addressable at all: without the id there is
     nothing to cancel, and without the listing a reconnecting browser cannot find it."""
     from fastapi.testclient import TestClient
-    from redirecall import appcore, state
+    from visualweaver import appcore, state
 
     state._active_ingests.clear()
     inst = f"{KEY_PREFIX}ingest"
@@ -149,7 +149,7 @@ def test_cancelling_stops_before_the_next_file_and_keeps_the_ones_already_done(
     rather than left in the uploads directory for good.
     """
     from fastapi.testclient import TestClient
-    from redirecall import appcore, ingest, rag_admin, state
+    from visualweaver import appcore, ingest, rag_admin, state
 
     state._active_ingests.clear()
     seen: list[str] = []
@@ -190,7 +190,7 @@ def test_cancelling_an_ingest_that_is_not_running_is_a_404_not_a_silent_ok(app_m
     """Reporting success for a job nobody can find tells the UI the crawl stopped when
     nothing happened — the same lie /api/crawl/pause used to tell."""
     from fastapi.testclient import TestClient
-    from redirecall import appcore
+    from visualweaver import appcore
     with TestClient(appcore.app) as client:
         assert client.post("/api/ingest/cancel", json={"job": "nope"}).status_code == 404
 
@@ -204,7 +204,7 @@ def test_the_active_ingest_route_reports_what_a_real_running_job_looks_like(
     loop never set `current`, `index`, `ok` or `errors` at all.
     """
     from fastapi.testclient import TestClient
-    from redirecall import appcore, ingest, rag_admin, state
+    from visualweaver import appcore, ingest, rag_admin, state
 
     state._active_ingests.clear()
     snapshots: list = []
@@ -244,7 +244,7 @@ def test_a_file_that_fails_to_index_is_counted_as_an_error_not_a_success(
     """
     import json as _json
     from fastapi.testclient import TestClient
-    from redirecall import appcore, ingest, rag_admin, state
+    from visualweaver import appcore, ingest, rag_admin, state
 
     state._active_ingests.clear()
 
@@ -281,7 +281,7 @@ def test_a_job_whose_stream_never_starts_is_expired_rather_than_left_immortal(ap
     chunk therefore left a job registered, not done, and unreachable — and the UI attaches
     to the first not-done job it finds, so one phantom froze that panel for good.
     """
-    from redirecall import state
+    from visualweaver import state
 
     state._active_ingests.clear()
     state._ingest_cancels.clear()
@@ -325,7 +325,7 @@ def test_a_crawl_reports_how_many_urls_it_has_discovered(app_module, monkeypatch
     Driven through the real crawl_url with fetching, chunking and embedding stubbed: the
     BFS, the frontier bookkeeping and the worker loop are all the production code.
     """
-    from redirecall import crawler, ingest, rag, rag_admin
+    from visualweaver import crawler, ingest, rag, rag_admin
 
     PAGES = {
         "https://seed.example/": "<a href='https://seed.example/a'>a</a>"
@@ -369,7 +369,7 @@ def test_a_crawl_reports_how_many_urls_it_has_discovered(app_module, monkeypatch
 def test_a_crawl_given_no_stats_dict_still_runs(app_module, monkeypatch):
     """`stats` is optional — the scheduled re-crawl and the non-streaming route call
     crawl_url without one, and a None there must not become an AttributeError mid-crawl."""
-    from redirecall import crawler, ingest, rag, rag_admin
+    from visualweaver import crawler, ingest, rag, rag_admin
 
     class _FakeRedis:
         def smembers(self, *a, **k): return set()
@@ -414,7 +414,7 @@ def test_the_crawl_route_publishes_the_crawlers_own_frontier_to_the_api(app_modu
     """
     import json as _json
     from fastapi.testclient import TestClient
-    from redirecall import appcore, crawler, rag_admin, state
+    from visualweaver import appcore, crawler, rag_admin, state
 
     PAGES = {
         "https://seam.example/": "<a href='https://seam.example/a'>a</a>"
@@ -473,7 +473,7 @@ def test_the_chat_route_stamps_citation_numbers_before_it_builds_the_prompt(
     actually handed.
     """
     from fastapi.testclient import TestClient
-    from redirecall import appcore, cache, providers, rag, sessions, state
+    from visualweaver import appcore, cache, providers, rag, sessions, state
 
     seen: dict = {}
     real_build = rag.build_context_prompt
@@ -528,7 +528,7 @@ def test_the_streaming_upload_route_enforces_the_same_size_cap_as_its_twin(
     takes. Also checks that a rejected batch does not leave its predecessors behind.
     """
     from fastapi.testclient import TestClient
-    from redirecall import appcore, config, constants
+    from visualweaver import appcore, config, constants
 
     monkeypatch.setattr(config, "_MAX_UPLOAD_BYTES", 64)
     inst = f"{KEY_PREFIX}big"
@@ -553,7 +553,7 @@ def test_a_crawl_counts_the_pages_it_has_resolved(app_module, monkeypatch):
     Two of the four pages below never index: one is already in the skip-list and one is a
     binary type. Both must still count as resolved, or the bar can never fill.
     """
-    from redirecall import crawler, ingest, rag, rag_admin
+    from visualweaver import crawler, ingest, rag, rag_admin
 
     PAGES = {
         "https://res.example/": "<a href='https://res.example/a'>a</a>"
@@ -608,8 +608,8 @@ def test_the_websocket_chat_path_also_stamps_citation_numbers(app_module, monkey
     Driven by calling handle_chat with a stand-in socket: the transport is not what is
     under test, the payload it is handed is.
     """
-    from redirecall import cache, providers, rag, routes_chat, sessions, state
-    from redirecall import ws as _ns_ws
+    from visualweaver import cache, providers, rag, routes_chat, sessions, state
+    from visualweaver import ws as _ns_ws
 
     sent: list = []
 
@@ -663,7 +663,7 @@ def app_on_test_redis(cfg, clean_redis):
     move it back, or every later test inherits the override.
     """
     from conftest import REDIS_DB, REDIS_HOST, REDIS_PORT
-    from redirecall import redis_store
+    from visualweaver import redis_store
     cfg["redis"] = {"host": REDIS_HOST, "port": REDIS_PORT, "db": REDIS_DB,
                     "password": "", "ssl": False}
     redis_store.invalidate_redis_clients()
@@ -685,7 +685,7 @@ def test_saving_text_makes_it_a_findable_deletable_document(app_module, app_on_t
     the test server. The code under test is the same either way — only the HTTP layer,
     which these assertions say nothing about, is skipped.
     """
-    from redirecall import rag, routes_ingestion, routes_sources
+    from visualweaver import rag, routes_ingestion, routes_sources
 
     inst = f"{KEY_PREFIX}kept"
     source = "answer://2026-08-19 how the semantic cache expires"
@@ -730,7 +730,7 @@ def test_a_saved_answer_must_be_attributable(app_module, payload, status, why):
     matches on exactly that value, so there would be no way to take it back out short of
     resetting the whole instance."""
     from fastapi.testclient import TestClient
-    from redirecall import appcore
+    from visualweaver import appcore
     with TestClient(appcore.app) as client:
         r = client.post(f"/api/rag/{KEY_PREFIX}bad/ingest/text", json=payload)
     assert r.status_code == status, (why, r.status_code, r.text[:200])
@@ -740,7 +740,7 @@ def test_saving_text_is_bounded_by_the_upload_limit(app_module, monkeypatch):
     """Same ceiling as the file and streaming upload routes: this one takes its body from
     a JSON field, which is no reason for it to be the one route without a cap."""
     from fastapi.testclient import TestClient
-    from redirecall import appcore, config
+    from visualweaver import appcore, config
     monkeypatch.setattr(config, "_MAX_UPLOAD_BYTES", 64)
     with TestClient(appcore.app) as client:
         r = client.post(f"/api/rag/{KEY_PREFIX}big/ingest/text",
@@ -759,7 +759,7 @@ def test_listing_documents_returns_every_one_not_just_the_first_page(
     ``_AGG_PAGE`` at 2 and five sources indexed, a single-page read returns 2 and the
     loop is the only thing that can produce 5.
     """
-    from redirecall import ingest, rag, routes_sources
+    from visualweaver import ingest, rag, routes_sources
 
     monkeypatch.setattr(rag, "_AGG_PAGE", 2)
     inst = f"{KEY_PREFIX}paged"

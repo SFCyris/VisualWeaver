@@ -20,11 +20,11 @@ import sys
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_INDEX = _ROOT / "redirecall" / "index.html"
+_INDEX = _ROOT / "visualweaver" / "index.html"
 _PROBE = pathlib.Path(__file__).with_name("ux_probe.py")
 
 _CANDIDATE_PYTHONS = [
-    os.environ.get("REDIRECALL_TEST_PLAYWRIGHT_PYTHON"),
+    os.environ.get("VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON"),
     sys.executable,
     shutil.which("python3"),
     shutil.which("python"),
@@ -41,9 +41,9 @@ _resolved: list = []
 def _no_browser():
     """Skip — or FAIL when CI insists the browser tests must really run."""
     msg = ("no interpreter with playwright installed "
-           "(set REDIRECALL_TEST_PLAYWRIGHT_PYTHON)")
-    if os.environ.get("REDIRECALL_REQUIRE_BROWSER_TESTS") == "1":
-        pytest.fail(msg + " — required because REDIRECALL_REQUIRE_BROWSER_TESTS=1")
+           "(set VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON)")
+    if os.environ.get("VISUALWEAVER_REQUIRE_BROWSER_TESTS") == "1":
+        pytest.fail(msg + " — required because VISUALWEAVER_REQUIRE_BROWSER_TESTS=1")
     pytest.skip(msg)
 
 
@@ -95,10 +95,10 @@ def test_a_missing_browser_skips_by_default_and_fails_when_ci_demands_one(monkey
     import _pytest.outcomes as outcomes
     import test_ux_browser as mod
 
-    monkeypatch.delenv("REDIRECALL_REQUIRE_BROWSER_TESTS", raising=False)
+    monkeypatch.delenv("VISUALWEAVER_REQUIRE_BROWSER_TESTS", raising=False)
     with pytest.raises(outcomes.Skipped):
         mod._no_browser()
-    monkeypatch.setenv("REDIRECALL_REQUIRE_BROWSER_TESTS", "1")
+    monkeypatch.setenv("VISUALWEAVER_REQUIRE_BROWSER_TESTS", "1")
     with pytest.raises(outcomes.Failed):
         mod._no_browser()
 

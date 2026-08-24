@@ -35,11 +35,11 @@ import sys
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_INDEX = _ROOT / "redirecall" / "index.html"
+_INDEX = _ROOT / "visualweaver" / "index.html"
 _PROBE = pathlib.Path(__file__).with_name("browser_probe.py")
 
 _CANDIDATE_PYTHONS = [
-    os.environ.get("REDIRECALL_TEST_PLAYWRIGHT_PYTHON"),
+    os.environ.get("VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON"),
     sys.executable,
     shutil.which("python3"),
     shutil.which("python"),
@@ -56,13 +56,13 @@ def _no_browser():
     """Skip — or FAIL when CI insists the browser tests must really run.
 
     A silent skip is indistinguishable from a pass in CI output: the suite would be a
-    no-op with nothing saying so. REDIRECALL_REQUIRE_BROWSER_TESTS=1 makes a missing
+    no-op with nothing saying so. VISUALWEAVER_REQUIRE_BROWSER_TESTS=1 makes a missing
     interpreter a hard failure, so a pipeline can assert these actually executed.
     """
     msg = ("no interpreter with playwright installed "
-           "(set REDIRECALL_TEST_PLAYWRIGHT_PYTHON)")
-    if os.environ.get("REDIRECALL_REQUIRE_BROWSER_TESTS") == "1":
-        pytest.fail(msg + " — required because REDIRECALL_REQUIRE_BROWSER_TESTS=1")
+           "(set VISUALWEAVER_TEST_PLAYWRIGHT_PYTHON)")
+    if os.environ.get("VISUALWEAVER_REQUIRE_BROWSER_TESTS") == "1":
+        pytest.fail(msg + " — required because VISUALWEAVER_REQUIRE_BROWSER_TESTS=1")
     pytest.skip(msg)
 
 

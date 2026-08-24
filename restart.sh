@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RediRecall — restart: stop the app + dedicated Redis, then start them again.
+# VisualWeaver — restart: stop the app + dedicated Redis, then start them again.
 # Any arguments (e.g. a port) are forwarded to start.sh.
 set -euo pipefail
 

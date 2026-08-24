@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for RediRecall's install/start/stop/restart scripts.
+# Shared helpers for VisualWeaver's install/start/stop/restart scripts.
 # Sourced by install.sh, start.sh, stop.sh, restart.sh — defines paths and
 # helper functions only; performs no actions on its own.
 
@@ -9,20 +9,20 @@
 _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${_COMMON_DIR}/.." && pwd)"
 
-# ── Platform-local data directory — MUST match redirecall/config.py ───────────
-#   macOS:  ~/Library/Application Support/RediRecall
-#   Linux:  $XDG_DATA_HOME/redirecall  or  ~/.local/share/redirecall
-#   other:  ~/.redirecall
-# Honors REDIRECALL_DATA_DIR (same env var the app reads).
+# ── Platform-local data directory — MUST match visualweaver/config.py ───────────
+#   macOS:  ~/Library/Application Support/VisualWeaver
+#   Linux:  $XDG_DATA_HOME/visualweaver  or  ~/.local/share/visualweaver
+#   other:  ~/.visualweaver
+# Honors VISUALWEAVER_DATA_DIR (same env var the app reads).
 data_dir() {
-  if [ -n "${REDIRECALL_DATA_DIR:-}" ]; then
-    printf '%s' "${REDIRECALL_DATA_DIR}"
+  if [ -n "${VISUALWEAVER_DATA_DIR:-}" ]; then
+    printf '%s' "${VISUALWEAVER_DATA_DIR}"
     return
   fi
   case "$(uname -s)" in
-    Darwin) printf '%s' "${HOME}/Library/Application Support/RediRecall" ;;
-    Linux)  printf '%s' "${XDG_DATA_HOME:-${HOME}/.local/share}/redirecall" ;;
-    *)      printf '%s' "${HOME}/.redirecall" ;;
+    Darwin) printf '%s' "${HOME}/Library/Application Support/VisualWeaver" ;;
+    Linux)  printf '%s' "${XDG_DATA_HOME:-${HOME}/.local/share}/visualweaver" ;;
+    *)      printf '%s' "${HOME}/.visualweaver" ;;
   esac
 }
 
@@ -30,8 +30,8 @@ DATA_DIR="$(data_dir)"
 
 # ── Paths (all runtime state lives under DATA_DIR, never in the repo) ─────────
 LOG_DIR="${DATA_DIR}/log"
-APP_PID="${DATA_DIR}/redirecall.pid"
-APP_LOG="${LOG_DIR}/redirecall.log"
+APP_PID="${DATA_DIR}/visualweaver.pid"
+APP_LOG="${LOG_DIR}/visualweaver.log"
 
 REDIS_DIR="${DATA_DIR}/redis"
 REDIS_CONF="${REDIS_DIR}/redis.conf"
@@ -67,26 +67,26 @@ rcli() {
 }
 
 # ── Per-machine overrides (optional, gitignored) ───────────────────────────────
-# .redirecall.env lets you set persistent overrides without editing tracked files or
-# re-typing env vars each run — e.g. REDIRECALL_HOST=0.0.0.0 to serve on the LAN.
+# .visualweaver.env lets you set persistent overrides without editing tracked files or
+# re-typing env vars each run — e.g. VISUALWEAVER_HOST=0.0.0.0 to serve on the LAN.
 # Real environment variables still win (only unset ones are filled from the file).
-if [ -f "${REPO_DIR}/.redirecall.env" ]; then
+if [ -f "${REPO_DIR}/.visualweaver.env" ]; then
   while IFS='=' read -r _k _v; do
     _k="${_k#"${_k%%[![:space:]]*}"}"; _k="${_k%"${_k##*[![:space:]]}"}"   # trim key
     case "${_k}" in ''|\#*) continue ;; esac                              # skip blanks / comments
     _v="${_v%\"}"; _v="${_v#\"}"                                          # strip optional quotes
     [ -z "${!_k:-}" ] && export "${_k}=${_v}"                             # real env vars win
-  done < "${REPO_DIR}/.redirecall.env"
+  done < "${REPO_DIR}/.visualweaver.env"
 fi
 
 # ── Ports ─────────────────────────────────────────────────────────────────────
-# App (web UI): default 8420, overridable via REDIRECALL_PORT.
-APP_PORT="${REDIRECALL_PORT:-8420}"
+# App (web UI): default 8420, overridable via VISUALWEAVER_PORT.
+APP_PORT="${VISUALWEAVER_PORT:-8420}"
 # App bind host: loopback by default (there is no auth yet — do not expose the
 # port to a network without putting a reverse proxy / auth in front).
-APP_HOST="${REDIRECALL_HOST:-127.0.0.1}"
+APP_HOST="${VISUALWEAVER_HOST:-127.0.0.1}"
 
-# Dedicated Redis port for RediRecall's OWN instance. Default 6389 keeps clear
+# Dedicated Redis port for VisualWeaver's OWN instance. Default 6389 keeps clear
 # of the standard 6379 so it never collides with a system/other Redis. The
 # authoritative value is whatever install.sh wrote into redis.conf.
 DEFAULT_REDIS_PORT=6389

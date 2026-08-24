@@ -1,4 +1,4 @@
-# RediRecall — Getting Started Tutorial
+# VisualWeaver — Getting Started Tutorial
 
 This tutorial walks you through the complete experience: installing the app, connecting a language model, building a knowledge base, and chatting with your data. Budget about 20–30 minutes on a first run — the ~90 MB embedding model, and optionally a headless-browser download, happen along the way.
 
@@ -24,11 +24,11 @@ Download the latest release and unzip it, **or** clone the repo, then open a ter
 
 ```bash
 # Option A — download the release zip from
-#   https://github.com/SFCyris/RediRecall/releases/latest
-unzip redirecall-latest.zip && cd RediRecall
+#   https://github.com/SFCyris/VisualWeaver/releases/latest
+unzip visualweaver-latest.zip && cd VisualWeaver
 
 # Option B — clone with git
-git clone https://github.com/SFCyris/RediRecall.git && cd RediRecall
+git clone https://github.com/SFCyris/VisualWeaver.git && cd VisualWeaver
 ```
 
 ---
@@ -95,7 +95,7 @@ sudo apt-get install -y \
 
 This starts the dedicated Redis, then the app. Open **http://localhost:8420** in your browser — you should see the chat interface with a glass-effect sidebar.
 
-![The RediRecall welcome screen](screenshots/tutorial/03-welcome.png)
+![The VisualWeaver welcome screen](screenshots/tutorial/03-welcome.png)
 
 - Stop everything (app **and** its Redis): `./stop.sh`
 - Restart: `./restart.sh`
@@ -288,7 +288,7 @@ If chunks have low scores (< 0.5), the retrieval may be struggling. See [SETTING
 
 ## Step 10b — Finding things again
 
-Press **Shift+⌘/Ctrl+F** for RediRecall's own search (plain ⌘/Ctrl+F stays with your
+Press **Shift+⌘/Ctrl+F** for VisualWeaver's own search (plain ⌘/Ctrl+F stays with your
 browser). It searches message text and the retrieved source passages, reports how many
 matches it found, and with **All conversations** ticked it looks through every conversation
 in the sidebar — clicking a result opens that conversation at the message.
@@ -369,7 +369,7 @@ Further down the same tab, the **🔢 Token Usage** card totals every conversati
 
 This is the all-time figure. The token pills in the top bar count only the conversation you are looking at and reset when you switch, so the two will not match.
 
-The card reports tokens, not money. Provider rates change without notice, so RediRecall does not guess at a price — take these counts to your provider's own billing page. **⬇ Export CSV** at the foot of the tab gives you the same rows in a spreadsheet.
+The card reports tokens, not money. Provider rates change without notice, so VisualWeaver does not guess at a price — take these counts to your provider's own billing page. **⬇ Export CSV** at the foot of the tab gives you the same rows in a spreadsheet.
 
 ---
 
@@ -405,4 +405,4 @@ No re-embedding needed — the vectors are stored in the export.
 - Read [DOCS.md](DOCS.md) for the full technical reference including the REST API and WebSocket protocol
 - Try a vision model with Ollama (`llava`) or Gemini and attach an image to your message
 - Set up multiple Redis endpoints for horizontal scaling
-- If you expose the app beyond loopback, put a reverse proxy with authentication in front of it — RediRecall has no built-in auth
+- If you expose the app beyond loopback, put a reverse proxy with authentication in front of it — VisualWeaver has no built-in auth

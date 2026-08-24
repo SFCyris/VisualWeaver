@@ -7,7 +7,7 @@ message list (Anthropic and Gemini reject "first message must use the user role"
 which was a real regression the flat ``[-10:]`` window never had. Pure functions,
 no Redis needed.
 """
-from redirecall import sessions, config, cache, constants, state
+from visualweaver import sessions, config, cache, constants, state
 
 
 def _alt(n: int, size: int = 400) -> list:

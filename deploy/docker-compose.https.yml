@@ -1,28 +1,28 @@
-# RediRecall behind Caddy with automatic HTTPS (Let's Encrypt).
+# VisualWeaver behind Caddy with automatic HTTPS (Let's Encrypt).
 #
 #   1. Point your domain's DNS at this host; open ports 80 and 443.
-#   2. Edit deploy/Caddyfile — replace redirecall.example.com with your domain.
+#   2. Edit deploy/Caddyfile — replace visualweaver.example.com with your domain.
 #   3. From the repo root:  docker compose -f deploy/docker-compose.https.yml up -d
 #   4. Open https://your-domain — Caddy fetches the certificate on first request.
 #
-# RediRecall itself is NOT published on the host here; only Caddy is exposed, so
+# VisualWeaver itself is NOT published on the host here; only Caddy is exposed, so
 # the only way in is through TLS. (There is still no app-level auth — add it, or
 # an auth layer in the Caddyfile, before exposing sensitive data.)
 
 services:
-  redirecall:
+  visualweaver:
     # Prebuilt multi-arch image from GitHub's registry (or build from source: `build: ..`).
-    image: ghcr.io/sfcyris/redirecall:latest
+    image: ghcr.io/sfcyris/visualweaver:latest
     # build: ..
-    container_name: redirecall
+    container_name: visualweaver
     volumes:
-      - redirecall-data:/data
+      - visualweaver-data:/data
     environment:
-      - REDIRECALL_DATA_DIR=/data
-      - REDIRECALL_HOST=0.0.0.0
-      - REDIRECALL_PORT=8420
-      - REDIRECALL_REDIS_HOST=redis
-      - REDIRECALL_REDIS_PORT=6379
+      - VISUALWEAVER_DATA_DIR=/data
+      - VISUALWEAVER_HOST=0.0.0.0
+      - VISUALWEAVER_PORT=8420
+      - VISUALWEAVER_REDIS_HOST=redis
+      - VISUALWEAVER_REDIS_PORT=6379
     depends_on:
       redis:
         condition: service_healthy
@@ -32,10 +32,10 @@ services:
 
   redis:
     image: redis:8
-    container_name: redirecall-redis
+    container_name: visualweaver-redis
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
-      - redirecall-redis:/data
+      - visualweaver-redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -45,9 +45,9 @@ services:
 
   caddy:
     image: caddy:2-alpine
-    container_name: redirecall-caddy
+    container_name: visualweaver-caddy
     depends_on:
-      - redirecall
+      - visualweaver
     ports:
       - "80:80"
       - "443:443"
@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  redirecall-data:
-  redirecall-redis:
+  visualweaver-data:
+  visualweaver-redis:
   caddy-data:
   caddy-config:

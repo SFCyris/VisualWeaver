@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# RediRecall — start the dedicated local Redis, then the app.
+# VisualWeaver — start the dedicated local Redis, then the app.
 #
 # Idempotent: if either is already running it is left alone. The app binds to
 # loopback (127.0.0.1) by default — there is no built-in auth, so do NOT
 # expose the port to a network without a reverse proxy / auth in front. Override
-# with REDIRECALL_HOST / REDIRECALL_PORT, or a bare port as the first argument.
+# with VISUALWEAVER_HOST / VISUALWEAVER_PORT, or a bare port as the first argument.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,21 +81,21 @@ elif port_in_use "${APP_PORT}"; then
   # the banner below announces the repo version made a failed swap look like a
   # successful one (a stale 1.5.0 kept serving under a "v1.7.0 is running" banner).
   _live="$(curl -fsS -m 2 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null || true)"
-  if printf '%s' "${_live}" | grep -q '"app" *: *"RediRecall"'; then
+  if printf '%s' "${_live}" | grep -q '"app" *: *"VisualWeaver"'; then
     _lv="$(printf '%s' "${_live}" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
-    c_warn "Port ${APP_PORT} already serves RediRecall v${_lv:-?} — an instance these scripts don't track (no pidfile)."
+    c_warn "Port ${APP_PORT} already serves VisualWeaver v${_lv:-?} — an instance these scripts don't track (no pidfile)."
     c_warn "Not starting a second app. Run ./restart.sh (stop.sh now finds and stops port-squatting instances too)."
   else
-    c_err "Port ${APP_PORT} is in use by something that is NOT RediRecall — not starting."
+    c_err "Port ${APP_PORT} is in use by something that is NOT VisualWeaver — not starting."
     exit 1
   fi
 else
-  c_info "Starting RediRecall on http://${APP_HOST}:${APP_PORT}…"
+  c_info "Starting VisualWeaver on http://${APP_HOST}:${APP_PORT}…"
   # --app-dir puts the repo on sys.path so `main:app` imports without a cd — and
   # without a wrapping subshell, so $! is the uvicorn process itself. (The subshell
   # form captured the wrapper's PID, so stop.sh killed the wrapper and orphaned the
-  # real server.) After the package split this becomes the `redirecall` console script.
-  REDIRECALL_PORT="${APP_PORT}" nohup "${PY}" -m uvicorn redirecall.main:app \
+  # real server.) After the package split this becomes the `visualweaver` console script.
+  VISUALWEAVER_PORT="${APP_PORT}" nohup "${PY}" -m uvicorn visualweaver.main:app \
     --app-dir "${REPO_DIR}" --host "${APP_HOST}" --port "${APP_PORT}" >>"${APP_LOG}" 2>&1 &
   echo $! > "${APP_PID}"
   # Poll /api/health until ready.
@@ -123,7 +123,7 @@ fi
 # version that was not actually running. File value is the fallback only.
 APP_VERSION="$(curl -fsS -m 2 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null \
   | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
-[ -z "${APP_VERSION}" ] && APP_VERSION="$(sed -n 's/^__version__ *= *["'"'"']\(.*\)["'"'"']/\1/p' "${REPO_DIR}/redirecall/__init__.py" 2>/dev/null)"
+[ -z "${APP_VERSION}" ] && APP_VERSION="$(sed -n 's/^__version__ *= *["'"'"']\(.*\)["'"'"']/\1/p' "${REPO_DIR}/visualweaver/__init__.py" 2>/dev/null)"
 [ -z "${APP_VERSION}" ] && APP_VERSION="?"
 
 # Best-effort primary LAN IPv4, for the case where the app is bound to all interfaces.
@@ -152,7 +152,7 @@ case "${APP_HOST}" in
 esac
 
 c_info ""
-c_ok "══ RediRecall v${APP_VERSION} is running ══"
+c_ok "══ VisualWeaver v${APP_VERSION} is running ══"
 c_info "  Web UI:   ${APP_URLS[0]}"
 for _u in "${APP_URLS[@]:1}"; do c_info "            ${_u}"; done
 c_info "  Redis:    127.0.0.1:${RPORT} (dedicated, AOF everysec)"

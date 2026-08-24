@@ -12,7 +12,7 @@ import pytest
 
 from _jsrun import run_node
 
-_INDEX = pathlib.Path(__file__).resolve().parents[1] / "redirecall" / "index.html"
+_INDEX = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
 
 
 def _helpers() -> str:
@@ -115,7 +115,7 @@ def test_palette_interpolates_within_rgb_bounds():
 # ```geometry and a static blob in ```svg captioned "Julia Set Approximation" —
 # ```fractal was never used even though it was available and documented). ──────
 def test_prompt_directs_fractals_and_ifs_and_julia_to_the_fractal_lane():
-    from redirecall import constants
+    from visualweaver import constants
     t = constants.DEFAULT_BASE_INSTRUCTION
     i = t.index("```fractal —")
     bullet = t[i:t.index("\n", i)]
@@ -127,7 +127,7 @@ def test_prompt_directs_fractals_and_ifs_and_julia_to_the_fractal_lane():
 
 
 def test_geometry_and_svg_bullets_point_back_to_fractal():
-    from redirecall import constants
+    from visualweaver import constants
     t = constants.DEFAULT_BASE_INSTRUCTION
     geo = t[t.index("```geometry —"):t.index("\n", t.index("```geometry —"))]
     assert "```fractal" in geo, "the geometry bullet must disclaim fractals in favour of ```fractal"
@@ -136,7 +136,7 @@ def test_geometry_and_svg_bullets_point_back_to_fractal():
 
 
 def test_prompt_tells_the_model_to_use_decimals_not_fractions():
-    from redirecall import constants
+    from visualweaver import constants
     t = constants.DEFAULT_BASE_INSTRUCTION
     bullet = t[t.index("```fractal —"):t.index("\n", t.index("```fractal —"))]
     assert "1/3" in bullet and "0.333" in bullet, \

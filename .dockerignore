@@ -1,5 +1,5 @@
 # Keep the build context (and image) lean — exclude everything the container
-# doesn't need at runtime. The bundled frontend (redirecall/index.html) IS needed.
+# doesn't need at runtime. The bundled frontend (visualweaver/index.html) IS needed.
 .git
 .gitignore
 .venv
@@ -14,7 +14,7 @@ node_modules
 
 # Local runtime state / secrets — must NEVER be baked into the image.
 config.json
-.redirecall.env
+.visualweaver.env
 *.env
 !.env.example
 ingestion_logs.json

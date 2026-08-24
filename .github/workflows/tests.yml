@@ -46,8 +46,8 @@ jobs:
 
       - name: Run tests
         env:
-          REDIRECALL_TEST_REDIS_HOST: 127.0.0.1
-          REDIRECALL_TEST_REDIS_PORT: 6390
+          VISUALWEAVER_TEST_REDIS_HOST: 127.0.0.1
+          VISUALWEAVER_TEST_REDIS_PORT: 6390
         run: python -m pytest tests/ -q --durations=10
 
       - name: Check the app imports and the CLI is wired
@@ -55,6 +55,6 @@ jobs:
         # on --help, which blocked this step for 22 minutes until the job-level
         # timeout cancelled the whole run. A hang here must fail in seconds.
         run: |
-          timeout 60 python -c "import redirecall.main; print('import ok')"
-          timeout 60 redirecall --help > /dev/null && echo "cli ok"
-          timeout 60 redirecall --version
+          timeout 60 python -c "import visualweaver.main; print('import ok')"
+          timeout 60 visualweaver --help > /dev/null && echo "cli ok"
+          timeout 60 visualweaver --version

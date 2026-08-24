@@ -2,7 +2,7 @@ name: Attach source zip to release
 
 # On every version tag (e.g. `git tag v1.3.1 && git push origin v1.3.1`), builds a
 # plain source zip and attaches it to the GitHub release as both a versioned name
-# and a constant "latest" name, so releases/latest/download/redirecall-latest.zip
+# and a constant "latest" name, so releases/latest/download/visualweaver-latest.zip
 # is a stable one-click permalink. Runs alongside docker-publish.yml, which
 # handles the Docker image separately.
 #
@@ -28,9 +28,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          ZIP="redirecall-${VERSION}.zip"
-          git archive --format=zip --prefix="redirecall-${VERSION}/" -o "$ZIP" HEAD
-          cp "$ZIP" redirecall-latest.zip
+          ZIP="visualweaver-${VERSION}.zip"
+          git archive --format=zip --prefix="visualweaver-${VERSION}/" -o "$ZIP" HEAD
+          cp "$ZIP" visualweaver-latest.zip
           echo "Built $ZIP ($(du -h "$ZIP" | cut -f1))"
 
       - name: Wait for the release to exist, then attach the zip
@@ -39,11 +39,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          ZIP="redirecall-${VERSION}.zip"
+          ZIP="visualweaver-${VERSION}.zip"
           for i in $(seq 1 40); do
             if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-              gh release upload "${GITHUB_REF_NAME}" "$ZIP" redirecall-latest.zip --clobber
-              echo "Attached $ZIP and redirecall-latest.zip to ${GITHUB_REF_NAME}."
+              gh release upload "${GITHUB_REF_NAME}" "$ZIP" visualweaver-latest.zip --clobber
+              echo "Attached $ZIP and visualweaver-latest.zip to ${GITHUB_REF_NAME}."
               exit 0
             fi
             echo "Release ${GITHUB_REF_NAME} not published yet (attempt $i/40) — waiting 30s…"
@@ -56,5 +56,5 @@ jobs:
         if: always()
         with:
           name: source-zip
-          path: redirecall-*.zip
+          path: visualweaver-*.zip
           retention-days: 14

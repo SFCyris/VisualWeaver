@@ -18,10 +18,10 @@ zoom defects are only observable through real input and real layout.
 Nothing is mocked except the four page-level helpers the delegated click handler
 calls but this card does not depend on (``enhanceTables``, ``toast`` …). The
 chart lane, the card markup, the click handler, ``_loadScript``, the CDN base and
-the whole stylesheet are all extracted verbatim out of ``redirecall/index.html``,
+the whole stylesheet are all extracted verbatim out of ``visualweaver/index.html``,
 so a change to any of them changes what is measured here.
 
-The three CDN scripts are served from ``~/.cache/redirecall-test-assets`` (see
+The three CDN scripts are served from ``~/.cache/visualweaver-test-assets`` (see
 ASSET_DIR) and downloaded once on first run, so the sweep can run offline and
 does not hammer cdnjs 80+ times.
 """
@@ -36,8 +36,8 @@ import urllib.request
 
 CDN_PREFIX = "https://cdnjs.cloudflare.com/ajax/libs/"
 ASSET_DIR = pathlib.Path(
-    os.environ.get("REDIRECALL_TEST_ASSET_DIR",
-                  pathlib.Path.home() / ".cache" / "redirecall-test-assets"))
+    os.environ.get("VISUALWEAVER_TEST_ASSET_DIR",
+                  pathlib.Path.home() / ".cache" / "visualweaver-test-assets"))
 
 
 # ── extraction out of index.html ─────────────────────────────────────────────

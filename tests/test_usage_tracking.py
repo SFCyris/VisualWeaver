@@ -9,7 +9,7 @@ import types
 
 import pytest
 
-from redirecall import providers, sessions, state, routes_misc
+from visualweaver import providers, sessions, state, routes_misc
 
 
 # ── the sink contract ────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ def test_record_usage_and_totals_roundtrip(monkeypatch):
     monkeypatch.setattr(sessions, "_USAGE_KEY", key)
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT
-    from redirecall import redis_store
+    from visualweaver import redis_store
     try:
         rc = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=2)
         rc.ping()
@@ -178,7 +178,7 @@ def usage_redis(monkeypatch):
     monkeypatch.setattr(sessions, "_USAGE_KEY", key)
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT, REDIS_DB
-    from redirecall import redis_store
+    from visualweaver import redis_store
     try:
         rc = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
                           socket_connect_timeout=2)
@@ -244,7 +244,7 @@ def test_usage_endpoints_read_and_clear(usage_redis):
     GET /api/usage/clear, both left this green while the Reset button 404s.
     """
     from fastapi.testclient import TestClient
-    from redirecall import appcore
+    from visualweaver import appcore
     rc, key = usage_redis
     client = TestClient(appcore.app)
     sessions.record_usage("openai", "gpt-4o", {"prompt": 20, "completion": 5})
@@ -262,7 +262,7 @@ def test_usage_endpoints_read_and_clear(usage_redis):
 
 def test_the_usage_routes_are_registered_at_the_paths_the_ui_calls():
     """The frontend hardcodes these; a rename anywhere else must fail here."""
-    from redirecall import appcore
+    from visualweaver import appcore
     reg = {(getattr(r, "path", None), m)
            for r in appcore.app.routes for m in getattr(r, "methods", set())}
     assert ("/api/usage", "GET") in reg
@@ -360,7 +360,7 @@ def test_fork_rejects_bad_anchor():
 
 # ── watched folders: candidate scan ──────────────────────────────────────────
 def test_watch_candidates_filters_dotdirs_and_extensions(tmp_path):
-    from redirecall import ws as ws_mod, ingest
+    from visualweaver import ws as ws_mod, ingest
     (tmp_path / "a.md").write_text("hello")
     (tmp_path / "b.txt").write_text("hello")
     (tmp_path / "c.exe").write_text("nope")
@@ -379,10 +379,10 @@ def test_watch_candidates_filters_dotdirs_and_extensions(tmp_path):
 def test_watch_seen_keys_are_instance_scoped(tmp_path, monkeypatch):
     """The same folder feeding two instances must track signatures separately —
     a shared key made the second instance skip every file as already-seen."""
-    from redirecall import ws as ws_mod
+    from visualweaver import ws as ws_mod
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT
-    from redirecall import redis_store
+    from visualweaver import redis_store
     key = f"__rrtest_{os.getpid()}__:watchseen"
     monkeypatch.setattr(ws_mod, "_WATCH_SEEN_KEY", key)
     try:

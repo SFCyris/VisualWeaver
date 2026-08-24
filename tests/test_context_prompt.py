@@ -8,7 +8,7 @@ weak vocabulary-overlap match (a real case: "Beginning of Old MacDonald" pulled 
 abstain instead of answering. The prompt now tells the model the context is
 machine-retrieved, to ignore irrelevant context without narrating it, and shows
 each chunk's match score so it can calibrate."""
-from redirecall import rag
+from visualweaver import rag
 
 
 def _chunks():

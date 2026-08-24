@@ -13,7 +13,7 @@ import pytest
 
 from _jsrun import extract_js_function, run_node
 
-_INDEX = pathlib.Path(__file__).resolve().parents[1] / "redirecall" / "index.html"
+_INDEX = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
 
 
 def _run(body: str, fns: tuple, state: dict | None = None) -> dict:

@@ -1,4 +1,4 @@
-# RediRecall — Documentation
+# VisualWeaver — Documentation
 
 > A self-hosted AI chat application with Retrieval-Augmented Generation (RAG) powered by Redis vector search, supporting Ollama, Claude, OpenAI, Qwen, Mistral, Groq, and Gemini as LLM providers.
 
@@ -31,7 +31,7 @@
 
 ## Overview
 
-RediRecall is a single-server, self-hosted application that lets you:
+VisualWeaver is a single-server, self-hosted application that lets you:
 
 - Chat with Ollama, Claude, OpenAI, Qwen, Mistral, Groq, or Gemini
 - Build named **RAG knowledge bases** from files, PDFs, web pages, and `llms.txt` manifests
@@ -67,14 +67,14 @@ RediRecall is a single-server, self-hosted application that lets you:
 Or with containers — pull the prebuilt multi-arch app image (from GitHub's Container Registry) plus Redis, then start:
 
 ```bash
-docker compose pull      # ghcr.io/sfcyris/redirecall:latest + redis:8
+docker compose pull      # ghcr.io/sfcyris/visualweaver:latest + redis:8
 docker compose up -d     # → http://localhost:8420
 docker compose stop      # stop later (docker compose down to remove containers; data volume persists)
 ```
 
 See the README for details.
 
-On first launch a `config.json` is created (with defaults) in the per-platform data directory — `~/Library/Application Support/RediRecall` on macOS, `~/.local/share/redirecall` on Linux — not in the repo. Configure Redis and your LLM provider via **Settings** before chatting.
+On first launch a `config.json` is created (with defaults) in the per-platform data directory — `~/Library/Application Support/VisualWeaver` on macOS, `~/.local/share/visualweaver` on Linux — not in the repo. Configure Redis and your LLM provider via **Settings** before chatting.
 
 ### First run
 
@@ -295,7 +295,7 @@ An answer with no badge at all was produced without RAG (all instances disabled,
 
 ### Finding an earlier answer
 
-**Shift+⌘/Ctrl+F** opens RediRecall's own search. Plain ⌘/Ctrl+F is left to the browser, whose find covers the rendered page.
+**Shift+⌘/Ctrl+F** opens VisualWeaver's own search. Plain ⌘/Ctrl+F is left to the browser, whose find covers the rendered page.
 
 - Searches message text **and the retrieved source passages** stored with each answer
 - **All conversations** widens it beyond the current one; conversations stored only on the server are loaded on demand, and any that cannot be loaded are named
@@ -328,7 +328,7 @@ Sessions are listed in the left sidebar. Click any session to switch to it, or t
 
 The foot of the sidebar holds the actions that apply to the conversation you are in — **Export Chat** as `.md` or `.txt`, and **🗑 Clear Chat**, which empties the current conversation after a confirmation and leaves every other one alone.
 
-Conversations are **persisted in Redis and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically. The sidebar lists conversations started in *this* browser; because RediRecall has no user accounts, it deliberately does not list sessions created elsewhere.
+Conversations are **persisted in Redis and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically. The sidebar lists conversations started in *this* browser; because VisualWeaver has no user accounts, it deliberately does not list sessions created elsewhere.
 
 Each message records the provider and model that produced it. Sessions are automatically titled from the first message.
 
@@ -533,7 +533,7 @@ Configure in **Settings → RAG**:
 | **Chunk Size** | 180 words | Target words per chunk |
 | **Chunk Overlap** | 32 words | Words of context carried into the next chunk |
 
-> **Chunk size is bounded by the embedding model.** Each model can only encode a fixed number of tokens (`intfloat/multilingual-e5-small` handles 256, roughly 190 English words) and silently truncates anything longer — the excess text is still stored and shown, but is **not represented in the vector**, so it cannot be found by semantic search. RediRecall warns in the log when the configured chunk size exceeds what the active model can encode, and lowers a saved value that is already over the limit (logging the change).
+> **Chunk size is bounded by the embedding model.** Each model can only encode a fixed number of tokens (`intfloat/multilingual-e5-small` handles 256, roughly 190 English words) and silently truncates anything longer — the excess text is still stored and shown, but is **not represented in the vector**, so it cannot be found by semantic search. VisualWeaver warns in the log when the configured chunk size exceeds what the active model can encode, and lowers a saved value that is already over the limit (logging the change).
 
 ---
 
@@ -563,12 +563,63 @@ The cache intercepts queries before they reach the LLM. If a semantically equiva
 | Setting | Default | Effect |
 |---|---|---|
 | **Enabled** | ✅ | Toggle the cache on/off |
-| **Similarity Threshold** | 0.92 | Higher = stricter match required for a cache hit |
+| **Similarity Threshold** | set by the embedding model | Higher = stricter match required for a cache hit |
 | **TTL** | 3600 s | Seconds before a cached entry expires |
+
+### The similarity threshold is set by the embedding model
+
+Left unset, the threshold follows whichever embedding model is configured:
+
+| Embedding model | Threshold |
+|---|---|
+| `all-MiniLM-L6-v2` | 0.93 |
+| `multilingual-e5-small` | 0.98 |
+| `multilingual-e5-base` | 0.98 |
+| `bge-m3` | 0.93 |
+| anything else | 0.98 |
+
+These are not interchangeable. The models place unrelated text at very different
+similarities — two questions about completely different subjects score about 0.10 apart
+under `all-MiniLM-L6-v2` and about 0.80 apart under `multilingual-e5-base` — so the same
+number is a permissive setting under one model and admits unrelated questions under
+another. Changing the embedding model therefore resets the threshold along with the
+cached entries, which are also not comparable across models.
+
+Each value is the lowest that admitted no unrelated question in the set at
+`tests/fixtures/cache_calibration.py`, on the basis that the two mistakes do not cost the
+same: a wrong hit answers a question that was never asked, while a miss costs one model
+call. You can still set the value yourself, and an explicit setting is kept until the
+embedding model changes.
+
+**What this cannot do.** Two questions that differ in one decisive word — *enable* against
+*disable*, *Q1* against *Q2*, *back up* against *restore* — score higher than most genuine
+rewordings, in every model tested. No threshold separates them, so the values above are
+chosen to exclude them and give up cache hits to do it. Raising the hit rate by lowering
+the threshold trades directly against answering the wrong question.
+
+The cost of that is not evenly spread. Under `multilingual-e5-base`, unrelated questions
+already sit near 0.80, so the safe value is 0.98 and only near-identical wording matches —
+the cache behaves close to an exact-match cache. Under `all-MiniLM-L6-v2` and `bge-m3`,
+which spread their scores much further apart, the safe value is 0.93 and genuine rewordings
+match. If cache hit rate matters to you more than multilingual retrieval, that is the
+trade-off to weigh.
+
+### Requests to draw something
+
+A question that asks to *see* something — a chart, a diagram, a plot — is cached, but is
+matched only when the question is the same question, not a similar one. Similarity does not
+work there: a drawing request is mostly scaffolding around one word that carries the whole
+meaning, so *"chart of CO2 emissions 1990-2020"* and *"…2000-2020"* score 0.9867 apart, and
+*"plot f(x) = sin(x)"* and *"sin(2x)"* score 0.9790 — both above any threshold that would
+still match anything. Asking the identical question again is served from the cache;
+anything else generates fresh.
 
 Cache hits appear with a green **⚡ Cached XX%** badge showing the match score.
 
-Cache misses appear with a yellow **🔍 Live** badge.
+Answers that were not served from the cache say which: **🔍 Live** when nothing similar was
+stored, **🚫 Not cached** for a request that is never cached (an attachment, or a chart or
+diagram, which is always generated fresh), and **↻ Regenerated** when the cache was
+deliberately bypassed.
 
 ### Managing individual cache entries
 
@@ -658,7 +709,7 @@ The card header shows:
 Create, edit, and delete named system prompts.
 
 #### 🔐 Security
-RediRecall has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. The app binds to `127.0.0.1` by default; put a reverse proxy with HTTPS + auth in front before exposing it to a network (see `deploy/docker-compose.https.yml`).
+VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. The app binds to `127.0.0.1` by default; put a reverse proxy with HTTPS + auth in front before exposing it to a network (see `deploy/docker-compose.https.yml`).
 
 ### Group 5 — Diagnostics
 
@@ -689,9 +740,10 @@ Editing a staged control marks the panel **Unsaved changes**, and closing it the
 |---|---|
 | `Enter` | Send message |
 | `Shift+Enter` | New line in input |
+| `⌘/Ctrl+Enter` | Send message |
 | `⌘/Ctrl+K` | Open Settings |
 | `⌘/Ctrl+Shift+F` | Search conversations |
-| `⌘/Ctrl+F` | Your browser's own find — RediRecall does not intercept it |
+| `⌘/Ctrl+F` | Your browser's own find — VisualWeaver does not intercept it |
 | `Esc` | Close panel |
 
 ---
@@ -756,7 +808,7 @@ What counts as "strict" depends on the embedding model, and the useful range is 
 
 #### Reranking
 
-With reranking enabled (set `reranker.enabled: true` in `config.json` — there is no UI toggle), a cross-encoder re-scores the retrieved candidates before they reach the model. Because a reranker can only improve on the original ordering if it is given more candidates than you intend to keep, RediRecall widens retrieval to `rerank_candidates` (default 40) whenever reranking is on, then cuts back to `top_k` afterwards. With the reranker off, retrieval fetches only `top_k` and no extra work is done.
+With reranking enabled (**Settings → RAG → Rerank retrieved chunks**), a cross-encoder re-scores the retrieved candidates before they reach the model. Because a reranker can only improve on the original ordering if it is given more candidates than you intend to keep, VisualWeaver widens retrieval to `rerank_candidates` (default 40) whenever reranking is on, then cuts back to `top_k` afterwards. With the reranker off, retrieval fetches only `top_k` and no extra work is done.
 
 A **⚠ threshold?** warning pill appears automatically on any instance where raw score ≥ 0.60 but hit rate < 50%.
 
@@ -775,7 +827,7 @@ The four columns are disjoint, so they add up to the model's total. **Cached** a
 
 Rows are ordered by total tokens, heaviest first.
 
-RediRecall reports tokens and no money. Rates differ by provider, by model and over time, and change without notice, so any figure the app derived would be a guess presented as an amount — work the cost out from these counts against your provider's own bill.
+VisualWeaver reports tokens and no money. Rates differ by provider, by model and over time, and change without notice, so any figure the app derived would be a guess presented as an amount — work the cost out from these counts against your provider's own bill.
 
 Counts come from the provider and only from answers it actually produced. Cache hits and stopped answers never reach a provider, so they are absent here — which is why the sum of the top-bar pills across your conversations will read higher than this total.
 
@@ -878,7 +930,7 @@ set up from one that is set up and failing.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/rag/{instance}/ingest/files` | Upload and ingest files (returns JSON array) |
-| `POST` | `/api/rag/{instance}/ingest/files/stream` | Upload and ingest files with SSE progress. First event is `{job, total}` — pass `job` to `/api/ingest/cancel` to stop it. A `{stage: "model", message}` event precedes the first file while the embedding model is being loaded. Per-file events carry `{file, status, chunks, error, index, total}`, where `status` is `ok`, `skipped` or `error` — a file the indexer *reports* as failed (an unsupported type, a scanned PDF with no extractable text) counts towards `errors`, not `ok`. Enforces `REDIRECALL_MAX_UPLOAD_MB` per file, as the non-streaming route does |
+| `POST` | `/api/rag/{instance}/ingest/files/stream` | Upload and ingest files with SSE progress. First event is `{job, total}` — pass `job` to `/api/ingest/cancel` to stop it. A `{stage: "model", message}` event precedes the first file while the embedding model is being loaded. Per-file events carry `{file, status, chunks, error, index, total}`, where `status` is `ok`, `skipped` or `error` — a file the indexer *reports* as failed (an unsupported type, a scanned PDF with no extractable text) counts towards `errors`, not `ok`. Enforces `VISUALWEAVER_MAX_UPLOAD_MB` per file, as the non-streaming route does |
 | `POST` | `/api/rag/{instance}/ingest/url` | Crawl URL (non-streaming) |
 | `GET` | `/api/rag/{instance}/ingest/url/stream` | Crawl with SSE progress. Each event carries `{url, status, chunks, error, pages_done, discovered, queued, resolved}`. `discovered` is how many URLs the frontier has admitted and `resolved` how many have reached a terminal state (indexed, skipped, blocked or errored), so progress can be shown when `max_pages` is `0`. Divide `resolved` by `discovered`, not `pages_done` — a URL is admitted before the robots, already-indexed and duplicate checks, any of which end it without an index |
 | `POST` | `/api/rag/{instance}/ingest/text` | Index a block of text directly — body `{text, source}`. `source` is the label the Documents view groups on and the per-document delete addresses, so anything stored here can be found and removed on its own. Returns `{chunks, duplicate}`; `duplicate: true` with `chunks: 0` means every chunk was already stored under that same source. Creates the instance's index if it does not exist. Same size cap as the file routes |
@@ -947,6 +999,7 @@ DELETE /api/cache/entry?entry_id=abc123
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/api/rag/advice` | Per-setting verdicts for the RAG controls, derived from this deployment's own retrieval history — the distribution of pre-threshold scores and which chunk ranks answers cited. Returns `{advice, presets}`. A setting with no measurement behind it is `unknown` or `static` rather than scored |
 | `GET` | `/api/rag/stats` | Per-instance query statistics |
 | `DELETE` | `/api/rag/stats` | Reset all counters |
 
@@ -1116,7 +1169,7 @@ To use an NVIDIA GPU, install the CUDA build **on your own machine** rather than
 
 ```bash
 # pick the channel matching your driver: cu126 | cu128 | cu129 | cu130
-docker compose exec redirecall pip install --force-reinstall torch \
+docker compose exec visualweaver pip install --force-reinstall torch \
   --index-url https://download.pytorch.org/whl/cu129
 ```
 
@@ -1218,8 +1271,8 @@ Two things hold state, and they are separate:
 
 | What | Where | Contains |
 |---|---|---|
-| Redis | the `redirecall-redis` volume (`/data` in that container) | every chunk, vector and index; sessions; the semantic cache |
-| App data | the `redirecall-data` volume, or `$REDIRECALL_DATA_DIR` | `config.json`, uploads, ingestion logs, feedback |
+| Redis | the `visualweaver-redis` volume (`/data` in that container) | every chunk, vector and index; sessions; the semantic cache |
+| App data | the `visualweaver-data` volume, or `$VISUALWEAVER_DATA_DIR` | `config.json`, uploads, ingestion logs, feedback |
 
 A backup needs both. Restoring only Redis leaves the app without API keys or
 endpoints; restoring only the app data leaves it with no documents.
@@ -1230,9 +1283,9 @@ Redis writes an append-only file, so snapshot it after asking for a rewrite:
 
 ```bash
 docker compose exec redis redis-cli BGREWRITEAOF
-docker run --rm -v redirecall-redis:/src -v "$PWD":/out alpine \
+docker run --rm -v visualweaver-redis:/src -v "$PWD":/out alpine \
   tar czf /out/redis-backup.tgz -C /src .
-docker run --rm -v redirecall-data:/src -v "$PWD":/out alpine \
+docker run --rm -v visualweaver-data:/src -v "$PWD":/out alpine \
   tar czf /out/appdata-backup.tgz -C /src .
 ```
 
@@ -1240,9 +1293,9 @@ Restore into a stopped stack:
 
 ```bash
 docker compose down
-docker run --rm -v redirecall-redis:/dst -v "$PWD":/in alpine \
+docker run --rm -v visualweaver-redis:/dst -v "$PWD":/in alpine \
   sh -c "rm -rf /dst/* && tar xzf /in/redis-backup.tgz -C /dst"
-docker run --rm -v redirecall-data:/dst -v "$PWD":/in alpine \
+docker run --rm -v visualweaver-data:/dst -v "$PWD":/in alpine \
   sh -c "rm -rf /dst/* && tar xzf /in/appdata-backup.tgz -C /dst"
 docker compose up -d
 ```
@@ -1252,7 +1305,7 @@ docker compose up -d
 ```bash
 redis-cli -p 6390 BGREWRITEAOF
 tar czf redis-backup.tgz -C /path/to/redis/dir .
-tar czf appdata-backup.tgz -C "$REDIRECALL_DATA_DIR" .
+tar czf appdata-backup.tgz -C "$VISUALWEAVER_DATA_DIR" .
 ```
 
 ### Verifying a restore
@@ -1266,7 +1319,7 @@ version line.
 
 Chunks are stored with the vector produced by the embedding model configured at
 ingest time. Restoring a backup onto an install with a different embedding model
-leaves the vectors intact but unsearchable by the new model; RediRecall logs a
+leaves the vectors intact but unsearchable by the new model; VisualWeaver logs a
 warning when it detects this. Re-ingest after changing models.
 
 ## Optional Dependencies
@@ -1290,7 +1343,7 @@ The browser rendering libraries — marked (Markdown), DOMPurify (SVG sanitising
 
 ## Acknowledgments & License
 
-RediRecall is built on open-source projects, each under its own license:
+VisualWeaver is built on open-source projects, each under its own license:
 
 - **[Redis](https://redis.io)** *(AGPLv3)* — datastore + vector/query engine
 - **Rendering** (all CDN-loaded on first use, never bundled) — [marked](https://marked.js.org) *(MIT)*, [DOMPurify](https://github.com/cure53/DOMPurify) *(Apache-2.0 / MPL-2.0)*, [KaTeX](https://katex.org) *(MIT)*, [math.js](https://mathjs.org) *(Apache-2.0)*, [Chart.js](https://www.chartjs.org) *(MIT)*, [Mermaid](https://mermaid.js.org) *(MIT)*, [Viz.js](https://github.com/mdaines/viz.js) *(MIT; embeds [Graphviz](https://graphviz.org) 15.1.1, EPL-2.0)*, [JSXGraph](https://jsxgraph.org) *(MIT or LGPL-3.0-or-later)*, [Leaflet](https://leafletjs.com) *(BSD-2-Clause)*, [Plotly.js](https://plotly.com/javascript/) *(MIT)*, [SmilesDrawer](https://github.com/reymond-group/smilesDrawer) *(MIT)*, [abcjs](https://www.abcjs.net) *(MIT)*, [highlight.js](https://highlightjs.org) *(BSD-3-Clause)*
@@ -1298,4 +1351,4 @@ RediRecall is built on open-source projects, each under its own license:
 - **Backend** — [FastAPI](https://fastapi.tiangolo.com)/[Uvicorn](https://www.uvicorn.org) *(MIT/BSD)*, [redis-py](https://github.com/redis/redis-py) & [RedisVL](https://github.com/redis/redis-vl-python) *(MIT)*, [NumPy](https://numpy.org) *(BSD)*, [sentence-transformers](https://www.sbert.net) *(Apache-2.0)*, [PyMuPDF](https://pymupdf.readthedocs.io) *(AGPLv3)*, [Trafilatura](https://trafilatura.readthedocs.io) *(Apache-2.0)*, [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) *(MIT)*, [Pillow](https://python-pillow.org) *(HPND)*, [httpx](https://www.python-httpx.org) *(BSD)*, [Crawl4AI](https://github.com/unclecode/crawl4ai) + [Playwright](https://playwright.dev) *(Apache-2.0)*, [python-docx](https://python-docx.readthedocs.io) & [openpyxl](https://openpyxl.readthedocs.io) *(MIT)*
 - **LLM SDKs** — [Ollama](https://ollama.com), plus the [Anthropic](https://github.com/anthropics/anthropic-sdk-python) *(MIT)*, [OpenAI](https://github.com/openai/openai-python), [Groq](https://github.com/groq/groq-python), and [Google GenAI](https://github.com/googleapis/python-genai) *(Apache-2.0)* SDKs
 
-RediRecall itself is licensed under **AGPL-3.0-or-later**. PyMuPDF and Redis 8 are AGPLv3; all other dependencies are permissive (MIT/BSD/HPND) or Apache-2.0, which are one-way compatible into AGPLv3 — so the combined work is cleanly licensable under the AGPL.
+VisualWeaver itself is licensed under **AGPL-3.0-or-later**. PyMuPDF and Redis 8 are AGPLv3; all other dependencies are permissive (MIT/BSD/HPND) or Apache-2.0, which are one-way compatible into AGPLv3 — so the combined work is cleanly licensable under the AGPL.

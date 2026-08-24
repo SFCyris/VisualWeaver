@@ -27,7 +27,7 @@ import time
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_INDEX = _ROOT / "redirecall" / "index.html"
+_INDEX = _ROOT / "visualweaver" / "index.html"
 _MARKED = pathlib.Path(__file__).resolve().parent / "fixtures" / "marked.umd.js"
 
 

@@ -43,10 +43,10 @@ def _pysrc(obj) -> str:
 
 
 def _app_source(app_module) -> str:
-    """Concatenated source of the whole redirecall package.
+    """Concatenated source of the whole visualweaver package.
 
     The backend used to be one file, so tests scanned ``main.py``. After the split
-    the code lives in sibling modules, so scan every ``redirecall/*.py`` — the
+    the code lives in sibling modules, so scan every ``visualweaver/*.py`` — the
     assertion no longer cares which module a given literal ended up in.
     """
     import pathlib
@@ -162,7 +162,7 @@ def test_issue7_delete_is_case_sensitive(app_module, clean_redis, monkeypatch):
     """RediSearch TAG fields casefold, so deleting report.pdf also took Report.pdf.
 
     This used to hand-write its own FT.CREATE with CASESENSITIVE spelled out, so
-    it tested RediSearch rather than RediRecall: deleting ``case_sensitive`` from
+    it tested RediSearch rather than VisualWeaver: deleting ``case_sensitive`` from
     the PRODUCTION schema (mutation M01) left it green. The index is now built by
     _get_rag_index() itself.
     """
@@ -456,7 +456,7 @@ def test_issue8_dedup_is_scoped_per_source(app_module):
     document ingested first also removed content the second one still needed."""
     m = app_module
     # The old first half computed two sha256 digests inside the test and asserted
-    # they differed — a property of sha256, not of RediRecall, and unfailable. The
+    # they differed — a property of sha256, not of VisualWeaver, and unfailable. The
     # old second half looked for the word "source" in a 220-char window, which is
     # common English. Assert the production expression instead: the hash input must
     # start with the source, so the same paragraph in two documents hashes twice.
@@ -658,7 +658,8 @@ def test_cache_hit_records_the_turn(app_module, monkeypatch):
     saved = []
     monkeypatch.setattr(m.sessions, "save_session", lambda sid, msgs: saved.append((sid, list(msgs))))
     monkeypatch.setattr(m.cache, "cache_lookup",
-                        lambda q, thr, scope: {"response": "cached answer", "score": 0.99, "chunks": []})
+                        lambda q, thr, scope, *_a, **_k: {"response": "cached answer",
+                                                         "score": 0.99, "chunks": []})
     monkeypatch.setattr(m.cache, "_cache_scope", lambda *a, **k: "scope")
     async def _eff(x):
         return list(x)
@@ -997,16 +998,16 @@ def test_unrecorded_provenance_is_not_a_mismatch(app_module, monkeypatch):
 
 def test_cli_help_exits_instead_of_starting_a_server():
     """cli() ignored sys.argv entirely and went straight to uvicorn.run(), so
-    `redirecall --help` started a server and hung until CI's 25-minute job
+    `visualweaver --help` started a server and hung until CI's 25-minute job
     timeout killed it. --port was silently discarded for the same reason."""
     import subprocess, sys, pathlib
     root = pathlib.Path(__file__).resolve().parents[1]
     r = subprocess.run([sys.executable, "-c",
-                        "import sys; sys.argv=['redirecall','--help'];"
-                        "import redirecall.main as m; m.cli()"],
+                        "import sys; sys.argv=['visualweaver','--help'];"
+                        "import visualweaver.main as m; m.cli()"],
                        cwd=root, capture_output=True, text=True, timeout=180)
     assert r.returncode == 0, f"--help exited {r.returncode}"
-    assert "usage: redirecall" in r.stdout
+    assert "usage: visualweaver" in r.stdout
     assert "--port" in r.stdout and "--host" in r.stdout
 
 
@@ -1016,8 +1017,8 @@ def test_cli_rejects_unknown_arguments():
     import subprocess, sys, pathlib
     root = pathlib.Path(__file__).resolve().parents[1]
     r = subprocess.run([sys.executable, "-c",
-                        "import sys; sys.argv=['redirecall','--bogus'];"
-                        "import redirecall.main as m; m.cli()"],
+                        "import sys; sys.argv=['visualweaver','--bogus'];"
+                        "import visualweaver.main as m; m.cli()"],
                        cwd=root, capture_output=True, text=True, timeout=180)
     assert r.returncode != 0
     assert "unrecognized arguments" in r.stderr
@@ -1389,7 +1390,7 @@ def test_lane_cdn_paths_are_the_verified_ones(app_module):
         f"  only in index.html: {sorted(found - CDN_MANIFEST)}\n"
         f"  only in manifest  : {sorted(CDN_MANIFEST - found)}\n"
         "If the change is intentional, update CDN_MANIFEST and re-run "
-        "REDIRECALL_TEST_NETWORK=1 pytest -k manifest_urls_are_live."
+        "VISUALWEAVER_TEST_NETWORK=1 pytest -k manifest_urls_are_live."
     )
     # len==24 only proves the extractor still finds the KNOWN assets; it is blind to
     # one loaded through an EXPRESSION the extractor cannot resolve. A `${CDN}…` template
@@ -1422,19 +1423,19 @@ def test_retired_cdn_paths_stay_retired(app_module):
 def test_manifest_urls_are_live(app_module):
     """HEAD every manifest URL. This is the check the old docstring claimed.
 
-    Opt-in (REDIRECALL_TEST_NETWORK=1) rather than default-on: the mutation sweep
+    Opt-in (VISUALWEAVER_TEST_NETWORK=1) rather than default-on: the mutation sweep
     runs the suite ~70 times and would issue ~1,700 requests to cdnjs. Run it
     whenever CDN_MANIFEST changes; measured 24/24 → 200 on 2026-08-07.
     """
     import urllib.error
     import urllib.request
-    if not os.environ.get("REDIRECALL_TEST_NETWORK"):
-        pytest.skip("set REDIRECALL_TEST_NETWORK=1 to HEAD the CDN manifest")
+    if not os.environ.get("VISUALWEAVER_TEST_NETWORK"):
+        pytest.skip("set VISUALWEAVER_TEST_NETWORK=1 to HEAD the CDN manifest")
     bad = []
     unreachable = []
     for url in sorted(CDN_MANIFEST):
         req = urllib.request.Request(url, method="HEAD",
-                                     headers={"User-Agent": "redirecall-tests/1"})
+                                     headers={"User-Agent": "visualweaver-tests/1"})
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 if resp.status != 200:
@@ -1514,7 +1515,7 @@ def test_table_sort_coerces_values_by_type():
     import pathlib
     if not shutil.which("node"):
         pytest.skip("node not available")
-    html = pathlib.Path(__file__).resolve().parents[1] / "redirecall" / "index.html"
+    html = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
     t = html.read_text(encoding="utf-8")
     start = t.index("const _RR_NUM=")
     end = t.index("function _rrTableCsv(")

@@ -13,7 +13,7 @@ provider except Ollama regardless of the model's real capability.
 """
 import pytest
 
-from redirecall import providers
+from visualweaver import providers
 
 
 # ── Gemini: capability first, purpose second ─────────────────────────────────
@@ -156,7 +156,7 @@ def test_every_hosted_model_route_flags_vision_on_every_entry(route, monkeypatch
     import asyncio
     import inspect
 
-    from redirecall import routes_settings, state
+    from visualweaver import routes_settings, state
 
     monkeypatch.setattr(state, "_config", {}, raising=False)
     fn = getattr(routes_settings, route)

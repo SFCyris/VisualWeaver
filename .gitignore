@@ -63,7 +63,7 @@ _backup_pre_restructure_*/
 # The real config lives in the platform app-data dir, not here; only the
 # empty template (config.example.json) is tracked.
 config.json
-.redirecall.env
+.visualweaver.env
 *.env
 !.env.example
 
