@@ -21,7 +21,7 @@ mutation survives or any entry is stale, so CI can gate on it.
 
 Safety: the lab is a copy under $TMPDIR; venv/ .git/ are symlinked or skipped and
 the real working tree is never written to. The suite's own Redis namespacing
-(__rrtest_<pid>__) still applies, so no FLUSHDB and no touching db 0's real keys.
+(__vwtest_<pid>__) still applies, so no FLUSHDB and no touching db 0's real keys.
 """
 from __future__ import annotations
 

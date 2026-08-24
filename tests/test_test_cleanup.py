@@ -90,3 +90,28 @@ def test_a_real_looking_index_is_not_dropped(rc):
                 rc.execute_command("FT.DROPINDEX", keep)
             except Exception:
                 pass
+
+
+def test_no_test_hardcodes_the_key_prefix():
+    """Every test must build namespaced keys from conftest.KEY_PREFIX.
+
+    Six sites in test_usage_tracking.py duplicated the literal instead. The
+    purge deletes only what matches the CURRENT prefix, so any rename would have
+    left those tests writing keys nothing cleaned up — and they land in db 0,
+    which holds the user's own data.
+    """
+    import pathlib
+    import re
+
+    here = pathlib.Path(__file__).resolve().parent
+    offenders = []
+    for f in sorted(here.glob("*.py")):
+        if f.name in ("conftest.py", __file__.rsplit("/", 1)[-1]):
+            continue
+        text = f.read_text(encoding="utf-8")
+        for n, line in enumerate(text.splitlines(), 1):
+            if re.search(r'__\w*test_\{?\s*os\.getpid', line):
+                offenders.append(f"{f.name}:{n}: {line.strip()}")
+    assert not offenders, (
+        "these build a test key prefix by hand instead of importing "
+        "conftest.KEY_PREFIX:\n  " + "\n  ".join(offenders))

@@ -4,11 +4,11 @@
 conversation fork endpoint. All offline — providers are exercised with fake
 SDK objects, never a network call."""
 import asyncio
-import os
 import types
 
 import pytest
 
+from conftest import KEY_PREFIX
 from visualweaver import providers, sessions, state, routes_misc
 
 
@@ -145,7 +145,7 @@ def test_turn_meta_includes_usage_only_when_complete():
 
 # ── cumulative tally (namespaced test key — never the real one) ──────────────
 def test_record_usage_and_totals_roundtrip(monkeypatch):
-    key = f"__rrtest_{os.getpid()}__:usage"
+    key = f"{KEY_PREFIX}:usage"
     monkeypatch.setattr(sessions, "_USAGE_KEY", key)
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT
@@ -174,7 +174,7 @@ def usage_redis(monkeypatch):
     redis.Redis() per test leaks a socket, and this project has already had one
     FD-exhaustion incident.
     """
-    key = f"__rrtest_{os.getpid()}__:usage"
+    key = f"{KEY_PREFIX}:usage"
     monkeypatch.setattr(sessions, "_USAGE_KEY", key)
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT, REDIS_DB
@@ -271,7 +271,7 @@ def test_the_usage_routes_are_registered_at_the_paths_the_ui_calls():
 
 # ── fork endpoint ────────────────────────────────────────────────────────────
 def test_fork_copies_prefix_and_leaves_original(monkeypatch):
-    sid = f"__rrtest_{os.getpid()}__fork_src"
+    sid = f"{KEY_PREFIX}fork_src"
     msgs = [{"role": "user", "content": "q1"},
             {"role": "assistant", "content": "a1"},
             {"role": "user", "content": "q2"},
@@ -304,7 +304,7 @@ def test_fork_anchor_survives_client_side_extra_turns(monkeypatch):
     prefix test or the occurrence count changes nothing and the test cannot discriminate
     anchoring from plain indexing — which is exactly what it exists to prove.
     """
-    sid = f"__rrtest_{os.getpid()}__fork_desync"
+    sid = f"{KEY_PREFIX}fork_desync"
     state._sessions[sid] = [
         {"role": "user", "content": "q1"},
         {"role": "assistant", "content": "draft answer"},    # decoy: an earlier assistant
@@ -344,7 +344,7 @@ def test_fork_anchor_survives_client_side_extra_turns(monkeypatch):
 
 def test_fork_rejects_bad_anchor():
     from fastapi import HTTPException
-    sid = f"__rrtest_{os.getpid()}__fork_bad"
+    sid = f"{KEY_PREFIX}fork_bad"
     state._sessions[sid] = [{"role": "user", "content": "x"}]
     try:
         with pytest.raises(HTTPException):   # missing prefix
@@ -383,7 +383,7 @@ def test_watch_seen_keys_are_instance_scoped(tmp_path, monkeypatch):
     import redis as _redis
     from conftest import REDIS_HOST, REDIS_PORT
     from visualweaver import redis_store
-    key = f"__rrtest_{os.getpid()}__:watchseen"
+    key = f"{KEY_PREFIX}:watchseen"
     monkeypatch.setattr(ws_mod, "_WATCH_SEEN_KEY", key)
     try:
         rc = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=2)

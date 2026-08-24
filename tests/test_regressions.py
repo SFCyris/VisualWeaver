@@ -169,7 +169,7 @@ def test_issue7_delete_is_case_sensitive(app_module, clean_redis, monkeypatch):
     m = app_module
     rc = clean_redis
     inst = "t7"
-    ns = rc.key("t7")                       # __rrtest_<pid>__t7 → conftest purges it
+    ns = rc.key("t7")                       # __vwtest_<pid>__t7 → conftest purges it
     monkeypatch.setattr(m.rag, "rag_prefix", lambda i: ns)
     idx = m._get_rag_index(inst, rc)
     idx.create(overwrite=True)

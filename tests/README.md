@@ -21,7 +21,7 @@ Two tests reach outside the process:
 ## Safety
 
 RediSearch refuses `FT.CREATE` on any database but 0, so these tests share db 0
-with real data. They therefore namespace every key under `__rrtest_<pid>__` and
+with real data. They therefore namespace every key under `__vwtest_<pid>__` and
 delete only that prefix. **Never add a `flushdb()` to a fixture** — it would
 destroy the corpus of whoever runs the suite. Use the `clean_redis` fixture and
 build keys with `rc.key("...")`.

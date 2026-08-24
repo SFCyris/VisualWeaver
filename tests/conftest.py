@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 REDIS_HOST = os.environ.get("VISUALWEAVER_TEST_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("VISUALWEAVER_TEST_REDIS_PORT", "6390"))
 REDIS_DB = 0
-KEY_PREFIX = f"__rrtest_{os.getpid()}__"
+KEY_PREFIX = f"__vwtest_{os.getpid()}__"
 
 
 def pytest_addoption(parser):
