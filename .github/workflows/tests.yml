@@ -50,6 +50,33 @@ jobs:
           VISUALWEAVER_TEST_REDIS_PORT: 6390
         run: python -m pytest tests/ -q --durations=10
 
+      - name: Run the Redis tests with no pinned port
+        # The run above never exercises the bootstrap that starts a private
+        # server: it takes the "port supplied by the environment" branch. That
+        # left the guard against the default returning to the app's own port
+        # armed nowhere but a developer laptop.
+        #
+        # Installs `redis`, not `redis-stack-server`: Redis stopped publishing
+        # redis-stack for noble (ubuntu-latest is 24.04), and Redis 8 ships the
+        # query engine that used to require it.
+        #
+        # REQUIRED=1 turns a failed boot into an error. Without it every guard
+        # skips when no server starts, and pytest exits 0 on an all-skipped run —
+        # so the step would pass while proving nothing.
+        env:
+          VISUALWEAVER_TEST_REDIS_REQUIRED: "1"
+        run: |
+          set -euo pipefail
+          curl -fsSL https://packages.redis.io/gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/redis.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y redis
+          redis-server --version
+          python -m pytest tests/test_test_cleanup.py tests/test_workflow_backend.py \
+                           tests/test_usage_tracking.py -q
+
       - name: Check the app imports and the CLI is wired
         # Wrapped in `timeout`: cli() once ignored sys.argv and started a server
         # on --help, which blocked this step for 22 minutes until the job-level

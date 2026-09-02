@@ -6,9 +6,16 @@ Run them:
 venv/bin/python3 -m pytest tests/ -q
 ```
 
-Tests that need Redis look for one on `127.0.0.1:6390` and **skip** if none is
-reachable, so the suite still runs on a bare checkout. Override with
-`VISUALWEAVER_TEST_REDIS_HOST` / `VISUALWEAVER_TEST_REDIS_PORT`.
+Tests that need Redis get their **own** server: the suite starts a throwaway
+`redis-server` on a free port, bound to the loopback, and stops it afterwards, so
+a run never reaches the instance the application uses. If no server with
+RediSearch can be started — a bare checkout with nothing installed — those tests
+**skip**, and `pytest` prints why in its header. Set `VISUALWEAVER_TEST_REDIS_PORT` to use a server of your own instead — that is
+the switch, and CI sets it because it supplies its own Redis service.
+`VISUALWEAVER_TEST_REDIS_HOST` only changes where the client connects; on its own
+it does not stop the private server from starting.
+`VISUALWEAVER_TEST_REDIS_REQUIRED=1` turns "no server could be started" into a
+failure rather than a skip.
 
 Two tests reach outside the process:
 
@@ -20,11 +27,17 @@ Two tests reach outside the process:
 
 ## Safety
 
-RediSearch refuses `FT.CREATE` on any database but 0, so these tests share db 0
-with real data. They therefore namespace every key under `__vwtest_<pid>__` and
-delete only that prefix. **Never add a `flushdb()` to a fixture** — it would
-destroy the corpus of whoever runs the suite. Use the `clean_redis` fixture and
-build keys with `rc.key("...")`.
+RediSearch refuses `FT.CREATE` on any database but 0, so tests cannot be isolated
+onto their own logical database — only onto their own **server**, which is what
+the throwaway instance above is for. The default used to be `6390`, the port the
+application listens on; on 2026-08-24 a `FLUSHDB` typed against that instance
+removed a 57,805-chunk corpus.
+
+The namespacing still applies, because an explicit override can still point the
+suite at a shared server: every key goes under `__vwtest_<pid>__` and only that
+prefix is deleted. **Never add a `flushdb()` to a fixture** — against an override
+it would destroy the corpus of whoever runs the suite. Use the `clean_redis`
+fixture and build keys with `rc.key("...")`, never by writing the prefix out.
 
 Tests that touch config or sessions get an isolated `DATA_DIR`; `conftest.py`
 sets `VISUALWEAVER_DATA_DIR` before `visualweaver.main` is imported, because the
