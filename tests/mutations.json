@@ -178,10 +178,10 @@
   {
     "id": "M23_numeric_coercion_broken",
     "file": "visualweaver/index.html",
-    "find": "const _RR_NUM=/^\\s*-?[$€£]?\\s*-?[\\d,.]+\\s*%?\\s*$/;",
-    "replace": "const _RR_NUM=/^(?!)/;",
+    "find": "const _RR_CCY='EUR|USD|GBP|CHF|JPY|CNY|INR|AUD|CAD|NZD|SEK|NOK|DKK|PLN|CZK'",
+    "replace": "const _RR_CCY='ZZZNOMATCH';",
     "defect": "table sort falls back to lexical: '120' < '43', '$1,200.50' < '$980.00'",
-    "expect": "test_table_sort_coerces_values_by_type"
+    "expect": "test_a_markdown_table_sorts_the_same_way_the_table_lane_does"
   },
   {
     "id": "M24_newSession_remembers_id",
@@ -1218,7 +1218,7 @@
     "find": "    if(/^[/\\\\][\\s\\S]*[/\\\\]$/.test(t))return m;",
     "replace": "    if(false)return m;",
     "defect": "parallelogram/trapezoid [/x/] shapes wrapped as rectangles, delimiters become literal text",
-    "expect": "test_a_padded_compound_shape_is_left_alone"
+    "expect": "test_a_padded_compound_shape_is_tightened_not_demoted"
   },
   {
     "id": "M151_mermaid_gate_ignores_leading_comment",
@@ -1295,7 +1295,7 @@
   {
     "id": "M160_fractal_steering_weakened",
     "file": "visualweaver/constants.py",
-    "find": "- ```fractal — REQUIRED for every Mandelbrot set, Julia set, IFS/chaos-game attractor (fern, Sierpinski gasket/triangle), or L-system (dragon curve, Koch curve/snowflake, plant). Do not hand-draw or approximate these with ```geometry (a handful of static polygons is not a fractal — it has no iteration) or ```svg (decorative art, not the actual structure) — ```fractal genuinely computes and renders the iteration client-side; nothing else in this app can. Body: JSON.",
+    "find": "- ```fractal — REQUIRED for every Mandelbrot/Julia set, space-filling or self-similar curve, IFS/chaos-game figure, L-system, and strange attractor. Do not hand-draw or approximate these with ```geometry (a handful of static polygons is not a fractal — it has no iteration) or ```svg (decorative art, not the actual structure) — ```fractal genuinely computes and renders the iteration client-side; nothing else in this app can. Body: JSON.",
     "replace": "- ```fractal — an option. Body: JSON.",
     "defect": "the fractal bullet loses its REQUIRED/do-not-fake-with-geometry-or-svg steering -> a real report: the model hand-drew a fake Sierpinski in geometry and a static SVG blob captioned Julia Set instead of using the fractal lane",
     "expect": "test_prompt_directs_fractals_and_ifs_and_julia_to_the_fractal_lane"
@@ -2880,7 +2880,7 @@
   {
     "id": "M362_cache_threshold_not_model_calibrated",
     "file": "visualweaver/cache.py",
-    "find": "    return embeddings.cache_threshold_for(\n        (state._config.get(\"embedding\") or {}).get(\"model\"))",
+    "find": "    return embeddings.cache_threshold_for(_section(\"embedding\").get(\"model\"))",
     "replace": "    return 0.92",
     "defect": "one similarity threshold is used for every embedding model, but the models do not share a scale — a value that is merely permissive under all-MiniLM-L6-v2 admits unrelated questions under multilingual-e5-base and serves an answer to a question that was never asked",
     "expect": "test_an_unset_threshold_follows_the_model"
@@ -2980,5 +2980,125 @@
     "replace": "    return canonical",
     "defect": "changing whether the model prefix is applied leaves the old vectors in place, and lookups are scored against text embedded a different way",
     "expect": "test_the_marker_covers_the_prefix_too"
+  },
+  {
+    "id": "M377_fractal_order_ignored_for_presets",
+    "file": "visualweaver/index.html",
+    "find": "  if(s.order!=null&&s.depth==null)s={...s,depth:s.order};",
+    "replace": "  ",
+    "defect": "`order` stops being folded onto the spec, so {\"type\":\"hilbert\",\"order\":2} silently renders the preset's own depth 5 instead of the depth the spec asked for",
+    "expect": "test_order_overrides_the_presets_own_depth"
+  },
+  {
+    "id": "M378_attractor_runaway_tail_retained",
+    "file": "visualweaver/index.html",
+    "find": "           &&Math.abs(z)<_FRAC_ORBIT_BOUND))break;   // false for NaN too",
+    "replace": "           ))break;",
+    "defect": "only the z-overflow guard is dropped, so a partially diverging orbit keeps points 70 orders of magnitude off the attractor; the bounding box they produce squashes the real orbit onto one pixel and the card paints blank without any NaN to notice",
+    "expect": "test_a_diverging_orbit_keeps_its_bounded_prefix_and_drops_the_blow_up"
+  },
+  {
+    "id": "M379_fractal_tables_read_through_the_prototype",
+    "file": "visualweaver/index.html",
+    "find": "  return Object.prototype.hasOwnProperty.call(table,key)?table[key]:undefined;",
+    "replace": "  return table[key];",
+    "defect": "a type or system named after a property of Object.prototype resolves off the chain: {\"type\":\"attractor\",\"system\":\"constructor\"} passes the guard and throws out of Object.entries(sys.params)",
+    "expect": "test_prototype_keys_are_rejected_not_resolved"
+  },
+  {
+    "id": "M380_ifs_zero_probability_treated_as_unset",
+    "file": "visualweaver/index.html",
+    "find": "  const wOf=m=>(m.length>6&&isFinite(m[6]))?Math.max(0,m[6]):1/maps.length;",
+    "replace": "  const wOf=m=>m[6]||1/maps.length;",
+    "defect": "an IFS map given an explicit probability of 0 is read as \"no weight given\" and drawn with an equal share of the points; a negative weight makes every cumulative bound negative and pick() returns the first map for every draw. Only the renderer applies the weights, so the killer is a pixel test and needs playwright; without it this scores SURVIVED rather than skipping",
+    "expect": "test_an_ifs_map_weighted_zero_is_never_drawn"
+  },
+  {
+    "id": "M381_attractor_coefficients_unclamped",
+    "file": "visualweaver/index.html",
+    "find": "    for(const[k,v]of Object.entries(sys.params))out.params[k]=_fracNum(s[k],v,-1e4,1e4);",
+    "replace": "    for(const k of Object.keys(s))out.params[k]=s[k];",
+    "defect": "spec keys reach the equations unclamped and unfiltered, so a hallucinated coefficient is passed straight through instead of being dropped, and no bound stops an overflow",
+    "expect": "test_attractor_coefficients_are_clamped_and_unknown_keys_dropped"
+  },
+  {
+    "id": "M382_halvorsen_back_in_a_periodic_window",
+    "file": "visualweaver/index.html",
+    "find": "params:{a:1.4},",
+    "replace": "params:{a:1.89},",
+    "defect": "a=1.89 is the widely quoted value and is a CLOSED orbit under these equations, so the card paints one plain loop while calling itself a strange attractor",
+    "expect": "test_halvorsen_sits_in_a_chaotic_window_not_a_limit_cycle"
+  },
+  {
+    "id": "M383_cell_decimal_rule_reverted",
+    "file": "visualweaver/index.html",
+    "find": "  if(commas===1)return /,\\d{3}$/.test(t)?'':',';\n  if(dots===1)return '.';",
+    "replace": "  if(commas===1)return /,\\d{1,2}$/.test(t)?',':'';\n  if(dots===1)return /\\.\\d{1,2}$/.test(t)?'.':'';",
+    "defect": "the decimal-separator rule recognises only one or two trailing digits again, so \"3.142\" loses its decimal point and parses as 3142 — every three-decimal value a thousandfold too large, in table sorting as well as in totals",
+    "expect": "test_num_parses_a_cell"
+  },
+  {
+    "id": "M384_total_decimals_capped_at_two",
+    "file": "visualweaver/index.html",
+    "find": "            if(d>decimals){decimals=d; decSep=ds;}",
+    "replace": "            if(d>decimals&&d<3){decimals=d; decSep=ds;}",
+    "defect": "a computed total drops to zero decimals for a column carrying three or more, so a 7.375 total renders as 7",
+    "expect": "test_formatting_never_invents_precision"
+  },
+  {
+    "id": "M385_accounting_parens_treated_as_decoration",
+    "file": "visualweaver/index.html",
+    "find": "  if(value<0)return parens?'('+body+')':'-'+body;",
+    "replace": "  if(value<0)return '-'+body;",
+    "defect": "a negative total in an accounting column loses its brackets and is written with a leading minus the column never uses",
+    "expect": "test_accounting_parentheses_are_a_sign_not_decoration"
+  },
+  {
+    "id": "M386_markdown_sorter_has_its_own_parser_again",
+    "file": "visualweaver/index.html",
+    "find": "    const n=_cellNumber(t);\n    if(n!==null)return n;",
+    "replace": "    const n=parseFloat(t.replace(/[^0-9.\\-]/g,''));\n    if(!isNaN(n))return n;",
+    "defect": "the Markdown-table sorter stops sharing the cell parser, so \"99,25\" sorts as 9925 again while the ```table lane reads it as 99.25 — two tables of the same data ordered differently",
+    "expect": "test_a_markdown_table_sorts_the_same_way_the_table_lane_does"
+  },
+  {
+    "id": "M387_attractor_dt_ceiling_flat_again",
+    "file": "visualweaver/index.html",
+    "find": "    out.dt=sys.kind==='ode'?_fracNum(s.dt,sys.dt,sys.dt/50,sys.dt*4):0;",
+    "replace": "    out.dt=sys.kind==='ode'?_fracNum(s.dt,sys.dt,1e-5,0.2):0;",
+    "defect": "one ceiling for every system again, and 0.2 is a step none of them survives: the largest dt the app accepts yields no orbit and the card reports that the coefficients diverged",
+    "expect": "test_no_dt_the_clamp_allows_can_fail_to_integrate"
+  },
+  {
+    "id": "M388_config_load_accepts_an_error_body",
+    "file": "visualweaver/index.html",
+    "find": "    if(!r.ok)throw new Error('HTTP '+r.status);\n    const cfg=await r.json();",
+    "replace": "    const cfg=await r.json();",
+    "defect": "a 500 from GET /api/config parses as JSON and becomes the config, so the settings screen loads {detail:...} and a save then writes defaults over the web sources, watch folders and stored API keys",
+    "expect": "test_a_500_body_is_not_accepted_as_the_config"
+  },
+  {
+    "id": "M389_drift_gates_on_any_difference",
+    "file": "visualweaver/config.py",
+    "find": "            \"stale\": bool(missing_lanes or missing or missing_names),",
+    "replace": "            \"stale\": True,",
+    "defect": "every customised Base Instruction is reported as out of date, above the button that discards it",
+    "expect": "test_a_customised_but_current_instruction_is_not_stale"
+  },
+  {
+    "id": "M390_drift_blind_to_preset_names",
+    "file": "visualweaver/config.py",
+    "find": "    missing_names = sorted(\n        w for w in _enumerated_names(shipped)\n        if not re.search(rf\"\\b{re.escape(w)}\\b\", stored))",
+    "replace": "    missing_names = []",
+    "defect": "a saved instruction missing every fractal preset name is not reported as stale, which is the exact case the notice exists for",
+    "expect": "test_deleting_the_preset_names_is_detected"
+  },
+  {
+    "id": "M391_chat_prompt_unguarded_type",
+    "file": "visualweaver/config.py",
+    "find": "    base   = (_bi if isinstance(_bi, str) else \"\").strip()",
+    "replace": "    base   = (_bi or \"\").strip()",
+    "defect": "a non-string base_instruction in a hand-edited config raises out of every chat turn, so the app answers nothing while the settings screen opens normally",
+    "expect": "test_a_non_string_base_instruction_cannot_break_a_chat_turn"
   }
 ]

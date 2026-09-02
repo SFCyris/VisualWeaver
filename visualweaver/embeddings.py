@@ -99,7 +99,12 @@ def embedding_id_for(repo: str | None = None) -> int:
     -1 means "unknown provenance": the chunk is still stored and searchable, it
     just cannot take part in a mixed-model query.
     """
-    repo = repo or (state._config.get("embedding", {}) or {}).get("model", "")
+    # isinstance, not `or {}`: that guards a falsy value, not a wrong type, and a
+    # hand-edited "embedding": "minilm" raised AttributeError all the way out of
+    # GET /api/config.
+    if not repo:
+        _emb = state._config.get("embedding")
+        repo = _emb.get("model", "") if isinstance(_emb, dict) else ""
     return _REPO_TO_ID.get(repo, -1)
 
 

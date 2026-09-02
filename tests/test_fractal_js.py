@@ -604,14 +604,37 @@ def test_fracRK4_is_fourth_order_on_a_system_with_a_closed_form():
 
 
 # ── clamps on the attractor branch ───────────────────────────────────────────
-def test_attractor_steps_and_dt_are_clamped():
+def test_attractor_steps_are_clamped():
     lo = _val('_fracSpec(\'{"type":"lorenz","iter":1}\')')
     hi = _val('_fracSpec(\'{"type":"lorenz","iter":99999999}\')')
     assert lo["steps"] == 500 and hi["steps"] == 200000
-    assert _val('_fracSpec(\'{"type":"lorenz","dt":99}\')')["dt"] == 0.2
-    assert _val('_fracSpec(\'{"type":"lorenz","dt":0}\')')["dt"] == 1e-5
     # a map has no integration step at all
     assert _val('_fracSpec(\'{"type":"clifford","dt":0.05}\')')["dt"] == 0
+
+
+@pytest.mark.parametrize("system", ["lorenz", "rossler", "thomas", "halvorsen"])
+def test_no_dt_the_clamp_allows_can_fail_to_integrate(system):
+    """The ceiling used to be a flat 0.2 for every system, and 0.2 is a step
+    NONE of them survives: asking for the largest value the clamp permitted
+    returned an empty orbit, and the card then reported that the coefficients had
+    diverged — blaming the spec for the step size.
+
+    These differ by two orders of magnitude in stiffness, so the bound is now
+    relative to each system's own default. Every value the clamp accepts has to
+    produce a full orbit.
+    """
+    js = """(({sys,dt})=>{
+      const s=_fracSpec(JSON.stringify(dt===null?{type:sys}:{type:sys,dt}));
+      const o=_fracOrbit(s);
+      let a=1e308,b=-1e308;
+      for(let i=0;i<o.n;i++){if(o.xs[i]<a)a=o.xs[i];if(o.xs[i]>b)b=o.xs[i];}
+      return {dt:s.dt, n:o.n, asked:s.steps, span:o.n?+(b-a).toPrecision(4):0};
+    })"""
+    for asked in ("null", "0.2", "99", "1e-9"):
+        r = _val(f'{js}({{sys:{system!r},dt:{asked}}})')
+        assert r["n"] == r["asked"], (
+            f"dt={asked} clamped to {r['dt']} produced {r['n']} of {r['asked']} points")
+        assert 0.5 < r["span"] < 1e5, f"dt={asked} gave a degenerate span {r['span']}"
 
 
 # ── the tables are looked up as own properties ───────────────────────────────
@@ -636,19 +659,3 @@ def test_every_alias_key_renders_through_fracSpec():
     for alias in keys:
         s = _val(f"_fracSpec(JSON.stringify({{type:{alias!r}}}))")
         assert "__err" not in s, f"alias {alias!r}: {s.get('__err')}"
-
-
-def test_an_ifs_map_given_an_explicit_zero_probability_is_never_chosen():
-    """`m[6] || 1/n` read a deliberate 0 as "unspecified" and handed that map an
-    equal share of the draws."""
-    js = """(()=>{
-      const spec=_fracSpec('{"type":"ifs","maps":[[0.5,0,0,0.5,0,0,1],[0.5,0,0,0.5,9,9,0]],"points":5000}');
-      // replay the renderer's own weighting
-      const maps=spec.maps;
-      const wOf=m=>(m.length>6&&isFinite(m[6]))?Math.max(0,m[6]):1/maps.length;
-      let psum=maps.reduce((a,m)=>a+wOf(m),0); const uniform=!(psum>0); if(uniform)psum=1;
-      const cum=[];let acc=0;
-      for(const m of maps){acc+=(uniform?1/maps.length:wOf(m)/psum);cum.push(acc);}
-      return cum;})()"""
-    cum = _val(js)
-    assert abs(cum[0] - 1.0) < 1e-12, f"the zero-weight map still gets {1 - cum[0]:.0%}"

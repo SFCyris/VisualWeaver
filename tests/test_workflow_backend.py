@@ -658,7 +658,7 @@ def test_the_websocket_chat_path_also_stamps_citation_numbers(app_module, monkey
 def app_on_test_redis(cfg, clean_redis):
     """Point the app's own client at the test server for the duration of one test.
 
-    The suite's Redis is not the app's default (127.0.0.1:6390 vs localhost:6379), so a
+    The suite's Redis is its own throwaway server, not the app's (see conftest), so a
     route-level test that really stores and retrieves has to move the app onto it — and
     move it back, or every later test inherits the override.
     """

@@ -141,3 +141,25 @@ def test_no_renderer_takes_long_enough_to_stall_the_tab(shots):
     slow = {k: v["ms"] for k, v in shots["shots"].items()
             if "error" not in v and v["ms"] > 4000}
     assert not slow, f"renderers over 4s: {slow}"
+
+
+def test_an_ifs_map_weighted_zero_is_never_drawn(shots):
+    """`m[6] || 1/n` read a deliberate 0 as "no weight given" and handed that map
+    an equal share of the points.
+
+    Only the renderer applies the weights, so this is checkable only in pixels.
+    An earlier attempt asserted against a COPY of the weighting logic written
+    inside the test; mutating the real code changed nothing and the mutation
+    (M380) survived. Here the two maps are 40 units apart: chosen, the second
+    drags the cloud across the frame; never chosen, everything collapses onto the
+    first map's fixed point.
+    """
+    zero = shots["shots"]["ifs_zero_p"]
+    both = shots["shots"]["ifs_both_p"]
+    assert "error" not in zero and "error" not in both
+    # the control: with both maps active the cloud really does span the frame
+    assert both["w"] > 200, f"control did not spread ({both['w']}px) — test proves nothing"
+    # and with one weighted out, it does not
+    assert zero["w"] < both["w"] / 4, (
+        f"the zero-weight map is still being drawn: span {zero['w']}px "
+        f"against {both['w']}px when it is given real weight")

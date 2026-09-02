@@ -1517,7 +1517,10 @@ def test_table_sort_coerces_values_by_type():
         pytest.skip("node not available")
     html = pathlib.Path(__file__).resolve().parents[1] / "visualweaver" / "index.html"
     t = html.read_text(encoding="utf-8")
-    start = t.index("const _RR_NUM=")
+    # From the shared cell parser, not from _RR_NUM: _cellNumber/_cellDecimalSep
+    # were hoisted to module scope so the ```table lane and this sorter stop
+    # carrying two parsers that disagreed, and they sit just above _RR_NUM.
+    start = t.index("// Shared by the ```table lane and the Markdown-table sorter")
     end = t.index("function _rrTableCsv(")
     js = t[start:end] + """
 const cases=["$1,200.50","$980.00","$210.10","$3,400.75","120","43","7","88","2026-03-01","2026-01-15","apple","Banana"];
@@ -1705,3 +1708,36 @@ def test_readme_csp_claim_matches_connect_src(app_module):
     # …and it must agree with the served policy: that host really is in connect-src.
     assert _csp_permits(_csp_directives(app_module), "connect-src", "paulrosen.github.io"), \
         "connect-src no longer permits the host the readme documents"
+
+
+def test_the_version_is_the_same_in_both_places_that_declare_it():
+    """pyproject.toml and visualweaver/__init__.py each carry the version, and
+    nothing had ever compared them. /api/health, the welcome badge and the `--version`
+    flag all read __init__; the wheel and the PyPI page read pyproject. They can
+    disagree silently, and the disagreement only shows up after a release."""
+    import pathlib
+    import re
+
+    from visualweaver import __version__
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    toml = (root / "pyproject.toml").read_text(encoding="utf-8")
+    declared = re.search(r'(?m)^version\s*=\s*"([^"]+)"', toml)
+    assert declared, "pyproject.toml has no version"
+    assert declared.group(1) == __version__, (
+        f'pyproject.toml says {declared.group(1)}, '
+        f'visualweaver/__init__.py says {__version__}')
+
+
+def test_the_changelog_documents_the_version_being_shipped():
+    """A release whose own version has no entry is a release nobody can read."""
+    import pathlib
+    import re
+
+    from visualweaver import __version__
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    heads = re.findall(r"(?m)^##\s*\[([^\]]+)\]", changelog)
+    assert __version__ in heads, (
+        f"CHANGELOG.md has no section for {__version__} (found: {heads[:4]})")

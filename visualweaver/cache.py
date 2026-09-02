@@ -164,12 +164,18 @@ def effective_threshold() -> float:
     deployment that has never touched this setting always gets a value that means what it
     says for the model it is running.
     """
-    cfg = state._config.get("cache", {}) or {}
-    v = cfg.get("similarity_threshold")
+    # `or {}` catches a falsy value, not a wrong TYPE. A hand-edited config.json
+    # holding "cache": "on" reached .get() on a str and raised AttributeError out
+    # of GET /api/config — the route the whole UI bootstraps from, which turned
+    # one bad character into a settings screen that would not open.
+    def _section(name):
+        v = state._config.get(name)
+        return v if isinstance(v, dict) else {}
+
+    v = _section("cache").get("similarity_threshold")
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return float(v)
-    return embeddings.cache_threshold_for(
-        (state._config.get("embedding") or {}).get("model"))
+    return embeddings.cache_threshold_for(_section("embedding").get("model"))
 
 
 def _reset_threshold_for_new_model() -> None:

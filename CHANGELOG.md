@@ -5,7 +5,7 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] — 2026-09-01
 
 ### Added
 - **Fourteen more fractal presets.** `hilbert`, `peano` and `moore` (space-filling
@@ -22,6 +22,34 @@ All notable changes to VisualWeaver are recorded here. The format follows
   work as well as `depth` and `iter`.
 
 ### Fixed
+- **A table's computed total now looks like the column it sums.** A column of
+  `$3,400.75` totalled to `5791.35` — the right number, formatted as a different
+  kind of thing. The total takes the column's own prefix, suffix, grouping and
+  decimals.
+- **Table columns sort and total by value in more notations.** Every kind of
+  table — the ```table block and any Markdown table in an answer — now reads
+  `99,25 EUR`, `1.234,50`, `(50.25)`, `12 345` and `12,34,567` as the numbers
+  they are, and leaves version strings and dotted dates to sort as versions and
+  dates rather than misreading them as decimals. Previously the two kinds of table used different parsers, and both
+  were wrong in places: `99,25 EUR` came out as 9925, and accounting
+  parentheses and space-grouped numbers sorted as text.
+- **A hand-edited `config.json` no longer takes the app down.** A value of the
+  wrong type in `cache`, `embedding`, `redis_endpoints` or `base_instruction`
+  made the config request fail, which left the settings screen unable to load,
+  and a wrong type in `base_instruction` also stopped every answer —
+  and a save from that state could overwrite web sources, watch folders and
+  stored API keys. Saving is now refused until the configuration has been read.
+- **A saved Base Instruction that predates the app is now flagged.** Saving
+  Settings once replaced the shipped instruction permanently, so blocks, options
+  and preset names added later stopped reaching the model with nothing to say so.
+  Settings → Templates now names what is missing, and leaves a deliberate
+  customisation alone.
+- **A fractal card no longer redraws its whole orbit when resized.** Maximising
+  and restoring an attractor recomputed up to 200,000 points on the main thread
+  each time.
+- **An attractor accepts no integration step it cannot use.** The largest `dt`
+  the app allowed produced no orbit at all for several systems, and the card then
+  reported that the coefficients had diverged.
 - **Asking for a Hilbert curve, a Peano curve or a Lorenz attractor produced an
   error box.** Each is exactly what the ```fractal lane is for, but only seven
   presets had names, so anything else had to be written out as a raw L-system or

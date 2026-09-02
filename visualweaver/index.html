@@ -406,6 +406,10 @@ table.data-table tr:last-child td{border-bottom:none}
 .pill-ok{background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.3)}
 .pill-err{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
 .pill-warn{background:rgba(251,191,36,.15);color:var(--yellow);border:1px solid rgba(251,191,36,.3)}
+/* The drift notice reuses .notice-warn — same amber, same left accent that marks
+   a warning everywhere else here. Only the margin differs, because it sits tight
+   above the editor it is about. */
+.notice-warn.drift-note{margin:-2px 0 8px}
 /* RAG cards */
 .rag-inst-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--glass);border:1px solid var(--border);border-radius:var(--r2);margin-bottom:8px;transition:var(--transition);cursor:pointer}
 .rag-inst-card:hover{border-color:var(--border2);background:var(--glass2)}
@@ -1672,6 +1676,7 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
     <div class="tab-pane" id="tab-templates">
       <div class="section-title">Base Instruction</div>
       <p style="font-size:12px;color:var(--text2);margin:-4px 0 8px">Applied to <b>every</b> message, before any template. Global rules live here — answer style, and which visual block to use for charts, diagrams, maps and formulas. Leave blank to disable.</p>
+      <div id="base-instruction-drift" hidden></div>
       <textarea id="base-instruction" aria-label="Base instruction sent with every message" rows="8" placeholder="Global instructions applied to all chats…"></textarea>
       <div style="display:flex;justify-content:flex-end;margin-top:6px">
         <button class="btn btn-secondary btn-sm" onclick="resetBaseInstruction()" title="Replace the box with the instruction shipped with this version (adds any newly supported visual blocks)">↺ Reset to shipped default</button>
@@ -1784,6 +1789,9 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
+  // false until GET /api/config has succeeded; saveSettings refuses while it is
+  // false, so a failed load cannot be written back over real settings.
+  configLoaded:false,
   sessionId:null,sessions:{},ws:null,
   models:[],currentModel:'',ragInstances:[],activeRag:{name:'default',ep:'default'},
   config:{},templates:[],pendingImages:[],pendingFiles:[],pinnedMsgs:[],sourceFilter:'',
@@ -1948,8 +1956,26 @@ window.addEventListener('load',async()=>{
 });
 
 async function loadConfig(){
-  try{const r=await fetch('/api/config');S.config=await r.json();const _cfgName=S.config.active_rag||'default';S.activeRag={name:_cfgName,ep:'default'};}
-  catch(e){S.config={};}
+  try{
+    const r=await fetch('/api/config');
+    // An error body parses as JSON perfectly well — FastAPI answers 500 with
+    // {"detail":…}. Accepting that as the config left S.config holding one stray
+    // key, and the next Save Settings then wrote shipped defaults over the web
+    // sources, watch folders, Redis endpoints and API keys it no longer knew
+    // about. _postConfig has always checked res.ok; this had not.
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const cfg=await r.json();
+    if(!cfg||typeof cfg!=='object'||Array.isArray(cfg))throw new Error('config was not an object');
+    S.config=cfg;
+    S.configLoaded=true;
+    const _cfgName=S.config.active_rag||'default';S.activeRag={name:_cfgName,ep:'default'};
+  }
+  catch(e){
+    // Not just an empty config: an empty one is INDISTINGUISHABLE from a real
+    // one with nothing configured, and saveSettings would happily post it back.
+    S.config={}; S.configLoaded=false;
+    console.warn('config load failed:',e);
+  }
   // Point the AGPL source offer at whatever THIS deployment reports (operators can
   // override it with VISUALWEAVER_SOURCE_URL when they run a modified build).
   try{
@@ -5506,6 +5532,7 @@ function switchTab(tab){
 function populateSettingsForm(){
   const c=S.config;
   setVal('base-instruction',c.base_instruction||'');
+  renderBaseInstructionDrift(c.base_instruction_drift);
   setVal('s-redis-host',c.redis?.host||'localhost');
   setVal('s-redis-port',c.redis?.port||6379);
   setVal('s-redis-db',c.redis?.db||0);
@@ -5743,6 +5770,17 @@ function _collectSettings(){
 }
 
 async function saveSettings(){
+  // Never save from a config that failed to load. _collectSettings reads
+  // S.config with `||` fallbacks, so on an empty one it posts web_sources:[],
+  // watch_folders:[] and empty api_key strings — and an empty string is not the
+  // "unchanged" sentinel, so the server does not restore them. One failed GET
+  // followed by one Save would delete every web source, watch folder and stored
+  // API key.
+  if(!S.configLoaded){
+    toast('Settings were never loaded — reload the page before saving, or a '
+          +'save would overwrite what could not be read','error');
+    return;
+  }
   await _postConfig(_collectSettings());
   // An API key may have just been added or changed. Drop the cached provider probe so
   // the picker's dots reflect it on the next open rather than up to a minute later.
@@ -5827,7 +5865,15 @@ async function _postConfig(cfg,force=false){
     toast('Settings NOT saved: '+msg,'error');
     return false;
   }
-  try{S.config=await fetch('/api/config').then(r=>r.json());}catch(e){S.config=cfg;}
+  // Same hardening as loadConfig: an error body is valid JSON, and accepting it
+  // here would replace a freshly saved config with {detail:…}.
+  try{
+    const rr=await fetch('/api/config');
+    if(!rr.ok)throw new Error('HTTP '+rr.status);
+    const j=await rr.json();
+    if(!j||typeof j!=='object'||Array.isArray(j))throw new Error('not an object');
+    S.config=j; S.configLoaded=true;
+  }catch(e){ S.config=cfg; console.warn('config reload after save failed:',e); }
   applyTheme(S.config.ui?.theme||cfg.ui.theme);closeSettings(true);toast('Settings saved','success');
   return true;
 }
@@ -5869,6 +5915,51 @@ async function importConfig(input){
      }}]);
 }
 
+// A saved Base Instruction replaces the shipped one permanently, so from the first
+// save the model stops being told about anything added since — new lanes, new
+// options, new preset names. Nothing failed loudly when that happened: answers
+// still rendered, they just never used the block they should have, or named an
+// option the app had stopped accepting. This says so, and names what is missing,
+// instead of leaving it to whoever remembers the reset button exists.
+function renderBaseInstructionDrift(d){
+  const el=document.getElementById('base-instruction-drift');
+  if(!el)return;
+  // `stale` and not `differs`: customising this field is what it is for, and a
+  // notice that fires on any edit — then points at the button that discards it —
+  // is worse than none. Only MISSING shipped capability is worth interrupting for.
+  if(!d||!d.stale){el.hidden=true;el.innerHTML='';return;}
+  const bits=[];
+  if(d.missing_lanes?.length)
+    bits.push('Blocks it never mentions: '+d.missing_lanes.map(l=>'<code>```'+escHtml(l)+'</code>').join(', '));
+  // list(label, items, total) -> "label: a, b, c and N more"
+  const listed=(label,items,total)=>{
+    const shown=(items||[]).slice(0,8);
+    if(!shown.length)return;
+    const n=total||items.length;
+    bits.push(label+': '+shown.map(t=>'<code>'+escHtml(t)+'</code>').join(', ')
+              +(n>shown.length?' and '+(n-shown.length)+' more':''));
+  };
+  // Names before options: a missing preset name is the difference between the
+  // model asking for something the app draws and asking for something it does
+  // not, which is more use to read first than a JSON key.
+  listed('Names it never mentions', d.missing_names, d.missing_names_total);
+  listed('Options it never names', d.missing_options, d.missing_options_total);
+  const short=Math.max(0,(d.shipped_chars||0)-(d.stored_chars||0));
+  el.hidden=false;
+  el.className='notice-warn drift-note';
+  el.setAttribute('role','note');
+  // States what is absent, not WHY. "older than the app" is a diagnosis, and it
+  // is wrong for anyone who removed a section on purpose — who would then be
+  // told their deliberate edit is out of date, above a button that undoes it.
+  el.innerHTML='<b>Your saved instruction leaves out part of what this version ships.</b> '
+    +'This box is what the model receives, so it cannot use anything missing from it'
+    +(short?(' \u2014 about '+short+' characters shorter than the shipped one'):'')+'. '
+    +(bits.length?bits.join('. ')+'. ':'')
+    +'If that is deliberate, ignore this. To take the current text instead, use '
+    +'<b>\u21ba Reset to shipped default</b> below \u2014 it replaces the box, so copy '
+    +'any wording of your own out first.';
+}
+
 // Restore the Base Instruction shipped with this version. Without this, a stored
 // copy (saved once) would shadow the default forever, so newly supported visual
 // blocks would never be advertised to the model. Still requires Save Settings.
@@ -5878,6 +5969,9 @@ function resetBaseInstruction(){
   if(getVal('base-instruction').trim()===def.trim()){toast('Already the shipped default','info');return;}
   if(!confirm('Replace the Base Instruction with the one shipped with this version? Your current text will be lost.'))return;
   setVal('base-instruction',def);
+  // The notice named blocks that are now present; leaving it up until the next
+  // save-and-reopen made the button look as though it had done nothing.
+  renderBaseInstructionDrift({differs:false,stale:false});
   toast('Base Instruction reset — click Save Settings to apply','success');
 }
 // `S.config={}` drops web_sources, watch_folders and redis_endpoints from memory,
@@ -7351,7 +7445,17 @@ function _fracOrbit(spec){
       if(i>=skip){xs[k]=x;ys[k]=y;k++;}
     }
   }
-  return {xs,ys,n:k,kind:sys.kind};
+  // Trimmed to what was filled. The buffers are allocated at the full step count,
+  // so returning them whole pinned 3.2 MB per maxed card for the life of the
+  // card once the result began being cached — and pinned it even for a diverged
+  // orbit holding nothing.
+  //
+  // slice, not subarray: subarray returns a VIEW onto the same ArrayBuffer, so
+  // it frees nothing (measured: a 10-element subarray of a 200,000 Float64Array
+  // still retains 1,600,000 bytes; the slice retains 80). Only copy when the
+  // orbit really was cut short — for a full-length one the copy is pure waste.
+  const trim=(a,len)=>len===a.length?a:a.slice(0,len);
+  return {xs:trim(xs,k),ys:trim(ys,k),n:k,kind:sys.kind};
 }
 function _fracLExpand(axiom,rules,depth,cap){
   let s=axiom;
@@ -7444,7 +7548,13 @@ function _fracSpec(raw){
     out.system=_fracOwn(_FRAC_ATTRACTORS,name)?name:bareName;
     out.steps=Math.round(_fracNum(s.iter, sys.steps??(sys.kind==='ode'?20000:120000),
                                   500,_FRAC_MAX_POINTS));
-    out.dt=sys.kind==='ode'?_fracNum(s.dt,sys.dt,1e-5,0.2):0;
+    // Bounded relative to the system's OWN step, not a flat 0.2. These differ by
+    // two orders of magnitude in stiffness, and a single ceiling meant the
+    // largest value the clamp allowed was one no system could integrate: dt=0.2
+    // returned nothing for lorenz and halvorsen, and the card then blamed the
+    // coefficients for the step size. Measured, each stays on its attractor to
+    // at least 4x its default (lorenz and rossler to 8x, halvorsen to 20x).
+    out.dt=sys.kind==='ode'?_fracNum(s.dt,sys.dt,sys.dt/50,sys.dt*4):0;
     const pl=String(s.plane||'').toLowerCase();
     out.plane=/^(xy|xz|yz)$/.test(pl)?pl:sys.plane;
     // Only the coefficients this system actually declares are read, and each is
@@ -7628,9 +7738,18 @@ function _fracRenderL(inst,canvas){
 function _fracRenderAttractor(inst,canvas){
   const {spec}=inst, ctx=canvas.getContext('2d');
   const W=canvas.width,H=canvas.height;
-  const {xs,ys,n,kind}=_fracOrbit(spec);
+  // The orbit depends only on the spec, never on the canvas size, so a resize
+  // or a theme flip must not integrate it again. Maximise-then-restore on a
+  // 200,000-step Clifford ran the whole thing twice on the main thread.
+  // Identity, not deep-compare: Apply replaces spec with a fresh object.
+  if(inst._orbitFor!==spec){ inst._orbit=_fracOrbit(spec); inst._orbitFor=spec; }
+  const {xs,ys,n,kind}=inst._orbit;
   const pal=_fracPalette(spec.palette,_isDark());
   const dpr=Math.min(2,window.devicePixelRatio||1);
+  // Bumped BEFORE the early return: leaving it after meant the one path that
+  // exits without scheduling was also the one path that left a previous
+  // render's chain live.
+  const gen=++inst.gen;
   if(n<2){
     // Painted, not thrown: redraw() also runs on resize and on a theme change,
     // where an exception has no card left to land in.
@@ -7652,7 +7771,6 @@ function _fracRenderAttractor(inst,canvas){
   // Y up, as every published portrait of these systems draws them — the Lorenz
   // wings belong at the top of the card, not mirrored under the axis.
   const px=i=>ox+(xs[i]-minx)*sc, py=i=>H-(oy+(ys[i]-miny)*sc);
-  const gen=++inst.gen;
   let i=0,lastTick=0;
   if(kind==='ode'){
     // ≤256 strokes total, so the gradient stays smooth on a short orbit and the
@@ -8267,7 +8385,71 @@ const RICH_LANES={
       thead.appendChild(hr); t.appendChild(thead);
       const tb=document.createElement('tbody'); t.appendChild(tb);
       const tf=document.createElement('tfoot'); t.appendChild(tf);
-      const num=v=>{ const n=parseFloat(String(v).replace(/[^0-9.eE+-]/g,'')); return isFinite(n)?n:null; };
+        const num=_cellNumber;   // the shared parser, hoisted to module scope
+      // Renders a computed total the way its own column is written.
+      //
+      // Prefix and suffix are the column's MOST COMMON, not the first cell's: one
+      // unformatted row would otherwise strip the currency off the total, and the
+      // same data in a different row order gave a different answer.
+      //
+      // Decimals come from decimalSep, so they are not capped at two — the earlier
+      // (\d{1,2})$ rule silently produced 0 decimals for a three-decimal column and
+      // pasted the decimal point in twice ("3.129.25").
+      //
+      // Accounting parentheses are a SIGN, not decoration. Taking them as a suffix
+      // wrapped a positive total in brackets, which in the one notation where
+      // brackets carry meaning reads as negative.
+      const fmtLike=(samples,value)=>{
+        const plain=(Math.round(value*1e6)/1e6).toString();
+        if(!isFinite(value))return plain;
+        const cells=(Array.isArray(samples)?samples:[samples])
+          .map(v=>String(v==null?'':v).trim()).filter(v=>num(v)!==null);
+        if(!cells.length)return plain;
+        const parse=s=>s.match(/^([^\d]*)([\d.,\u00a0\u202f ]*\d)([^\d]*)$/);
+        const tally={}, bump=(k,v)=>{const m=tally[k]||(tally[k]={});m[v]=(m[v]||0)+1;};
+        // Prefer the most common NON-EMPTY affix. A currency column where one row
+        // omits the symbol must still total with it: a plain majority let a single
+        // unformatted row strip the "$" off the total.
+  // A TIE is broken by whichever appeared first, so a column genuinely mixing
+  // "$" and "\u20ac" takes one of them — summing mixed currencies has no right answer.
+        const top=k=>{const m=tally[k]||{};let best='',n=0;
+          for(const v in m)if(v&&m[v]>n){n=m[v];best=v;}
+          if(best)return best;
+          for(const v in m)if(m[v]>n){n=m[v];best=v;} return best;};
+        let decimals=0, decSep='.', grpSep='', parens=false;
+        for(const c of cells){
+          const wrapped=/^\(.*\)$/.test(c);
+          if(wrapped)parens=true;
+          const m=parse(wrapped?c.slice(1,-1).trim():c);
+          if(!m)continue;
+          // Both ends: only the trailing form was stripped ("$-" -> "$"), so the
+    // commoner "-$5.00" made "-$" the column's prefix and a total of -15 came
+    // out as "--$15.00" — while a POSITIVE total was printed as "-$15", the
+    // same wrong-sign defect the parentheses fix was for.
+    bump('pre',m[1].replace(/^[-+]\s*/,'').replace(/[-+]\s*$/,''));
+          bump('post',m[3]);
+          const body=m[2], ds=_cellDecimalSep(body);
+          if(ds){
+            const d=body.length-body.lastIndexOf(ds)-1;
+            if(d>decimals){decimals=d; decSep=ds;}
+          }
+          // grouping is any separator that is NOT the decimal one
+          const head=ds? body.slice(0,body.lastIndexOf(ds)) : body;
+          const g=head.match(/[.,\u00a0\u202f ]/g);
+          if(g&&g.length)grpSep=g[g.length-1];
+        }
+        // A separator cannot be both. Without this a column mixing "1,234" with
+  // "1,23" produced "1,235,23", which is not a number in any locale.
+  if(grpSep===decSep)grpSep='';
+  // toFixed throws RangeError above 100, and `decimals` comes straight from a
+  // cell — one long printed constant would abort the whole table render.
+  const parts=Math.abs(value).toFixed(Math.min(20,decimals)).split('.');
+        let ip=parts[0];
+        if(grpSep)ip=ip.replace(/\B(?=(\d{3})+(?!\d))/g,grpSep);
+        const body=top('pre')+ip+(parts[1]?decSep+parts[1]:'')+top('post');
+        if(value<0)return parens?'('+body+')':'-'+body;
+        return body;
+      };
       function view(){
         const q=flt.value.trim().toLowerCase();
         let r=q? rows.filter(row=>row.some(c=>String(c).toLowerCase().includes(q))) : rows.slice();
@@ -8292,7 +8474,7 @@ const RICH_LANES={
             else if(totalOf.has(String(c))){
               // Totals are COMPUTED here, never taken from the model's arithmetic.
               const sum=r.reduce((a,row)=>{const n=num(row[i]);return n===null?a:a+n;},0);
-              td.textContent=(Math.round(sum*1e6)/1e6).toString(); td.className='dt-num';
+                td.textContent=fmtLike(r.map(row=>row[i]),sum); td.className='dt-num';
             }
             tr.appendChild(td); });
           tf.appendChild(tr);
@@ -9439,12 +9621,90 @@ function _buildFunctionPlot(spec, params){
 // Markdown tables rendered as static HTML with no affordances. Everything here
 // is client-side over the DOM the model already produced, so it applies to old
 // answers on reload as well as new ones.
-const _RR_NUM=/^\s*-?[$€£]?\s*-?[\d,.]+\s*%?\s*$/;
+// Shared by the ```table lane and the Markdown-table sorter below. They used to
+// carry separate parsers that disagreed in opposite directions: one read "3.142"
+// as 3142, the other read "99,25" as 9925.
+
+// Which separator in a number is the DECIMAL point, or '' when every separator
+// is a thousands group.
+//
+// "the last separator followed by one or two digits" was wrong, and expensively:
+// it fires only for one or two trailing digits, so "3.142" fell through to the
+// strip-everything branch and became 3142 — every three-decimal value a
+// thousandfold too large, in sorting as well as in totals.
+function _cellDecimalSep(t){
+  const dots=(t.match(/\./g)||[]).length, commas=(t.match(/,/g)||[]).length;
+  // Both present: the LAST one is the decimal ("1.234,50" -> comma).
+  if(dots&&commas)return t.lastIndexOf('.')>t.lastIndexOf(',')?'.':',';
+  // A thousands group is exactly three digits, so anything else after a lone
+  // separator is a fraction — "12.3456" is not a group of four. Exactly three
+  // is genuinely ambiguous ("1,234"): the comma reads as grouping and the dot
+  // as a decimal, which is what the previous parser did, so no column changes
+  // meaning.
+  if(commas===1)return /,\d{3}$/.test(t)?'':',';
+  if(dots===1)return '.';
+  // Repeated separators are grouping when the groups look like grouping: the
+  // last is three digits and the rest two or three, covering both "1.234.567"
+  // and the Indian "12,34,567". Otherwise the last one is a decimal point.
+  if(dots||commas){
+    const only=dots?'.':',';
+    const g=t.split(only).slice(1);
+    const grouped=/^\d{3}$/.test(g[g.length-1])
+                  && g.slice(0,-1).every(x=>/^\d{2,3}$/.test(x));
+    // Not grouping, and with two or more separators it is not a decimal either:
+    // "1.2.3" is a version, "10.01.2024" a date. Guessing the last one is a
+    // decimal point concatenated the leading segments, so 1.9.0 sorted as 19
+    // and landed BETWEEN 1.2.3 and 1.10.0, and a dotted date never reached the
+    // date branch. null means "not a number" and leaves it to a text or date
+    // sort, which is what those columns want.
+    return grouped?'':null;
+  }
+  return '';
+}
+
+// Parses a table cell to a number, for sorting and for totals. Keeping [eE] so
+// that exponents worked meant the E of "EUR" became one: "99,25 EUR" survived
+// the strip as "9925E" and parsed as 9925. Exponents are still honoured, but
+// only when the whole cell is written as one.
+function _cellNumber(v){
+  const raw=String(v==null?'':v).trim();
+  if(!raw)return null;
+  if(/^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$/.test(raw)){
+    const n=parseFloat(raw); return isFinite(n)?n:null;
+  }
+  const signed=raw.replace(/[^\d.,+-]/g,'');
+  const neg=/^\(.*\)$/.test(raw)||signed.charAt(0)==='-';
+  const t=raw.replace(/[^\d.,]/g,'');
+  if(!/\d/.test(t))return null;
+  const sep=_cellDecimalSep(t);
+  if(sep===null)return null;          // versions, dotted dates: not a number
+  const cut=sep?t.lastIndexOf(sep):-1;
+  const body=cut<0? t.replace(/[.,]/g,'')
+                  : t.slice(0,cut).replace(/[.,]/g,'')+'.'+t.slice(cut+1).replace(/[.,]/g,'');
+  const n=parseFloat(body);
+  return isFinite(n)?(neg?-n:n):null;
+}
+
+// A trailing CURRENCY CODE, not any short run of letters. [A-Za-z]{0,4} split
+// columns down the middle — "3 days" parsed as 3 while "3 weeks" stayed text,
+// and a column holding both then had no total order at all, so it sorted
+// arbitrarily where it used to sort alphabetically.
+const _RR_CCY='EUR|USD|GBP|CHF|JPY|CNY|INR|AUD|CAD|NZD|SEK|NOK|DKK|PLN|CZK'
+             +'|HUF|RON|TRY|ZAR|BRL|MXN|SGD|HKD|KRW|RUB';
+const _RR_NUM=new RegExp('^\\s*\\(?\\s*-?\\s*[$€£¥₹]?\\s*-?[\\d.,\\u00a0\\u202f ]*\\d\\s*'
+                        +'(?:[$€£¥₹%]|'+_RR_CCY+')?\\s*\\)?\\s*$','i');
 function _rrCellVal(td){
   const t=(td.textContent||'').trim();
+  // The shared parser, so a Markdown table sorts the same way the ```table lane
+  // does. The old pattern accepted only $/EUR/GBP and %, then stripped to
+  // [0-9.-]: "99,25" sorted as 9925, and "99,25 EUR", "(50.25)" and "12 345"
+  // fell through to a TEXT sort — while DOCS.md promised currency sorted by
+  // value. _RR_NUM gates it and _cellNumber returns null for a separator run
+  // that is not valid grouping, so "10.01.2024" and "1.2.3" reach the date
+  // and text branches rather than being read as 1001.2024 and 12.3.
   if(_RR_NUM.test(t)&&/\d/.test(t)){
-    const n=parseFloat(t.replace(/[^0-9.\-]/g,''));
-    if(!isNaN(n))return n;
+    const n=_cellNumber(t);
+    if(n!==null)return n;
   }
   const d=Date.parse(t);
   if(!isNaN(d)&&/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(t))return d;

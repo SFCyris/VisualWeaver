@@ -156,6 +156,120 @@ def invalidate_provider_clients():
     _provider_clients.clear()
 
 
+# Words the prompt enumerates as a comma list after a colon — "…all you need to
+# get right: mandelbrot, julia, fern, …", "Allowed types: point, line, segment,
+# …". They are capability NAMES the model must reproduce exactly, and they are
+# invisible to both a fence scan and a JSON-key scan.
+#
+# Parentheticals are dropped first so "koch (Koch snowflake)" contributes `koch`
+# and not `snowflake`. A run of at least four is required: shorter comma lists in
+# ordinary prose are not vocabulary.
+_ENUM_STOPWORDS = frozenset({"and", "the", "for", "with", "see", "use", "only",
+                             "not", "are", "its", "one", "per", "any", "also"})
+
+
+def _enumerated_names(text: str) -> set:
+    import re
+
+    flat = re.sub(r"\([^)]*\)", " ", text)
+    out = set()
+    for m in re.finditer(r":\s*((?:[a-z][a-z0-9-]{2,}\s*,\s*){3,}[a-z][a-z0-9-]{2,})", flat):
+        out |= {w for w in re.findall(r"\b([a-z][a-z0-9-]{2,})\b", m.group(1))
+                if w not in _ENUM_STOPWORDS}
+    return out
+
+
+def base_instruction_drift(stored: str | None = None) -> dict:
+    """What the SHIPPED Base Instruction offers that a saved copy does not.
+
+    A saved Base Instruction replaces the shipped one outright and is never
+    revisited, so from the first time Settings is saved the model stops hearing
+    about anything added since — new blocks, new options. That is silent: the
+    answer still renders, it just never uses the block it should, or names an
+    option that no longer exists.
+
+    Reports what is MISSING, never merely what is different. Customising this
+    field is its documented purpose, and a notice that fires on any edit — then
+    recommends the button that discards it — is worse than no notice at all.
+    `stale` is the flag worth acting on; `differs` is descriptive only.
+    """
+    import re
+
+    shipped = constants.DEFAULT_BASE_INSTRUCTION
+    if stored is None:
+        stored = state._config.get("base_instruction")
+    # A hand-edited config can hold anything. This runs inside GET /api/config,
+    # the route the whole UI bootstraps from, so a TypeError here would take the
+    # settings screen down rather than one chat turn.
+    if not isinstance(stored, str):
+        stored = ""
+    stored = stored.strip()
+
+    # With the visual section switched off, everything after the marker is cut
+    # before sending — so it is not missing, it is declined. Compare like for like.
+    if not state._config.get("visual_instructions", True):
+        marker = getattr(constants, "VISUAL_SECTION_MARKER", None)
+        if marker:
+            # BOTH sides: compose_system_prompt cuts the STORED instruction at
+            # this marker before sending, so the visual section is not part of
+            # what either one contributes. Truncating only the shipped side made
+            # an untouched default read as different from itself.
+            if marker in shipped:
+                shipped = shipped[:shipped.index(marker)]
+            if marker in stored:
+                stored = stored[:stored.index(marker)]
+
+    # Compare like with like: `shipped` may have been truncated at the visual
+    # marker above, and measuring a stripped stored copy against an unstripped
+    # shipped one made `differs` true for an untouched default and put the
+    # trailing whitespace into the "N characters missing" figure.
+    shipped, stored = shipped.strip(), stored.strip()
+    empty = {"differs": False, "stale": False, "missing_lanes": [],
+             "missing_options": [], "missing_options_total": 0,
+             "missing_names": [], "missing_names_total": 0,
+             "stored_chars": len(stored), "shipped_chars": len(shipped)}
+    if not stored or stored == shipped.strip():
+        return empty
+
+    # Fenced blocks, filtered through the list of things that actually render —
+    # the prose also contains "```language", the placeholder for an ordinary code
+    # fence, and naming that as a missing capability invents one.
+    lanes = [f for f in re.findall(r"```([a-z][a-z0-9]*)", shipped)
+             if f in constants.RENDERABLE_FENCES]
+    missing_lanes = sorted({l for l in dict.fromkeys(lanes) if f"```{l}" not in stored})
+
+    # JSON KEYS the model has to write — `"order":`, `"plane":`, `"c":`. Matching
+    # any quoted word instead swept up the example VALUES ("bar", "api", "svc",
+    # "indefinite"), which are not options and made the notice meaningless.
+    keys = re.findall(r'"([a-z][a-z0-9_]*)"\s*:', shipped)
+    missing = sorted({k for k in dict.fromkeys(keys) if f'"{k}"' not in stored})
+
+    # Enumerated capability names — the fractal presets, the geometry element
+    # types. These are the words the model has to reproduce exactly, and the
+    # earlier version could not see them at all: deleting all 21 preset names
+    # from a stored copy left `stale` False, which is precisely the incident this
+    # whole feature was built for.
+    # Presence in the stored TEXT, the way missing_lanes and missing_options
+    # are tested. Comparing two parsed enumerations meant the saved copy had
+    # to reproduce the comma-list FORM: swapping one ", " for "; ", or
+    # re-wrapping the list one name per line, reported all 21 preset names as
+    # missing while every one of them was still there — a permanent warning
+    # above the button that discards the wording.
+    missing_names = sorted(
+        w for w in _enumerated_names(shipped)
+        if not re.search(rf"\b{re.escape(w)}\b", stored))
+
+    return {"differs": True,
+            "stale": bool(missing_lanes or missing or missing_names),
+            "missing_lanes": missing_lanes,
+            "missing_options": missing[:40],
+            "missing_options_total": len(missing),
+            "missing_names": missing_names[:40],
+            "missing_names_total": len(missing_names),
+            "stored_chars": len(stored),
+            "shipped_chars": len(shipped)}
+
+
 def compose_system_prompt(client_system: str | None) -> str:
     """
     Build the effective system prompt for a chat turn.
@@ -165,7 +279,11 @@ def compose_system_prompt(client_system: str | None) -> str:
     (templates are additive to the base). If both are empty we fall back to a
     plain default so the model still gets a system message.
     """
-    base   = (state._config.get("base_instruction") or "").strip()
+    # isinstance, not `or ""`. Hardening only the config route moved the
+    # symptom from "Settings will not open" to "the app answers nothing",
+    # which is worse: this runs on every chat turn.
+    _bi = state._config.get("base_instruction")
+    base   = (_bi if isinstance(_bi, str) else "").strip()
     # Drop the large chart/diagram authoring section on text-only deployments
     # (config visual_instructions=False) to save ~2k billed tokens per turn. The
     # SHIPPED instruction's visual section is a trailing block beginning at
@@ -201,7 +319,12 @@ def _redact_secrets(cfg: dict) -> dict:
         red["redis"]["password"] = _SECRET_SENTINEL
     if isinstance(red.get("security"), dict) and red["security"].get("password"):
         red["security"]["password"] = _SECRET_SENTINEL
-    for ep in red.get("redis_endpoints", []) or []:
+    # isinstance, not `or []`: a non-list here (5, or a bare string) either
+    # raised TypeError or iterated characters, out of GET /api/config.
+    _eps = red.get("redis_endpoints")
+    for ep in (_eps if isinstance(_eps, list) else []):
+        if not isinstance(ep, dict):
+            continue
         if isinstance(ep, dict) and ep.get("password"):
             ep["password"] = _SECRET_SENTINEL
     return red

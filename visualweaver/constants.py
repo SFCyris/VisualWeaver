@@ -125,6 +125,20 @@ SOURCE_URL = os.environ.get("VISUALWEAVER_SOURCE_URL", "https://github.com/SFCyr
 # This dict is merged with config.json on startup so new keys are always
 # available even on an existing install.  Nested dicts are merged shallowly.
 
+# Fenced block names the app can actually render. RICH_LANES in index.html holds
+# most of them; plot, svg, abc and latex are drawn by their own passes in
+# appendMessage. Kept here so base_instruction_drift can tell a real block from a
+# word that merely looks like one — "```language" appears in the prose as the
+# placeholder for a code fence, and reporting it as a missing block named a
+# capability that has never existed.
+# tests/test_lane_prompt_alignment.py pins this against the frontend.
+RENDERABLE_FENCES = frozenset({
+    "calc", "chart", "diff", "dot", "fractal", "gantt", "geojson", "geometry",
+    "map", "mermaid", "molecule", "molecule3d", "network", "plot3d", "regex",
+    "solve", "stats", "table", "timeline", "truth",          # RICH_LANES
+    "plot", "svg", "abc", "latex",                            # own render passes
+})
+
 # Default global system instruction. Prepended to every chat turn (before any
 # selected template). Editable in Settings -> Templates -> Base Instruction.
 # Tuned to this app's SVG renderer + DOMPurify sanitiser (see the marked `code`

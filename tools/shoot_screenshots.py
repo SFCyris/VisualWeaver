@@ -9,7 +9,9 @@
 
 Requires playwright (`pip install playwright && playwright install chromium`).
 
-The capture is deterministic and READ-ONLY: sample conversations are injected
+The capture is READ-ONLY, and deterministic except for `map.png`, which draws
+live OpenStreetMap tiles and so changes with the tile server: sample conversations
+are injected
 straight into the render pipeline through appendMessage(), so no provider is
 called and no answer has to be waited for, and nothing here saves settings,
 ingests a document or starts a crawl. Panels that only exist mid-operation

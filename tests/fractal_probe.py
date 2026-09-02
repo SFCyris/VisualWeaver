@@ -31,6 +31,16 @@ SPECS = {
     "mandelbrot": {"type": "mandelbrot"},
     "julia":      {"type": "julia"},
     "diverged":   {"type": "lorenz", "rho": 9000, "sigma": 900},
+    # Two maps, the second deliberately weighted 0 and placed far from the first.
+    # Chosen it would drag the cloud across the frame; never chosen the whole
+    # attractor collapses onto one contracting fixed point. Only the RENDERER
+    # decides this, so it is only visible in pixels.
+    "ifs_zero_p": {"type": "ifs", "points": 20000,
+                   "maps": [[0.5, 0, 0, 0.5, 0, 0, 1],
+                            [0.5, 0, 0, 0.5, 40, 0, 0]]},
+    "ifs_both_p": {"type": "ifs", "points": 20000,
+                   "maps": [[0.5, 0, 0, 0.5, 0, 0, 0.5],
+                            [0.5, 0, 0, 0.5, 40, 0, 0.5]]},
 }
 
 MEASURE = r"""

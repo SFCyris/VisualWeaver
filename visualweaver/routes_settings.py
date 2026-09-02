@@ -73,23 +73,30 @@ log = logging.getLogger(__name__)
 # ROUTES — CONFIG
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@appcore.app.get("/api/config")
-def api_get_config():
-    """
-    Return the full runtime config.
-    Includes boolean flags indicating whether API keys came from env vars
-    so the UI can show the correct hint without ever seeing the actual keys.
+def _computed_config_fields() -> dict:
+    """Read-only fields GET /api/config adds for the UI. Never settings.
+
+    Built here so the save path can strip exactly what the read path adds. A
+    hand-written second list had already drifted — it was missing
+    gemini_key_from_env and groq_key_from_env, both of which a
+    GET-then-POST round trip persisted into config.json as a stale `true` that
+    outlived the environment variable it described.
     """
     return {
-        **config._redact_secrets(state._config),
-        # Read-only: lets the UI offer "Reset to default" for the base instruction,
-        # so an improved shipped default can be adopted after it has been saved once.
+        # Lets the UI offer "Reset to default" for the base instruction, so an
+        # improved shipped default can be adopted after it has been saved once.
         "base_instruction_default": constants.DEFAULT_BASE_INSTRUCTION,
-        # Read-only: what the cache will actually use. When cache.similarity_threshold is
-        # null the value comes from the embedding model's calibration, and the UI has to
-        # show a real number rather than an empty slider. Never posted back — the client
-        # builds its payload field by field.
+        # What a SAVED base instruction is missing relative to the shipped one.
+        # A saved copy shadows the default permanently, so without this the UI
+        # cannot tell the user that newly supported blocks and options are not
+        # reaching the model.
+        "base_instruction_drift": config.base_instruction_drift(),
+        # What the cache will actually use. When cache.similarity_threshold is
+        # null the value comes from the embedding model's calibration, and the UI
+        # has to show a real number rather than an empty slider.
         "cache_threshold_effective": cache.effective_threshold(),
+        # Whether each key came from the environment, so the UI can show the
+        # right hint without ever seeing the key itself.
         "claude_key_from_env":  bool(state._env_key),
         "openai_key_from_env":  bool(state._openai_env_key),
         "qwen_key_from_env":    bool(state._qwen_env_key),
@@ -97,6 +104,22 @@ def api_get_config():
         "groq_key_from_env":    bool(state._groq_env_key),
         "gemini_key_from_env":  bool(state._gemini_env_key),
     }
+
+
+def _computed_config_keys() -> frozenset:
+    # force_embedding_change is a per-request override, not a setting. It was
+    # being written into config.json, where it is inert but exported.
+    return frozenset(_computed_config_fields()) | {"force_embedding_change"}
+
+
+@appcore.app.get("/api/config")
+def api_get_config():
+    """
+    Return the full runtime config.
+    Includes boolean flags indicating whether API keys came from env vars
+    so the UI can show the correct hint without ever seeing the actual keys.
+    """
+    return {**config._redact_secrets(state._config), **_computed_config_fields()}
 
 
 @appcore.app.post("/api/config")
@@ -150,7 +173,10 @@ async def api_save_config(payload: dict):
                     + (f" (affects: {', '.join(populated)})" if populated else ""))
         await redis_store._reset_index_markers_for_embedding_change()
 
-    state._config.update(payload)
+    _computed = _computed_config_keys()      # once, not once per key: each call
+    state._config.update({k: v for k, v in payload.items()   # rebuilds the whole
+                          if k not in _computed})            # drift report
+
 
     if new_model and new_model != old_model:
         # The cache threshold is calibrated per model and does not survive the change —
@@ -235,6 +261,10 @@ async def api_import_config(file: UploadFile = File(...)):
                     f"{new_model!r}: resetting index schema markers.")
         await redis_store._reset_index_markers_for_embedding_change()
 
+    # An exported config round-tripped through GET carries the keys that route
+    # computes; they are not settings and must not be written to disk.
+    for _k in _computed_config_keys():
+        merged.pop(_k, None)
     state._config = merged
     config.save_config(state._config)
     # Endpoints, provider keys and the embedding model may all have changed.

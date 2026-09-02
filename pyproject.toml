@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "visualweaver"
-version = "1.10.0"
+version = "1.11.0"
 description = "Self-hosted retrieval-augmented chat over your own documents and sites, backed by Redis vector search"
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-or-later" }
@@ -65,6 +65,7 @@ include = ["visualweaver*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Integration tests skip themselves when no Redis is reachable, so a bare
-# checkout still runs green.
+# The suite starts its own throwaway Redis (see tests/conftest.py). When none can
+# be started — a bare checkout with nothing installed — the integration tests skip
+# themselves, so that checkout still runs green.
 filterwarnings = ["ignore::DeprecationWarning"]

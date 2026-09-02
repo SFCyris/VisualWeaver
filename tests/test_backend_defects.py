@@ -522,3 +522,32 @@ def test_export_still_reads_a_legacy_pre_rename_vector(width_named_field):
                                  b"embedding": b"\x00\x01\x02\x03"}}
     out = list(routes_ingestion._iter_chunks_pipelined(_FakeRedis(hashes), "rag:x"))
     assert len(out) == 1 and out[0]["embedding_b64"], "a legacy row exported with no vector"
+
+
+# ── GET /api/config must survive a hand-edited config.json ───────────────────
+# It is the route the whole UI bootstraps from, so an exception here is not one
+# broken field — it is a settings screen that will not open, and (before the
+# client learned to check r.ok) a subsequent save that wrote defaults over the
+# web sources, watch folders and API keys it could no longer see.
+#
+# `or {}` was used in several places to mean "missing or empty". It does not
+# guard a wrong TYPE, and every one of these raised.
+@pytest.mark.parametrize("bad", [
+    {"cache": "on"},                              # AttributeError in effective_threshold
+    {"cache": 5},
+    {"cache": {"similarity_threshold": "high"}},
+    {"embedding": "minilm"},                      # AttributeError in embedding_id_for
+    {"embedding": 7},
+    {"redis_endpoints": 5},                       # TypeError in _redact_secrets
+    {"redis_endpoints": "x"},                     # iterated characters
+    {"redis_endpoints": [1, 2]},
+    {"base_instruction": 42},                     # AttributeError in the drift check
+    {"watch_folders": "yes"},
+    {"web_sources": 3},
+])
+def test_the_config_route_survives_a_malformed_config(bad, cfg):
+    from visualweaver import routes_settings, state
+
+    state._config.update(bad)
+    body = routes_settings.api_get_config()
+    assert isinstance(body, dict) and "base_instruction_drift" in body

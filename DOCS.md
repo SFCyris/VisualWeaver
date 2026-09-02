@@ -260,15 +260,19 @@ Every option is optional:
 - `palette` — `viridis` (default), `fire`, `ocean` or `mono`.
 - `order` — recursion depth of a curve, from 1 up to a per-curve maximum:
   `peano` 4, `gosper` 5, `moore` 6, `hilbert`, `koch` and `plant` 7, `arrowhead` 10,
-  `tree` 13, `dragon` and `levy` 14. Above its maximum a curve reports
-  `L-system exceeds 120000 symbols` instead of drawing.
+  `tree` 13, `dragon` and `levy` 14. An order above 14 is reduced to 14; between
+  a curve's own maximum and 14 it reports `L-system exceeds 120000 symbols`
+  instead of drawing.
 - `iter` — escape-time detail (16–1000), or the number of points along an
-  attractor's orbit.
+  attractor's orbit (500–200,000). `steps` is accepted as a synonym.
 - `plane` — `xy`, `xz` or `yz`: which projection to draw of `lorenz`, `rossler`,
   `thomas` or `halvorsen`. `clifford` and `dejong` are already flat and ignore it.
 - An attractor's own coefficients: `sigma` / `rho` / `beta` for `lorenz`, `a`–`c`
   for `rossler`, `a`–`d` for `clifford` and `dejong`, `b` for `thomas`, `a` for
-  `halvorsen`. `dt` sets the integration step of the four continuous systems.
+  `halvorsen`. `dt` sets the integration step of the four continuous systems, bounded relative
+  to each one's own default — a fiftieth of it to four times it — because they
+  differ by two orders of magnitude in stiffness. A larger value is reduced to
+  that ceiling rather than rejected.
 - `c` — for `julia` only, the complex constant as `[re, im]`.
 - `center`, `zoom` — for `mandelbrot` and `julia`. `points` — for `ifs`.
   `axiom`, `rules`, `angle`, `depth` — for a hand-written `lsystem`.
