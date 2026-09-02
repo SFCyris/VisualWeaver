@@ -74,6 +74,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y redis
           redis-server --version
+          # Where the distribution put the query engine. conftest starts its own
+          # server with no config file, so it must load the module by path — the
+          # first run of this job failed because it only knew the vendored one.
+          # Printed unconditionally so a miss is answerable from a single run.
+          echo "--- redis module locations ---"
+          ls -l /usr/lib/redis/modules/ 2>/dev/null || echo "  no /usr/lib/redis/modules"
+          find / -name '*search*.so' -path '*redis*' 2>/dev/null | head -5 || true
           python -m pytest tests/test_test_cleanup.py tests/test_workflow_backend.py \
                            tests/test_usage_tracking.py -q
 

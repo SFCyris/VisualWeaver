@@ -6,6 +6,7 @@ a test run can never read or overwrite a real install's config, sessions or
 vectors. The env var is set before ``visualweaver.main`` is imported because the
 module resolves DATA_DIR at import time.
 """
+import glob
 import os
 import re
 import sys
@@ -158,6 +159,21 @@ def _boot_private_redis():
                   or root / ".redis" / "redis-oss" / "bin" / "redis-server")
     module = Path(resolved.get("REDIS_MODULE_SEARCH")
                   or root / ".redis" / "redis-oss" / "lib" / "redis" / "modules" / "redisearch.so")
+    if not module.exists():
+        # A packaged Redis 8 ships the query engine as a module and loads it from
+        # its own /etc/redis/redis.conf. Starting a private server with no config
+        # file therefore gets a Redis with no FT.* at all — which is exactly how
+        # the CI job that runs without a pinned port failed on its first run.
+        # Look where the distributions put it.
+        for pattern in ("/usr/lib/redis/modules/redisearch*.so",
+                        "/usr/lib/redis/modules/search*.so",
+                        "/usr/lib/redis/modules/*search*.so",
+                        "/opt/redis-stack/lib/redisearch*.so",
+                        "/usr/local/lib/redis/modules/redisearch*.so"):
+            found = sorted(glob.glob(pattern))
+            if found:
+                module = Path(found[0])
+                break
     vendor_dir = resolved.get("REDIS_DYLD_FALLBACK")
     if not server.exists():
         # redis-stack-server first: where both exist, the plain redis-server is
@@ -240,8 +256,10 @@ def _boot_private_redis():
             # and this project has already had one.
             _probe.close()
     except Exception as exc:
-        return _give_up(f"server has no RediSearch ({type(exc).__name__}); "
-                        "install redis-stack or run install.sh to vendor it")
+        return _give_up(
+            f"server has no RediSearch ({type(exc).__name__}); no module found at "
+            f"{module} nor in /usr/lib/redis/modules or /opt/redis-stack/lib. "
+            "Run install.sh to vendor one, or install redis-stack-server")
 
     global _boot_dbsize
     try:
