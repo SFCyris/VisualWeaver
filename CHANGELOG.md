@@ -5,6 +5,29 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-09-02
+
+### Added
+- **Fractals are interactive.** On a Mandelbrot or Julia card, drag a box to zoom
+  into it — the selection is kept to the card's proportions, so the zoom never
+  distorts — while a plain click still zooms in and shift-click zooms out. Every
+  fractal now has a slider under the canvas that re-renders it in place: **Iterations**
+  for Mandelbrot and Julia, **Depth** for the L-system curves, **Iterations** for the
+  Barnsley fern and other chaos-game figures, and **Steps** for the strange attractors.
+- **The Sierpinski triangle and carpet are drawn as nested outlines with a Depth
+  slider.** Each level divides the figure into smaller copies of itself — the gasket
+  as nested triangles, the carpet as nested squares — the way the Koch snowflake's
+  depth works, rather than a fixed point count.
+- **New ` ```fractal ` preset `frond`.** A fern drawn as an L-system — a stem segment
+  is replaced by a branching frond, recursively, with a **Depth** slider — alongside
+  the classic Barnsley `fern`, which stays the IFS point cloud.
+- **Every figure's Source pane is editable.** Opening **Source** on a ` ```plot `,
+  ` ```abc `, ` ```svg ` or ` ```latex ` card now offers the same **▶ Apply** and
+  **↺ Reset** as the other rendered blocks: change the markup or spec and the card
+  re-renders in place, without a round trip to the model. A re-applied `plot`
+  rebuilds its sliders and definition list, and a re-applied score is what
+  **▶ Play** plays. Edits stay local to the page; the stored message is unchanged.
+
 ## [1.11.0] — 2026-09-01
 
 ### Added
@@ -13,7 +36,7 @@ All notable changes to VisualWeaver are recorded here. The format follows
   (Sierpiński carpet), and six strange attractors — `lorenz`, `rossler`, `thomas`,
   `halvorsen`, `clifford` and `dejong`. Naming one is enough: `{"type":"hilbert",
   "order":5}` draws a fifth-order Hilbert curve.
-- **Strange attractors are a new kind of ```fractal.** Continuous systems are
+- **Strange attractors are a new kind of ` ```fractal `.** Continuous systems are
   integrated and drawn as an orbit graded along the trajectory; a three-dimensional
   one takes `plane` to choose its projection, and each takes its own named
   coefficients.
@@ -27,7 +50,7 @@ All notable changes to VisualWeaver are recorded here. The format follows
   kind of thing. The total takes the column's own prefix, suffix, grouping and
   decimals.
 - **Table columns sort and total by value in more notations.** Every kind of
-  table — the ```table block and any Markdown table in an answer — now reads
+  table — the ` ```table ` block and any Markdown table in an answer — now reads
   `99,25 EUR`, `1.234,50`, `(50.25)`, `12 345` and `12,34,567` as the numbers
   they are, and leaves version strings and dotted dates to sort as versions and
   dates rather than misreading them as decimals. Previously the two kinds of table used different parsers, and both
@@ -51,7 +74,7 @@ All notable changes to VisualWeaver are recorded here. The format follows
   the app allowed produced no orbit at all for several systems, and the card then
   reported that the coefficients had diverged.
 - **Asking for a Hilbert curve, a Peano curve or a Lorenz attractor produced an
-  error box.** Each is exactly what the ```fractal lane is for, but only seven
+  error box.** Each is exactly what the ` ```fractal ` lane is for, but only seven
   presets had names, so anything else had to be written out as a raw L-system or
   IFS to render at all.
 - **A fractal card kept its dark background after switching to the light theme.**

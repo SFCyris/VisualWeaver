@@ -1327,10 +1327,10 @@
   {
     "id": "M164_fractal_click_zoom_button_reveal_removed",
     "file": "visualweaver/index.html",
-    "find": "          const b=card?.querySelector('[data-act=\"fractal-reset\"]');\n          if(b)b.style.display='';",
-    "replace": "          ;",
-    "defect": "click-zoom never reveals the Reset zoom button -> the user has no way back to the original view",
-    "expect": "test_click_zoom_reveals_the_reset_button"
+    "find": "const showReset=()=>{ const b=card?.querySelector('[data-act=\"fractal-reset\"]'); if(b)b.style.display=''; };",
+    "replace": "const showReset=()=>{};",
+    "defect": "zooming a fractal (box-drag or click) never reveals the Reset-zoom button, so a navigated view cannot be reset",
+    "expect": "test_dragging_a_box_zooms_in_recenters_and_shows_reset"
   },
   {
     "id": "M165_pipe_anchor_single_char",
@@ -3100,5 +3100,285 @@
     "replace": "    base   = (_bi or \"\").strip()",
     "defect": "a non-string base_instruction in a hand-edited config raises out of every chat turn, so the app answers nothing while the settings screen opens normally",
     "expect": "test_a_non_string_base_instruction_cannot_break_a_chat_turn"
+  },
+  {
+    "id": "M392_editable_gate_back_to_rich_only",
+    "file": "visualweaver/index.html",
+    "find": "    if(!shown){\n      const code=pre.querySelector('code');",
+    "replace": "    if(act==='rich-src'&&!shown){\n      const code=pre.querySelector('code');",
+    "defect": "the Source pane of plot/abc/svg/latex cards is read-only again: no Apply bar is ever attached outside the rich lanes",
+    "expect": "test_editable_branch_is_not_gated_on_the_rich_family"
+  },
+  {
+    "id": "M393_apply_only_finds_rich_cards",
+    "file": "visualweaver/index.html",
+    "find": "  }else if(act==='rich-apply'){\n    const wrap=btn.closest(_SRC_WRAPS);",
+    "replace": "  }else if(act==='rich-apply'){\n    const wrap=btn.closest('.rich-wrap');",
+    "defect": "Apply inside a plot/abc/svg/latex card resolves no wrapper and only shows the 'maximized' toast; the edit never renders",
+    "expect": "test_apply_resolves_any_card_family_and_uses_the_family_aware_rerender"
+  },
+  {
+    "id": "M394_plot_rerender_keeps_stale_sliders",
+    "file": "visualweaver/index.html",
+    "find": "    const pp=wrap.querySelector('.plot-params');\n    if(pp){ clearTimeout(pp._ppTimer); pp.remove(); }",
+    "replace": "    const pp=null;",
+    "defect": "every Apply on a plot with a param: line adds another slider bar under the card, the old ones still bound to the previous spec",
+    "expect": "test_plot_rerender_drops_the_old_sliders_and_definitions_block"
+  },
+  {
+    "id": "M395_plot_rerender_keeps_stale_definitions",
+    "file": "visualweaver/index.html",
+    "find": "    if(defs&&defs.classList.contains('plot-defs-block'))defs.remove();",
+    "replace": "    ;",
+    "defect": "the definitions block in front of a re-applied plot still lists the OLD functions, so the legend and the curves disagree",
+    "expect": "test_plot_rerender_drops_the_old_sliders_and_definitions_block"
+  },
+  {
+    "id": "M396_abc_rerender_keeps_old_synth",
+    "file": "visualweaver/index.html",
+    "find": "    out._abcSynth=null; out._abcPlaying=false; out._abcTune=null;",
+    "replace": "    ;",
+    "defect": "after Apply on a score, Play still plays the synth primed on the previous tune, not what is engraved",
+    "expect": "test_abc_rerender_stops_and_forgets_the_synth_primed_on_the_old_tune"
+  },
+  {
+    "id": "M397_svg_apply_admits_style_tags",
+    "file": "visualweaver/index.html",
+    "find": "    ? DOMPurify.sanitize(raw,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['style']})",
+    "replace": "    ? DOMPurify.sanitize(raw,{USE_PROFILES:{svg:true,svgFilters:true}})",
+    "defect": "an SVG re-rendered by Apply keeps <style> blocks that the original render path strips, so the two paths render the same source differently",
+    "expect": "test_svg_card_builder_and_apply_share_one_sanitiser"
+  },
+  {
+    "id": "M398_tex_apply_skips_the_sanitiser",
+    "file": "visualweaver/index.html",
+    "find": "      ? DOMPurify.sanitize(_katexBlockHtml(src),{FORBID_TAGS:['style']}) : '';",
+    "replace": "      ? _katexBlockHtml(src) : '';",
+    "defect": "KaTeX output from user-edited source lands in the DOM without the gate every other render path passes through",
+    "expect": "test_latex_card_builder_and_apply_share_one_renderer"
+  },
+  {
+    "id": "M399_katex_error_message_unescaped",
+    "file": "visualweaver/index.html",
+    "find": "LaTeX error: ${escHtml(String(e&&e.message||e))}</span>`;",
+    "replace": "LaTeX error: ${e.message}</span>`;",
+    "defect": "a KaTeX exception message is interpolated into markup verbatim",
+    "expect": "test_katex_error_text_is_escaped_before_it_becomes_html"
+  },
+  {
+    "id": "M400_rerender_touches_a_maximized_card",
+    "file": "visualweaver/index.html",
+    "find": "  if(!wrap.querySelector(_SRC[fam][3])||!wrap.querySelector(_SRC[fam][1]+' code'))return 'Restore the maximized card first';",
+    "replace": "  ;",
+    "defect": "Apply/Reset while the output is maximized elsewhere are no longer declined: the re-render dereferences a missing output element",
+    "expect": "test_reset_while_maximized_declines_without_touching_the_source"
+  },
+  {
+    "id": "M401_play_keeps_a_superseded_synth",
+    "file": "visualweaver/index.html",
+    "find": "      if((out._abcGen||0)!==gen){ try{ ac.close(); }catch(e){} return; }   // superseded by an Apply",
+    "replace": "      ;",
+    "defect": "a Play still loading its soundfont when Apply lands stores the OLD tune's synth on the re-rendered card, so every later Play plays the previous score",
+    "expect": "test_a_play_still_loading_when_apply_lands_is_discarded"
+  },
+  {
+    "id": "M402_reset_restores_text_before_checking_it_can_redraw",
+    "file": "visualweaver/index.html",
+    "find": "    const why=_rerenderBlocked(wrap);\n    if(why){toast(why,'info');return;}\n    code.textContent=code._originalSrc;",
+    "replace": "    code.textContent=code._originalSrc;\n    const why=_rerenderBlocked(wrap);\n    if(why){toast(why,'info');return;}",
+    "defect": "Reset while the output is maximized puts the original text back without redrawing, so the pane and the card disagree and 'Already the original' then blocks the retry",
+    "expect": "test_reset_while_maximized_declines_without_touching_the_source"
+  },
+  {
+    "id": "M403_queued_slider_redraw_survives_apply",
+    "file": "visualweaver/index.html",
+    "find": "    if(pp){ clearTimeout(pp._ppTimer); pp.remove(); }",
+    "replace": "    if(pp){ pp.remove(); }",
+    "defect": "a slider redraw queued just before Apply fires afterwards and repaints the OLD spec over the new one",
+    "expect": "test_a_slider_redraw_queued_before_apply_cannot_repaint_the_old_spec"
+  },
+  {
+    "id": "M404_apply_reports_success_without_a_renderer",
+    "file": "visualweaver/index.html",
+    "find": "  return _SRC_LIB[fam]()?'':'The renderer for this card is not loaded — reload the page and try again';",
+    "replace": "  return '';",
+    "defect": "with the family's library missing, Apply wipes the card and reports ✓ Applied over an empty output",
+    "expect": "test_apply_declines_and_keeps_the_card_when_the_renderer_is_missing"
+  },
+  {
+    "id": "M405_end_of_tune_timer_ends_a_later_playback",
+    "file": "visualweaver/index.html",
+    "find": "if(out._abcPlayId===playId&&out._abcPlaying){out._abcPlaying=false;btn.textContent='▶ Play';} },ms+250);",
+    "replace": "if(out._abcPlaying){out._abcPlaying=false;btn.textContent='▶ Play';} },ms+250);",
+    "defect": "the timer armed by an earlier Play flips the button to ▶ Play and clears the playing flag while a later playback (after Stop, or after Apply) is still sounding, so Stop becomes unreachable and the next click stacks another playback",
+    "expect": "test_the_end_of_tune_timer_does_not_clear_a_later_playback"
+  },
+  {
+    "id": "M406_rerender_leaves_play_disabled",
+    "file": "visualweaver/index.html",
+    "find": "    if(play){ play.textContent='▶ Play'; play.disabled=false; }",
+    "replace": "    if(play){ play.textContent='▶ Play'; }",
+    "defect": "after Apply supersedes a Play still loading its soundfont, the new score's Play button reads ▶ Play but stays disabled until that fetch resolves, swallowing clicks",
+    "expect": "test_a_play_still_loading_when_apply_lands_is_discarded"
+  },
+  {
+    "id": "M407_apply_rerenders_sibling_cards",
+    "file": "visualweaver/index.html",
+    "find": "    renderPlotBlocks(wrap);\n",
+    "replace": "    renderPlotBlocks(wrap.parentElement||wrap);\n",
+    "defect": "Apply on one plot re-runs the render pass over the whole message, re-drawing a sibling that failed to render from its un-applied Source edit",
+    "expect": "test_apply_on_one_card_leaves_its_siblings_alone"
+  },
+  {
+    "id": "M408_wrong_library_predicates",
+    "file": "visualweaver/index.html",
+    "find": "                abc:()=>!!window.ABCJS,plot:()=>!!window.math,rich:()=>true};",
+    "replace": "                abc:()=>true,plot:()=>true,rich:()=>true};",
+    "defect": "with math.js or abcjs missing, Apply no longer declines: the card is wiped and ✓ Applied is reported over an empty output",
+    "expect": "test_every_family_names_the_library_its_renderer_dereferences"
+  },
+  {
+    "id": "M409_cards_in_ignores_the_card_itself",
+    "file": "visualweaver/index.html",
+    "find": "function _cardsIn(el,sel){ return (el.matches&&el.matches(sel))?[el]:el.querySelectorAll(sel); }",
+    "replace": "function _cardsIn(el,sel){ return el.querySelectorAll(sel); }",
+    "defect": "a render pass handed the card itself finds no descendants matching it, so every Apply on a plot/abc/rich card clears the output and draws nothing",
+    "expect": "test_plot_apply_rebuilds_sliders_and_the_definitions_block_once"
+  },
+  {
+    "id": "M410_boxzoom_not_ratio_locked",
+    "file": "visualweaver/index.html",
+    "find": "  if(bw/bh>R)bh=bw/R; else bw=bh*R;              // grow the short side to the ratio",
+    "replace": "  if(bw/bh>R)bh=bw; else bw=bh;              // grow the short side to the ratio",
+    "defect": "the zoom selection box is no longer forced to the canvas aspect ratio, so a box-zoom stretches the fractal",
+    "expect": "test_the_box_is_locked_to_the_canvas_aspect_ratio"
+  },
+  {
+    "id": "M411_boxzoom_escapes_canvas",
+    "file": "visualweaver/index.html",
+    "find": "  if(bw>maxW){bw=maxW; bh=bw/R;}",
+    "replace": "  if(bw>maxW){bw=bw; bh=bw/R;}",
+    "defect": "the selection box is not clamped to the canvas, so a drag past the edge selects a region off-image",
+    "expect": "test_the_box_never_leaves_the_canvas"
+  },
+  {
+    "id": "M412_boxview_zoom_factor_wrong",
+    "file": "visualweaver/index.html",
+    "find": "    zoom:Math.min(1e12,Math.max(1e-3,view.zoom*rw/bw)),",
+    "replace": "    zoom:Math.min(1e12,Math.max(1e-3,view.zoom*bw/rw)),",
+    "defect": "box-zoom zooms OUT instead of in (the zoom factor is inverted), so selecting a small box shows a wider view",
+    "expect": "test_zooming_a_box_multiplies_zoom_by_the_inverse_width_fraction"
+  },
+  {
+    "id": "M413_boxview_center_x_wrong",
+    "file": "visualweaver/index.html",
+    "find": "    cx:view.cx+(fcx-0.5)*span,",
+    "replace": "    cx:view.cx,",
+    "defect": "box-zoom keeps the old horizontal center instead of moving to the selected box",
+    "expect": "test_an_offcenter_box_moves_the_center_the_right_way"
+  },
+  {
+    "id": "M414_boxview_center_y_sign",
+    "file": "visualweaver/index.html",
+    "find": "    cy:view.cy-(fcy-0.5)*sy,",
+    "replace": "    cy:view.cy+(fcy-0.5)*sy,",
+    "defect": "the imaginary axis is inverted on box-zoom (screen y is top-down, the plane is bottom-up), so the box zooms to the mirror-image region",
+    "expect": "test_an_offcenter_box_moves_the_center_the_right_way"
+  },
+  {
+    "id": "M415_no_boxzoom_for_escape_time",
+    "file": "visualweaver/index.html",
+    "find": "      if(spec.type==='mandelbrot'||spec.type==='julia')_fracEnableBoxZoom(inst,canvas,host,showReset);",
+    "replace": "      if(false)_fracEnableBoxZoom(inst,canvas,host,showReset);",
+    "defect": "escape-time cards get no box-zoom, click-zoom or crosshair cursor at all",
+    "expect": "test_the_zoom_box_is_shown_locked_to_the_canvas_ratio"
+  },
+  {
+    "id": "M416_no_iteration_control",
+    "file": "visualweaver/index.html",
+    "find": "      const ctl=_fracBuildControl(inst);\n      if(ctl)out.insertAdjacentElement('afterend',ctl);",
+    "replace": "      const ctl=null;\n      if(ctl)out.insertAdjacentElement('afterend',ctl);",
+    "defect": "no fractal gets an interactive iteration/depth/detail control",
+    "expect": "test_every_family_has_the_right_control"
+  },
+  {
+    "id": "M417_attractor_control_stale_orbit",
+    "file": "visualweaver/index.html",
+    "find": "    if(spec.type==='attractor')inst._orbitFor=null;   // step count changed → re-integrate",
+    "replace": "    if(false)inst._orbitFor=null;   // step count changed → re-integrate",
+    "defect": "changing an attractor's Steps does not invalidate the cached orbit, so the drawing never reflects the new count",
+    "expect": "test_a_steps_change_reintegrates_the_attractor_orbit"
+  },
+  {
+    "id": "M418_control_revert_leaves_blank",
+    "file": "visualweaver/index.html",
+    "find": "      spec[cfg.field]=good; inp.value=good; outv.textContent=good;",
+    "replace": "      inp.value=good; outv.textContent=good;",
+    "defect": "an over-deep L-system depth is not reverted on the spec, so the next redraw throws again and the card is left blank",
+    "expect": "test_an_over_deep_lsystem_depth_reverts_instead_of_blanking"
+  },
+  {
+    "id": "M419_control_stale_strip_duplicates",
+    "file": "visualweaver/index.html",
+    "find": "      out.parentElement?.querySelectorAll('.frac-ctl').forEach(e=>e.remove());",
+    "replace": "      out.parentElement?.querySelectorAll('.frac-ctl.__none__').forEach(e=>e.remove());",
+    "defect": "a re-render (Apply/Reset) does not remove the previous control strip, so each re-render leaves another stale slider under the card",
+    "expect": "test_fractal_control_strip_is_not_duplicated_on_rerender"
+  },
+  {
+    "id": "M420_boxview_uses_display_aspect",
+    "file": "visualweaver/index.html",
+    "find": "  const span=3.2/view.zoom, sy=span*ch/cw;",
+    "replace": "  const span=3.2/view.zoom, sy=span*rh/rw;",
+    "defect": "box-zoom computes the vertical extent from the CSS display aspect instead of the canvas backing aspect, so after a resize (display != backing) a box-zoom mis-centers vertically",
+    "expect": "test_box_view_uses_the_backing_aspect_not_the_display_aspect"
+  },
+  {
+    "id": "M421_resize_does_not_resize_backing",
+    "file": "visualweaver/index.html",
+    "find": "            canvas.width=nw; canvas.height=nh; inst.redraw();",
+    "replace": "            inst.redraw();",
+    "defect": "a resized fractal is not re-rasterised — the backing store keeps its old size and the canvas is CSS-stretched blurry, and box-zoom then maps onto the wrong region",
+    "expect": "test_a_resized_fractal_re_renders_crisply_at_the_new_size"
+  },
+  {
+    "id": "M422_teardown_leaves_control_timer_live",
+    "file": "visualweaver/index.html",
+    "find": "clearTimeout(inst.raf);if(inst._ctlTimer){clearTimeout(inst._ctlTimer);inst._ctlTimer=0;}",
+    "replace": "clearTimeout(inst.raf);if(inst._ctlTimer){inst._ctlTimer=0;}",
+    "defect": "a pending slider redraw is not cancelled when the card is torn down, so it fires apply() on the detached instance and pops a spurious error toast",
+    "expect": "test_a_pending_control_redraw_is_cancelled_when_the_card_is_torn_down"
+  },
+  {
+    "id": "M423_ifs_depth_dispatch_to_chaos",
+    "file": "visualweaver/index.html",
+    "find": "  if(inst.spec.ifsMode==='depth')return _fracRenderIFSDepth(inst,canvas);",
+    "replace": "  if(false)return _fracRenderIFSDepth(inst,canvas);",
+    "defect": "a self-tiling IFS (Sierpinski/carpet) is drawn by the chaos game instead of the deterministic depth renderer; its spec has no point count, so the card renders nothing",
+    "expect": "test_a_self_tiling_ifs_builds_structure_with_depth"
+  },
+  {
+    "id": "M424_ifs_mrcm_translation_dropped",
+    "file": "visualweaver/index.html",
+    "find": "                 m[0]*tt[4]+m[1]*tt[5]+m[4], m[2]*tt[4]+m[3]*tt[5]+m[5]]);",
+    "replace": "                 m[4], m[5]]);",
+    "defect": "the MRCM composition drops the accumulated translation, so every copy lands at the same origin and the figure collapses to a small blob instead of tiling the frame",
+    "expect": "test_mrcm_nests_translations_with_depth"
+  },
+  {
+    "id": "M425_ifs_depth_control_mislabeled",
+    "file": "visualweaver/index.html",
+    "find": "    case 'ifs':      return spec.ifsMode==='depth'",
+    "replace": "    case 'ifs':      return false",
+    "defect": "a depth-mode IFS gets the Iterations (point-count) control instead of the Depth control, so its structural depth cannot be changed",
+    "expect": "test_every_family_has_the_right_control"
+  },
+  {
+    "id": "M426_sierpinski_seed_not_triangle",
+    "file": "visualweaver/index.html",
+    "find": "  const seed=spec.ifsSeed==='triangle'?[[0,0],[1,0],[0.5,0.8660254]]:[[0,0],[1,0],[1,1],[0,1]];",
+    "replace": "  const seed=false?[[0,0],[1,0],[0.5,0.8660254]]:[[0,0],[1,0],[1,1],[0,1]];",
+    "defect": "the Sierpinski gasket is drawn from a square seed instead of a triangle, so it renders as nested squares with a flat top rather than nested triangles",
+    "expect": "test_the_sierpinski_gasket_is_drawn_as_triangles_not_squares"
   }
 ]

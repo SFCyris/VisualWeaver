@@ -182,6 +182,21 @@ FRACTAL_CURVE = """```fractal
 ```
 """
 
+FRACTAL_MANDELBROT = """```fractal
+{"type":"mandelbrot"}
+```
+"""
+
+FRACTAL_SIERPINSKI = """```fractal
+{"type":"sierpinski"}
+```
+"""
+
+EDITABLE_PLOT = """```plot
+y = x^2
+```
+"""
+
 GRAPH_AND_FORMULA = """The Fourier series of a square wave is built from odd harmonics only:
 
 $$f(x) = \\frac{4}{\\pi}\\sum_{n=1,3,5,\\dots}^{\\infty} \\frac{1}{n}\\sin(nx)$$
@@ -821,6 +836,52 @@ def _full_answer(markdown_pairs):
     return run
 
 
+async def _fractal_zoom(page):
+    """A box-zoom in progress on a Mandelbrot card: the ratio-locked selection
+    rectangle over the set, plus the Iterations slider underneath."""
+    card = await one_card(page, FRACTAL_MANDELBROT, settle=2400)
+    await page.evaluate("""() => {
+      const wrap = document.querySelector('.rich-wrap[data-kind="fractal"]');
+      const canvas = wrap.querySelector('canvas'), r = canvas.getBoundingClientRect();
+      const fire = (t, fx, fy) => canvas.dispatchEvent(new PointerEvent(t,
+        {clientX: r.left + r.width * fx, clientY: r.top + r.height * fy,
+         button: 0, bubbles: true, pointerId: 1}));
+      fire('pointerdown', 0.30, 0.30); fire('pointermove', 0.60, 0.52);   // leave the box mid-drag
+    }""")
+    await page.wait_for_timeout(200)
+    return card
+
+
+async def _fractal_sierpinski(page):
+    """The Sierpinski gasket as nested triangle outlines, its Depth slider at 6."""
+    card = await one_card(page, FRACTAL_SIERPINSKI, settle=2000)
+    await page.evaluate("""async () => {
+      const inp = document.querySelector('.frac-ctl input');
+      inp.value = 6;
+      inp.dispatchEvent(new Event('input', {bubbles: true}));
+      inp.dispatchEvent(new Event('change', {bubbles: true}));
+      await new Promise(r => setTimeout(r, 700));
+    }""")
+    await page.wait_for_timeout(200)
+    return card
+
+
+async def _editable_source(page):
+    """A plot card whose Source pane has been edited (a parameter and a second
+    function added) and re-rendered with Apply — the editable-source feature."""
+    await turns(page, [["assistant", EDITABLE_PLOT]], settle=1800)
+    await page.evaluate("""async () => {
+      const wrap = document.querySelector('.plot-render-wrap');
+      wrap.querySelector('[data-act="plot-src"]').click();
+      const code = wrap.querySelector('.plot-src-pre code');
+      code.textContent = 'param: a = 1 .. 5 (3)\ny = a*sin(x)\ny = cos(x)';
+      wrap.querySelector('[data-act="rich-apply"]').click();
+      await new Promise(r => setTimeout(r, 1700));   // let '\u2713 Applied' revert to '\u25b6 Apply'
+    }""")
+    await page.wait_for_timeout(200)
+    return page.locator(".plot-render-wrap").first
+
+
 SHOTS: list[tuple[str, object]] = [
     # ── tutorial walkthrough ─────────────────────────────────────────────────
     ("tutorial/03-welcome.png",            _welcome),
@@ -858,6 +919,8 @@ SHOTS: list[tuple[str, object]] = [
     ("rendering/geometry.png",             _lane_shot(GEOMETRY, settle=2400)),
     ("rendering/fractal.png",              _lane_shot(FRACTAL, settle=2400)),
     ("rendering/fractal-curve.png",       _lane_shot(FRACTAL_CURVE, settle=2400)),
+    ("rendering/fractal-zoom.png",         _fractal_zoom),
+    ("rendering/fractal-sierpinski.png",   _fractal_sierpinski),
     ("rendering/map.png",                  _lane_shot(MAP, settle=3000)),
     ("rendering/plot3d.png",               _lane_shot(PLOT3D, settle=2800)),
     ("rendering/molecule.png",             _lane_shot(MOLECULE, settle=2200)),
@@ -867,6 +930,7 @@ SHOTS: list[tuple[str, object]] = [
     ("rendering/network.png",              _lane_shot(NETWORK, settle=2800)),
     ("rendering/geojson.png",              _lane_shot(GEOJSON, settle=3000)),
     ("rendering/table-sort.png",           _table_sort),
+    ("rendering/editable-source.png",      _editable_source),
     ("rendering/citations-scope.png",      _citations_scope),
     ("rendering/documents.png",            _documents),
     ("rendering/no-kb-match.png",          _no_kb_match),

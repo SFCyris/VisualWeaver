@@ -809,13 +809,19 @@ table.data-table tr:last-child td{border-bottom:none}
 .pp label{font-family:'SF Mono',monospace;color:var(--accent3);font-weight:700;min-width:14px}
 .pp input[type=range]{width:110px}
 .pp output{font-family:'SF Mono',monospace;min-width:44px;text-align:right;color:var(--text1);font-variant-numeric:tabular-nums}
+/* ── fractal iteration / depth control + ratio-locked box-zoom rectangle ── */
+.frac-ctl{display:flex;align-items:center;gap:10px;padding:7px 12px;border-top:1px solid var(--border);background:rgba(124,111,247,.05);font-size:12px}
+.frac-ctl label{font-family:'SF Mono',monospace;color:var(--accent3);font-weight:700;flex-shrink:0}
+.frac-ctl input[type=range]{flex:1;min-width:120px}
+.frac-ctl output{font-family:'SF Mono',monospace;min-width:52px;text-align:right;color:var(--text1);font-variant-numeric:tabular-nums}
+.frac-zoom-box{position:absolute;border:1px dashed var(--accent3);background:rgba(124,111,247,.16);pointer-events:none;z-index:3;border-radius:2px}
 .plot-src-pre code{font-family:'SF Mono','Fira Code',monospace;font-size:12px;white-space:pre;color:var(--text1);display:block;overflow-x:auto}
 /* Lazy rich lanes (mermaid / chart / dot / geometry / map / plot3d / molecule) */
 /* An explicit width is required: map/chart/plot3d/geometry render into an empty
    container with no intrinsic size, so without it the chat bubble (which is
    content-sized) collapses the card to a sliver. max-width keeps it responsive. */
 .rich-wrap{width:560px;max-width:100%;margin:10px 0;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;background:var(--glass)}
-.rich-output{padding:14px;background:#fff;min-height:60px;overflow:auto;display:flex;align-items:center;justify-content:center}
+.rich-output{position:relative;padding:14px;background:#fff;min-height:60px;overflow:auto;display:flex;align-items:center;justify-content:center}
 /* mermaid and the molecule drawer pick a dark palette in dark mode, so the card
    must not stay white underneath them. */
 [data-theme="dark"] .rich-output{background:rgba(255,255,255,.07)}
@@ -827,8 +833,8 @@ table.data-table tr:last-child td{border-bottom:none}
   border-top:1px solid rgba(180,120,0,.35);max-height:46%;overflow:auto}
 [data-theme="dark"] .rich-note{color:#ffd479;background:rgba(58,44,12,.94);border-top-color:rgba(255,180,60,.4)}
 /* Plotly/Mermaid are multi-MB on first use; show progress instead of a blank box. */
-.rich-output.rich-loading::after{content:'Loading renderer…';display:block;width:100%;
-  text-align:center;color:var(--text2);font-size:12px;animation:pulse 1.2s ease-in-out infinite}
+.rich-output.rich-loading::after{content:'Loading renderer…';position:absolute;left:0;right:0;top:50%;
+  transform:translateY(-50%);text-align:center;color:var(--text2);font-size:12px;animation:pulse 1.2s ease-in-out infinite;pointer-events:none}
 /* Wide diagrams should scroll, not be squashed to an illegible hairline. */
 .rich-wrap[data-kind="mermaid"] .rich-output,.rich-wrap[data-kind="dot"] .rich-output,
 .rich-wrap[data-kind="gantt"] .rich-output,.rich-wrap[data-kind="timeline"] .rich-output{
@@ -853,12 +859,12 @@ table.data-table tr:last-child td{border-bottom:none}
 .rich-wrap[data-kind="geometry"] .rich-output{position:relative}  /* anchor for .rich-note */
 .leaflet-container{font:inherit}
 .rich-src-pre{margin:0;border-top:1px solid var(--border);background:rgba(0,0,0,.04);padding:10px 12px;display:none}
-/* Editable rich-lane source: the Apply bar sits above the (contenteditable) code.
+/* Editable card source (every figure family): the Apply bar sits above the (contenteditable) code.
    Left-aligned — the generic per-<pre> Copy overlay owns the top-RIGHT corner
    (absolute, top:6px right:6px), and flex-end put Apply underneath it. */
 .rich-apply-bar{display:flex;gap:6px;justify-content:flex-start;margin-bottom:6px}
-.rich-src-pre code[contenteditable]{outline:none;border-radius:4px}
-.rich-src-pre code[contenteditable]:focus{background:rgba(124,111,247,.06);box-shadow:inset 0 0 0 1px rgba(124,111,247,.35)}
+.rich-src-pre code[contenteditable],.plot-src-pre code[contenteditable],.abc-src-pre code[contenteditable],.svg-src-pre code[contenteditable],.katex-src-pre code[contenteditable]{outline:none;border-radius:4px}
+.rich-src-pre code[contenteditable]:focus,.plot-src-pre code[contenteditable]:focus,.abc-src-pre code[contenteditable]:focus,.svg-src-pre code[contenteditable]:focus,.katex-src-pre code[contenteditable]:focus{background:rgba(124,111,247,.06);box-shadow:inset 0 0 0 1px rgba(124,111,247,.35)}
 .svg-act-btn.svg-act-active{background:rgba(124,111,247,.18);border-color:rgba(124,111,247,.5);color:var(--accent)}
 [data-theme="dark"] .rich-src-pre{background:rgba(0,0,0,.25)}
 .rich-src-pre code{font-family:'SF Mono','Fira Code',monospace;font-size:12px;white-space:pre;color:var(--text1);display:block;overflow-x:auto}
@@ -7291,11 +7297,15 @@ const _FRAC_MAX_ITER=1000, _FRAC_MAX_POINTS=200000, _FRAC_MAX_LSYS=120000;
 const _FRAC_PRESETS={
   fern:      {type:'ifs',maps:[[0,0,0,0.16,0,0,0.01],[0.85,0.04,-0.04,0.85,0,1.6,0.85],
                                [0.2,-0.26,0.23,0.22,0,1.6,0.07],[-0.15,0.28,0.26,0.24,0,0.44,0.07]]},
-  sierpinski:{type:'ifs',maps:[[0.5,0,0,0.5,0,0,0.34],[0.5,0,0,0.5,0.5,0,0.33],[0.5,0,0,0.5,0.25,0.5,0.33]]},
+  // A fern drawn the L-system way (the image's generator methodology): a stem
+  // segment is replaced by a branching frond, recursively, and DEPTH is how many
+  // times — distinct from the Barnsley `fern` above, which is the classic IFS.
+  frond:     {type:'lsystem',axiom:'X',rules:{X:'F-[[X]+X]+F[+FX]-X',F:'FF'},angle:22,depth:5},
+  sierpinski:{type:'ifs',ctl:'depth',seed:'triangle',maps:[[0.5,0,0,0.5,0,0],[0.5,0,0,0.5,0.5,0],[0.5,0,0,0.5,0.25,0.4330127]]},
   // Sierpinski carpet — the same construction one dimension "wider": keep the
   // eight outer ninths of a square, drop the middle. Eight maps, so it stays
   // inside the 12-map ceiling.
-  carpet:    {type:'ifs',points:120000,maps:[
+  carpet:    {type:'ifs',ctl:'depth',seed:'square',maps:[
                 [0.333333,0,0,0.333333,0,0,0.125],       [0.333333,0,0,0.333333,0.333333,0,0.125],
                 [0.333333,0,0,0.333333,0.666667,0,0.125],[0.333333,0,0,0.333333,0,0.333333,0.125],
                 [0.333333,0,0,0.333333,0.666667,0.333333,0.125],
@@ -7342,6 +7352,7 @@ const _FRAC_ALIASES={
   'levy-c':'levy','levyc':'levy','levy-curve':'levy','levy-c-curve':'levy',
   'dragon-curve':'dragon','heighway':'dragon','heighway-dragon':'dragon',
   'barnsley-fern':'fern','barnsley':'fern',
+  'fern-lsystem':'frond','lsystem-fern':'frond','fern-curve':'frond',
   // No 'pythagoras-tree' here on purpose: that one is built from squares, and
   // answering it with a line-segment tree is the silent-wrong-picture failure
   // this table exists to prevent.
@@ -7352,6 +7363,29 @@ const _FRAC_ALIASES={
   'mandelbrot-set':'mandelbrot','julia-set':'julia',
 };
 function _fracNum(v,d,lo,hi){const n=Number(v);return isFinite(n)?Math.min(hi,Math.max(lo,n)):d;}
+// The deepest an n-map IFS can recurse before its leaf count (n**depth) would
+// pass the point cap — the ceiling for both the spec clamp and the depth slider.
+function _fracIFSMaxDepth(n){ return Math.max(1,Math.floor(Math.log(_FRAC_MAX_POINTS)/Math.log(Math.max(2,n)))); }
+// Deterministic MRCM leaf transforms: start from the identity (the whole seed)
+// and, `depth` times, compose every existing copy with each map (m ∘ tt — apply
+// tt, then m), so the copies nest one level deeper each pass. Returns one
+// [a,b,c,d,e,f] affine per leaf; capped so the leaf count can never blow up.
+// Pure and side-effect-free, so test_fractal_js can exercise the composition
+// offline the way the box-zoom maths is exercised.
+function _fracIFSLeaves(maps,depth,cap){
+  let tf=[[1,0,0,1,0,0]];
+  for(let d=0;d<depth;d++){
+    const next=[];
+    for(const tt of tf)for(const m of maps){
+      next.push([m[0]*tt[0]+m[1]*tt[2], m[0]*tt[1]+m[1]*tt[3],
+                 m[2]*tt[0]+m[3]*tt[2], m[2]*tt[1]+m[3]*tt[3],
+                 m[0]*tt[4]+m[1]*tt[5]+m[4], m[2]*tt[4]+m[3]*tt[5]+m[5]]);
+    }
+    tf=next;
+    if(tf.length>cap)break;
+  }
+  return tf;
+}
 // Own-property lookup for the three spec tables. Without it a type or system of
 // "constructor" resolves to Object off the prototype chain — _FRAC_ATTRACTORS
 // then passes the !sys guard and throws "Cannot convert undefined or null to
@@ -7570,7 +7604,22 @@ function _fracSpec(raw){
       if(!r.every(isFinite))throw new Error('ifs maps accept numbers only');
       return r;
     });
-    out.points=Math.round(_fracNum(s.points,60000,1000,_FRAC_MAX_POINTS));
+    // Two ways to draw an IFS (see _fracRenderIFS):
+    //  • 'depth' — a self-tiling fractal (Sierpinski, carpet, or any spec asking
+    //    for it) is built deterministically, and the knob is a structural Depth,
+    //    "how many times the figure is replaced by smaller copies", like Koch;
+    //  • 'chaos' — the fern and any other IFS use the probability chaos game, and
+    //    the knob is Iterations (points plotted). This is the default because a
+    //    point cloud renders an arbitrary attractor far better than boxes do.
+    out.ifsMode=(s.ctl==='depth'||s.mode==='depth'||s.mrcm===true)?'depth':'chaos';
+    out.ifsSeed=(s.seed==='triangle')?'triangle':'square';   // the polygon each depth-mode leaf outlines
+    if(out.ifsMode==='depth'){
+      const _n=out.maps.length, _md=_fracIFSMaxDepth(_n);
+      const _def=Math.max(1,Math.min(_md,Math.round(Math.log(55000)/Math.log(Math.max(2,_n)))));
+      out.depth=Math.round(_fracNum(s.depth!=null?s.depth:s.iter, _def, 1, _md));
+    }else{
+      out.points=Math.round(_fracNum(s.points!=null?s.points:s.iter,60000,1000,_FRAC_MAX_POINTS));
+    }
   }else{
     const ok=/^[A-Za-z+\-\[\]]*$/;
     out.axiom=String(s.axiom||'F');
@@ -7595,6 +7644,146 @@ function _fracDraw(inst,canvas){
   else if(inst.spec.type==='lsystem')_fracRenderL(inst,canvas);
   else if(inst.spec.type==='attractor')_fracRenderAttractor(inst,canvas);
   else _fracRenderEscape(inst,canvas);
+}
+
+
+// ── Interactive escape-time navigation (box-zoom) + iteration/detail control ──
+// Box-zoom is escape-time only: mandelbrot/julia carry a continuous view
+// (center + zoom) that a screen rectangle maps onto. The L-system, IFS and
+// attractor families auto-fit to the canvas and have no such coordinate view,
+// so they get the iteration/detail control below but not box-zoom.
+
+// The selection rectangle, forced to the CANVAS aspect ratio so the zoom adds
+// no distortion ("keeps the ratio of the box"), and clamped to stay on-canvas.
+// (ax,ay) is the anchor corner; the box grows toward the pointer (mx,my).
+// Returns null when the drag is degenerate (no area).
+function _fracLockBox(ax,ay,mx,my,rw,rh){
+  const R=rw/rh, dx=mx-ax, dy=my-ay;
+  let bw=Math.abs(dx), bh=Math.abs(dy);
+  if(bw/bh>R)bh=bw/R; else bw=bh*R;              // grow the short side to the ratio
+  const availX=dx<0?ax:(rw-ax), availY=dy<0?ay:(rh-ay);
+  const maxW=Math.min(availX,availY*R);           // largest ratio-locked box that still fits
+  if(bw>maxW){bw=maxW; bh=bw/R;}
+  if(!(bw>0)||!(bh>0))return null;
+  return {bx:dx<0?ax-bw:ax, by:dy<0?ay-bh:ay, bw, bh};
+}
+// The view (center + zoom) that makes a ratio-locked box fill the frame. The
+// box (bx,by,bw,bh) and rect (rw,rh) are in DISPLAY px, so the box fractions ride
+// on them; but the vertical complex extent must use the CANVAS BACKING aspect
+// (cw,ch) — that is what _fracRenderEscape samples with (sy=span*H/W) — or a
+// display whose aspect drifted from the backing (an un-re-rendered resize) would
+// zoom to the wrong imaginary center. Zoom is clamped to the render limits.
+function _fracBoxView(view,bx,by,bw,bh,rw,rh,cw,ch){
+  const span=3.2/view.zoom, sy=span*ch/cw;
+  const fcx=(bx+bw/2)/rw, fcy=(by+bh/2)/rh;
+  return {
+    cx:view.cx+(fcx-0.5)*span,
+    cy:view.cy-(fcy-0.5)*sy,
+    zoom:Math.min(1e12,Math.max(1e-3,view.zoom*rw/bw)),
+  };
+}
+// Drag a ratio-locked rectangle to zoom into it; a plain click still zooms in
+// (shift-click out), centred on the point, as before. Pointer events + capture
+// so a drag that leaves the canvas still tracks.
+function _fracEnableBoxZoom(inst,canvas,host,showReset){
+  canvas.title='Drag a box to zoom in · click to zoom in · shift-click to zoom out';
+  canvas.style.cursor='crosshair';
+  let anchor=null, boxEl=null, moved=false, lastBox=null;
+  const removeBox=()=>{ if(boxEl){boxEl.remove();boxEl=null;} lastBox=null; };
+  const clampZoom=z=>Math.min(1e12,Math.max(1e-3,z));
+  canvas.addEventListener('pointerdown',e=>{
+    if(e.button!==0)return;
+    const r=canvas.getBoundingClientRect();
+    anchor={x:e.clientX-r.left,y:e.clientY-r.top,rect:r,shift:e.shiftKey};
+    moved=false; lastBox=null;
+    try{canvas.setPointerCapture(e.pointerId);}catch(_){}
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!anchor)return;
+    const r=anchor.rect, mx=e.clientX-r.left, my=e.clientY-r.top;
+    if(!moved && Math.abs(mx-anchor.x)+Math.abs(my-anchor.y)<5)return;
+    moved=true;
+    const box=_fracLockBox(anchor.x,anchor.y,mx,my,r.width,r.height);
+    if(!box){removeBox();return;}
+    lastBox={...box,rw:r.width,rh:r.height};
+    if(!boxEl){ boxEl=document.createElement('div'); boxEl.className='frac-zoom-box'; host.appendChild(boxEl); }
+    boxEl.style.left=box.bx+'px'; boxEl.style.top=box.by+'px';
+    boxEl.style.width=box.bw+'px'; boxEl.style.height=box.bh+'px';
+  });
+  const finish=e=>{
+    if(!anchor)return;
+    const a=anchor; anchor=null;
+    try{canvas.releasePointerCapture(e.pointerId);}catch(_){}
+    if(moved && lastBox && lastBox.bw>4 && lastBox.bh>4){
+      const nv=_fracBoxView(inst.view,lastBox.bx,lastBox.by,lastBox.bw,lastBox.bh,lastBox.rw,lastBox.rh,canvas.width,canvas.height);
+      removeBox();
+      inst.view.cx=nv.cx; inst.view.cy=nv.cy; inst.view.zoom=nv.zoom;
+      inst.redraw(); showReset();
+      return;
+    }
+    removeBox();
+    // No drag → a click: zoom in (shift out), centred on the point.
+    const span=3.2/inst.view.zoom, sy=span*canvas.height/canvas.width;
+    inst.view.cx+=(a.x/a.rect.width-0.5)*span;
+    inst.view.cy-=(a.y/a.rect.height-0.5)*sy;
+    inst.view.zoom=clampZoom(a.shift?inst.view.zoom/2:inst.view.zoom*2);
+    inst.redraw(); showReset();
+  };
+  canvas.addEventListener('pointerup',finish);
+  canvas.addEventListener('pointercancel',()=>{ anchor=null; removeBox(); });
+}
+// Which field each family iterates on, and its live range. Every one is a real
+// "how far to iterate" knob: the escape-time cap, the L-system recursion depth,
+// the IFS/attractor sample count.
+function _fracCtlSpec(spec){
+  switch(spec.type){
+    case 'mandelbrot': case 'julia': return {field:'iter', label:'Iterations', min:16, max:_FRAC_MAX_ITER, step:1};
+    case 'lsystem':  return {field:'depth',  label:'Depth',  min:1,    max:14,               step:1};
+    case 'ifs':      return spec.ifsMode==='depth'
+                       ? {field:'depth',  label:'Depth',  min:1,    max:_fracIFSMaxDepth(spec.maps.length), step:1}
+                       : {field:'points', label:'Iterations', min:1000, max:_FRAC_MAX_POINTS, step:1000};
+    case 'attractor':return {field:'steps',  label:'Steps',  min:500,  max:_FRAC_MAX_POINTS, step:500};
+    default: return null;
+  }
+}
+// The control strip shown under the fractal (a sibling of the output, like the
+// plot lane's sliders). Dragging it re-renders in place — no round trip to the
+// model. Escape-time keeps its current pan/zoom while the depth changes.
+function _fracBuildControl(inst){
+  const spec=inst.spec, cfg=_fracCtlSpec(spec);
+  if(!cfg)return null;
+  const bar=document.createElement('div'); bar.className='frac-ctl';
+  const lab=document.createElement('label'); lab.textContent=cfg.label;
+  const inp=document.createElement('input'); inp.type='range';
+  inp.min=cfg.min; inp.max=cfg.max; inp.step=cfg.step; inp.value=spec[cfg.field];
+  inp.setAttribute('aria-label',cfg.label);
+  const outv=document.createElement('output'); outv.textContent=spec[cfg.field];
+  let good=spec[cfg.field];
+  const apply=v=>{
+    spec[cfg.field]=v; outv.textContent=v;   // keep the readout right even for a lone `change` (no preceding input)
+    if(spec.type==='attractor')inst._orbitFor=null;   // step count changed → re-integrate
+    try{ inst.redraw(); good=v; }
+    catch(err){
+      // e.g. an L-system depth whose expansion blows the symbol cap. Fall all
+      // the way back to the last value that DID render (not merely the previous
+      // one, which a fast drag could have left at another bad value) and redraw
+      // it, so the card keeps a real picture instead of going blank.
+      spec[cfg.field]=good; inp.value=good; outv.textContent=good;
+      if(spec.type==='attractor')inst._orbitFor=null;
+      try{ inst.redraw(); }catch(_){}
+      toast((err&&err.message)||'Cannot render at that value','warning');
+    }
+  };
+  inp.addEventListener('input',()=>{
+    const v=Math.round(Number(inp.value)); outv.textContent=v;
+    if(inst._ctlTimer)return;
+    // Stored on the instance so a re-render (Apply/Reset) that tears this card
+    // down can cancel a pending redraw of the now-detached canvas.
+    inst._ctlTimer=setTimeout(()=>{ inst._ctlTimer=0; apply(Math.round(Number(inp.value))); },70);
+  });
+  inp.addEventListener('change',()=>{ if(inst._ctlTimer){clearTimeout(inst._ctlTimer);inst._ctlTimer=0;} apply(Math.round(Number(inp.value))); });
+  bar.appendChild(lab); bar.appendChild(inp); bar.appendChild(outv);
+  return bar;
 }
 // Escape-time, painted in row batches under a ~12 ms/frame budget so a deep
 // zoom never janks the chat. `gen` supersedes an in-flight render when a new
@@ -7647,16 +7836,22 @@ function _fracRenderEscape(inst,canvas){
 // Chaos game. Seeded LCG, not Math.random — the same spec always draws the
 // same cloud (and tests can assert pixels). A short throwaway pass finds the
 // attractor's bounds so the drawing pass can fill the canvas.
+// An IFS is drawn one of two ways, chosen by the fractal (see _fracSpec):
+//  • 'depth' — a deterministic MRCM whose slider is a structural Depth, for the
+//    self-tiling fractals (Sierpinski, carpet) the way the L-system has a depth;
+//  • 'chaos' — the probability-weighted chaos game whose slider is Iterations
+//    (each iteration plots one point), for attractors like the fern that a point
+//    cloud renders far better than deterministic cells, and for any custom IFS.
 function _fracRenderIFS(inst,canvas){
+  if(inst.spec.ifsMode==='depth')return _fracRenderIFSDepth(inst,canvas);
+  return _fracRenderIFSChaos(inst,canvas);
+}
+function _fracRenderIFSChaos(inst,canvas){
   const {spec}=inst, ctx=canvas.getContext('2d');
   const W=canvas.width,H=canvas.height,maps=spec.maps;
-  // `m[6] || 1/n` read an explicit 0 as "not given" and handed that map an equal
-  // share, so a map the spec deliberately disabled still drew a third of the
-  // points. A negative weight was worse: it made every cumulative bound negative
-  // and pick() then returned the first map for every draw.
   const wOf=m=>(m.length>6&&isFinite(m[6]))?Math.max(0,m[6]):1/maps.length;
   let psum=maps.reduce((a,m)=>a+wOf(m),0);
-  const uniform=!(psum>0);              // every weight zero — fall back to equal
+  const uniform=!(psum>0);
   if(uniform)psum=1;
   const cum=[];let acc=0;
   for(const m of maps){acc+=(uniform?1/maps.length:wOf(m)/psum);cum.push(acc);}
@@ -7692,7 +7887,64 @@ function _fracRenderIFS(inst,canvas){
   }
   batch();
 }
-// L-system turtle. F/G draw a step, f moves, +/- turn, [ ] branch; any other
+function _fracRenderIFSDepth(inst,canvas){
+  const {spec}=inst, ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height,maps=spec.maps,depth=spec.depth;
+  // Deterministic subdivision (an MRCM), drawn as LINES: start from one seed
+  // polygon and, `depth` times, replace every copy with one shrunk copy per map,
+  // then stroke each final copy's outline. depth is literally "how many times the
+  // figure has been divided into smaller copies of itself" — the same structural
+  // knob as the L-system's depth, and what the user reads on the slider. The leaf
+  // count is maps.length**depth, bounded by _fracCtlSpec's max depth.
+  const tf=_fracIFSLeaves(maps,depth,_FRAC_MAX_POINTS);
+  // The seed polygon each leaf is a shrunken copy of: an equilateral triangle for
+  // the Sierpinski gasket (nested triangles), the unit square for the carpet
+  // (nested squares), and a square by default for a custom depth-mode IFS.
+  const seed=spec.ifsSeed==='triangle'?[[0,0],[1,0],[0.5,0.8660254]]:[[0,0],[1,0],[1,1],[0,1]];
+  const NC=seed.length;
+  const polys=new Array(tf.length);
+  let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  for(let i=0;i<tf.length;i++){
+    const tt=tf[i], q=new Array(NC*2);
+    for(let k=0;k<NC;k++){
+      const x=tt[0]*seed[k][0]+tt[1]*seed[k][1]+tt[4], y=tt[2]*seed[k][0]+tt[3]*seed[k][1]+tt[5];
+      q[k*2]=x; q[k*2+1]=y;
+      if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;
+    }
+    polys[i]=q;
+  }
+  if(minx>maxx){minx=-1;maxx=1;miny=-1;maxy=1;}
+  const pad=0.03*Math.max(maxx-minx,maxy-miny)||1;
+  minx-=pad;maxx+=pad;miny-=pad;maxy+=pad;
+  const sc=Math.min(W/(maxx-minx),H/(maxy-miny));
+  const ox=(W-sc*(maxx-minx))/2, oy=(H-sc*(maxy-miny))/2;
+  const PX=x=>ox+(x-minx)*sc, PY=y=>H-(oy+(y-miny)*sc);
+  const tint=_fracPalette(spec.palette,_isDark()).at(_isDark()?0.8:0.3);
+  ctx.strokeStyle=`rgb(${tint[0]},${tint[1]},${tint[2]})`;
+  ctx.lineWidth=Math.max(0.6,0.7*Math.min(2,window.devicePixelRatio||1));
+  ctx.lineJoin='round';
+  const gen=++inst.gen;
+  let i=0,lastTick=0;
+  function batch(){
+    if(gen!==inst.gen)return;
+    const t0=performance.now();
+    const budget=(lastTick&&t0-lastTick>200)?250:14; lastTick=t0;
+    while(i<polys.length){
+      ctx.beginPath();
+      const stop=Math.min(polys.length, i+4000);
+      for(;i<stop;i++){
+        const q=polys[i];
+        ctx.moveTo(PX(q[0]),PY(q[1]));
+        for(let k=1;k<NC;k++)ctx.lineTo(PX(q[k*2]),PY(q[k*2+1]));
+        ctx.closePath();
+      }
+      ctx.stroke();
+      if(performance.now()-t0>=budget)break;
+    }
+    if(i<polys.length)inst.raf=setTimeout(batch,0);else inst.raf=null;
+  }
+  batch();
+}// L-system turtle. F/G draw a step, f moves, +/- turn, [ ] branch; any other
 // letter is a no-op placeholder (the standard convention — X/Y carry structure).
 // Two walks: one for bounds, one to draw centred and scaled to fit.
 function _fracRenderL(inst,canvas){
@@ -8105,6 +8357,10 @@ const RICH_LANES={
     load:()=>Promise.resolve(),   // pure canvas — the one lane with no library
     async draw(out,src,uid){
       const spec=_fracSpec(src);
+      // A re-render (Apply/Reset) rebuilds the card from scratch; drop any
+      // control strip left behind by the previous instance (it is a sibling of
+      // `out`, so out.innerHTML='' does not remove it) before adding a fresh one.
+      out.parentElement?.querySelectorAll('.frac-ctl').forEach(e=>e.remove());
       const host=document.createElement('div');
       host.style.cssText='width:100%;height:100%;position:relative';
       out.appendChild(host);
@@ -8126,25 +8382,33 @@ const RICH_LANES={
         // navigated VIEW).
         resetView(){ inst.view={...origView}; inst.redraw(); }};
       out._richInst=inst;
-      if(spec.type==='mandelbrot'||spec.type==='julia'){
-        // Captured now, not read from the DOM inside the click handler:
-        // openMaximize() moves `out` into the overlay, so at that point it has
-        // no .rich-wrap ancestor and a zoom made while maximized would leave
-        // the reset button hidden after restoring (same fix as chart's showReset).
-        const card=out.closest?.('.rich-wrap');
-        canvas.title='Click to zoom in · shift-click to zoom out';
-        canvas.style.cursor='zoom-in';
-        canvas.addEventListener('click',e=>{
-          const r=canvas.getBoundingClientRect();
-          const span=3.2/inst.view.zoom, sy=span*canvas.height/canvas.width;
-          inst.view.cx+=((e.clientX-r.left)/r.width-0.5)*span;
-          inst.view.cy-=((e.clientY-r.top)/r.height-0.5)*sy;
-          inst.view.zoom=e.shiftKey?Math.max(1e-3,inst.view.zoom/2)
-                                   :Math.min(1e12,inst.view.zoom*2);
-          inst.redraw();
-          const b=card?.querySelector('[data-act="fractal-reset"]');
-          if(b)b.style.display='';
+      // Captured now, not read from the DOM inside the handler: openMaximize()
+      // moves `out` into the overlay, so at that point it has no .rich-wrap
+      // ancestor and a zoom made while maximized would leave the reset button
+      // hidden after restoring (same fix as chart's showReset).
+      const card=out.closest?.('.rich-wrap');
+      const showReset=()=>{ const b=card?.querySelector('[data-act="fractal-reset"]'); if(b)b.style.display=''; };
+      if(spec.type==='mandelbrot'||spec.type==='julia')_fracEnableBoxZoom(inst,canvas,host,showReset);
+      // Interactive iteration / recursion depth / sample count, wherever it
+      // means something — a sibling strip under the canvas, like the plot lane.
+      const ctl=_fracBuildControl(inst);
+      if(ctl)out.insertAdjacentElement('afterend',ctl);
+      // A canvas is a fixed raster: when the card is resized (window, sidebar,
+      // maximize) re-render it at the new size instead of letting CSS stretch it
+      // blurry — and, since box-zoom maps the pointer onto the backing store,
+      // keep the two aspects equal so a zoom lands where the box was drawn.
+      // Debounced, and guarded against the no-op initial observation.
+      if(window.ResizeObserver){
+        inst._ro=new ResizeObserver(()=>{
+          clearTimeout(inst._roTimer);
+          inst._roTimer=setTimeout(()=>{
+            const d=Math.min(2,window.devicePixelRatio||1);
+            const nw=Math.round(host.clientWidth*d), nh=Math.round(host.clientHeight*d);
+            if(!nw||!nh||(nw===canvas.width&&nh===canvas.height))return;
+            canvas.width=nw; canvas.height=nh; inst.redraw();
+          },150);
         });
+        inst._ro.observe(host);
       }
       inst.redraw();
     }},
@@ -8608,9 +8872,15 @@ const RICH_LANES={
 
 // Render every not-yet-drawn rich card inside `el`. Async + per-lane lazy load;
 // a failure shows an inline message instead of leaving an empty card.
+// The wrappers a render pass covers: every card under `el` — or `el` itself when
+// it IS the card, so a single re-render (Apply) cannot touch its siblings. A
+// sibling that failed to render carries rendered='' and would otherwise be
+// re-drawn from its Source pane, committing an edit its own Apply never got.
+function _cardsIn(el,sel){ return (el.matches&&el.matches(sel))?[el]:el.querySelectorAll(sel); }
+
 function renderRichBlocks(el){
   if(!el)return;
-  el.querySelectorAll('.rich-wrap').forEach(async wrap=>{
+  _cardsIn(el,'.rich-wrap').forEach(async wrap=>{
     const out=wrap.querySelector('.rich-output');
     const kind=wrap.getAttribute('data-kind');
     const lane=_lane(kind);
@@ -8654,7 +8924,7 @@ function destroyRichBlocks(root){
       else if(inst.kind==='network'&&inst.obj?.destroy)inst.obj.destroy();
       // fractal renders progressively over rAF frames — supersede the chain and
       // cancel the pending frame, or a torn-down card keeps painting off-DOM.
-      else if(inst.kind==='fractal'){inst.gen++;if(inst.raf)clearTimeout(inst.raf);}
+      else if(inst.kind==='fractal'){inst.gen++;if(inst.raf)clearTimeout(inst.raf);if(inst._ctlTimer){clearTimeout(inst._ctlTimer);inst._ctlTimer=0;}if(inst._roTimer){clearTimeout(inst._roTimer);inst._roTimer=0;}if(inst._ro)inst._ro.disconnect();}
     }catch(e){}
     out._richInst=null;
   });
@@ -8768,13 +9038,7 @@ let _rrMathFinalize=true;
         const isLatex = lang==='latex' || lang==='tex' || lang==='math';
         if(isLatex && window.katex){
           const src=code.trim();
-          let rendered='';
-          try{
-            // trust:false — never let \href/\url etc. emit javascript: links from model output.
-            rendered=katex.renderToString(src,{displayMode:true,throwOnError:false,trust:false});
-          }catch(e){
-            rendered=`<span style="color:var(--red);font-size:12px">LaTeX error: ${e.message}</span>`;
-          }
+          const rendered=_katexBlockHtml(src);
           const esc=src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           // Buttons use data-act (handled by a delegated listener) so no inline
           // onclick survives DOMPurify sanitisation of the rendered message.
@@ -8879,9 +9143,7 @@ let _rrMathFinalize=true;
         const raw=code.trim();
         // Sanitise the SVG before embedding — strips <script>, event handlers,
         // javascript: hrefs and <foreignObject> while keeping the drawing.
-        const safeSvg = (window.DOMPurify)
-          ? DOMPurify.sanitize(raw,{USE_PROFILES:{svg:true,svgFilters:true}})
-          : '';
+        const safeSvg=_svgCardHtml(raw);
         // Escape the original source for the "Source" view.
         const esc=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         // Buttons use data-act (delegated listener) so no inline onclick remains
@@ -8922,7 +9184,108 @@ function _rerenderRichCard(wrap){
   // confusing no-op click on the new one, so it goes back to hidden here too.
   wrap.querySelector('[data-act="fractal-reset"],[data-act="chart-reset"]')
     ?.setAttribute('style','display:none');
-  renderRichBlocks(wrap.parentElement||wrap);        // parent scope so the selector matches wrap itself
+  renderRichBlocks(wrap);                            // this card only — never its siblings
+  return true;
+}
+// Display-mode KaTeX for a ```latex card. Shared by the card builder and the
+// editable-source Apply so the two can never render the same source differently.
+function _katexBlockHtml(src){
+  try{
+    // trust:false — never let \href/\url etc. emit javascript: links from model output.
+    return katex.renderToString(src,{displayMode:true,throwOnError:false,trust:false});
+  }catch(e){
+    return `<span style="color:var(--red);font-size:12px">LaTeX error: ${escHtml(String(e&&e.message||e))}</span>`;
+  }
+}
+// The drawing of a ```svg card, sanitised. Shared by the card builder and the
+// editable-source Apply. Strips <script>, event handlers, javascript: hrefs and
+// <foreignObject> while keeping the drawing; <style> is forbidden here too, so an
+// Apply re-render (which does NOT pass through renderMarkdown's message-level
+// sanitiser) can show nothing the original render path would have stripped.
+function _svgCardHtml(raw){
+  return window.DOMPurify
+    ? DOMPurify.sanitize(raw,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['style']})
+    : '';
+}
+
+// One row per card family whose Source pane can be shown, copied and EDITED:
+// [wrapper, source <pre>, Copy button label, rendered output]. Every fenced
+// figure — the twenty rich lanes plus ```plot, ```abc, ```svg and ```latex —
+// is in this table, and the Source/Copy/Apply/Reset handlers below key off it.
+const _SRC={svg:['.svg-render-wrap','.svg-src-pre','Copy SVG','.svg-render-output'],
+            tex:['.katex-block-wrap','.katex-src-pre','Copy LaTeX','.katex-block-output'],
+            abc:['.abc-render-wrap','.abc-src-pre','Copy ABC','.abc-render-output'],
+            plot:['.plot-render-wrap','.plot-src-pre','Copy','.plot-render-output'],
+            rich:['.rich-wrap','.rich-src-pre','Copy','.rich-output']};
+const _SRC_WRAPS=Object.values(_SRC).map(r=>r[0]).join(',');
+// Which family a card wrapper belongs to ('' when it is not a card at all).
+function _srcFamily(wrap){
+  if(!wrap)return '';
+  for(const k in _SRC)if(wrap.matches(_SRC[k][0]))return k;
+  return '';
+}
+// The editable <code> of a card, whatever its family.
+function _srcCode(wrap){
+  const fam=_srcFamily(wrap);
+  return fam?wrap.querySelector(_SRC[fam][1]+' code'):null;
+}
+
+// Why a card cannot be re-rendered right now ('' when it can): its output is
+// maximized elsewhere, or the library its family draws with never loaded. Apply
+// and Reset check this BEFORE touching the source text, so a declined re-render
+// never leaves the pane and the drawing disagreeing.
+const _SRC_LIB={svg:()=>!!window.DOMPurify,tex:()=>!!(window.katex&&window.DOMPurify),
+                abc:()=>!!window.ABCJS,plot:()=>!!window.math,rich:()=>true};
+function _rerenderBlocked(wrap){
+  const fam=_srcFamily(wrap);
+  if(!fam)return 'This control is not inside a rendered card';
+  if(!wrap.querySelector(_SRC[fam][3])||!wrap.querySelector(_SRC[fam][1]+' code'))return 'Restore the maximized card first';
+  return _SRC_LIB[fam]()?'':'The renderer for this card is not loaded — reload the page and try again';
+}
+
+// Tear down and re-draw ONE card of ANY family from whatever its source <code>
+// now holds — the editable-source Apply/Reset contract for every fenced figure,
+// not only the rich lanes. Returns false when the card cannot be re-rendered in
+// place (its output is currently maximized elsewhere).
+function _rerenderCard(wrap){
+  const fam=_srcFamily(wrap);
+  if(!fam||_rerenderBlocked(wrap))return false;   // maximized elsewhere / renderer missing → no-op
+  if(fam==='rich')return _rerenderRichCard(wrap);
+  const [,preSel,,outSel]=_SRC[fam];
+  const out=wrap.querySelector(outSel);
+  const code=wrap.querySelector(preSel+' code');
+  // Same canonicalisation as the rich path: Enter inside a contenteditable is a
+  // <br>/<div> that .textContent silently drops; innerText folds it back.
+  if(code.isContentEditable&&code.offsetParent!==null)code.textContent=code.innerText;
+  const src=code.textContent.trim();
+  if(fam==='svg'){
+    out.innerHTML=_svgCardHtml(src);
+  }else if(fam==='tex'){
+    // The builder's output is sanitised with the rest of the message; this path
+    // is not, so the same gate is applied here before the HTML lands in the DOM.
+    out.innerHTML=(window.katex&&window.DOMPurify)
+      ? DOMPurify.sanitize(_katexBlockHtml(src),{FORBID_TAGS:['style']}) : '';
+  }else if(fam==='abc'){
+    // The synth was primed on the OLD tune — stop it, forget it, and let the
+    // next ▶ Play build one from the new score.
+    if(out._abcSynth){ try{ out._abcSynth.stop(); }catch(e){} }
+    try{ if(out._abcCtx)out._abcCtx.close(); }catch(e){}   // the AudioContext behind the old synth
+    out._abcGen=(out._abcGen||0)+1;                          // invalidates a ▶ Play still loading its soundfont
+    out._abcSynth=null; out._abcPlaying=false; out._abcTune=null; out._abcCtx=null;
+    const play=wrap.querySelector('[data-act="abc-play"]');
+    if(play){ play.textContent='▶ Play'; play.disabled=false; }   // a superseded load still held it disabled
+    out.innerHTML=''; delete out.dataset.rendered;
+    renderAbcBlocks(wrap);                             // this card only — never its siblings
+  }else if(fam==='plot'){
+    // The sliders under the card and the definitions block in front of it were
+    // derived from the OLD spec; renderPlotBlocks rebuilds both from the new one.
+    const pp=wrap.querySelector('.plot-params');
+    if(pp){ clearTimeout(pp._ppTimer); pp.remove(); }   // a redraw still queued would paint the OLD spec
+    const defs=wrap.previousElementSibling;
+    if(defs&&defs.classList.contains('plot-defs-block'))defs.remove();
+    out.innerHTML=''; delete out.dataset.rendered;
+    renderPlotBlocks(wrap);
+  }
   return true;
 }
 
@@ -8933,7 +9296,6 @@ document.addEventListener('click',function(e){
   const btn=e.target.closest('[data-act]');
   if(!btn)return;
   const act=btn.getAttribute('data-act');
-  const _SRC={svg:['.svg-render-wrap','.svg-src-pre','Copy SVG'],tex:['.katex-block-wrap','.katex-src-pre','Copy LaTeX'],abc:['.abc-render-wrap','.abc-src-pre','Copy ABC'],plot:['.plot-render-wrap','.plot-src-pre','Copy'],rich:['.rich-wrap','.rich-src-pre','Copy']};
   if(/^(svg|tex|abc|plot|rich)-src$/.test(act)){
     const [wrapSel,preSel]=_SRC[act.replace('-src','')];
     const pre=btn.closest(wrapSel)?.querySelector(preSel);
@@ -8941,10 +9303,11 @@ document.addEventListener('click',function(e){
     const shown=pre.style.display!=='none'&&pre.style.display!=='';
     pre.style.display=shown?'none':'block';
     btn.textContent=shown?'Source':'Hide source';
-    // Rich-lane source is EDITABLE: change the spec and Apply re-renders the card
-    // in place (a local playground — the stored message is not modified, so a
-    // reload shows the original again).
-    if(act==='rich-src'&&!shown){
+    // Source is EDITABLE for every card family — the rich lanes and the plot,
+    // score, SVG and LaTeX cards alike: change the text and Apply re-renders the
+    // card in place (a local playground — the stored message is not modified,
+    // so a reload shows the original again).
+    if(!shown){
       const code=pre.querySelector('code');
       if(code&&!pre.querySelector('.rich-apply-bar')){
         // Snapshot the pristine, model-authored text BEFORE turning the block
@@ -8968,18 +9331,25 @@ document.addEventListener('click',function(e){
       }
     }
   }else if(act==='rich-apply'){
-    const wrap=btn.closest('.rich-wrap');
-    if(_rerenderRichCard(wrap)){ btn.textContent='✓ Applied'; setTimeout(()=>{btn.textContent='▶ Apply';},1400); }
+    const wrap=btn.closest(_SRC_WRAPS);
+    const why=_rerenderBlocked(wrap);
+    if(why){toast(why,'info');return;}
+    if(_rerenderCard(wrap)){ btn.textContent='✓ Applied'; setTimeout(()=>{btn.textContent='▶ Apply';},1400); }
   }else if(act==='rich-reset'){
-    const wrap=btn.closest('.rich-wrap');
-    const code=wrap?.querySelector('.rich-src-pre code');
+    const wrap=btn.closest(_SRC_WRAPS);
+    const code=_srcCode(wrap);
     if(!code||code._originalSrc===undefined)return;   // never edited — nothing to undo
     if(code.textContent===code._originalSrc){toast('Already the original','info');return;}
+    // Checked BEFORE the text goes back: restoring the source without re-drawing
+    // would leave the pane and the card disagreeing, with "Already the original"
+    // then blocking the retry.
+    const why=_rerenderBlocked(wrap);
+    if(why){toast(why,'info');return;}
     code.textContent=code._originalSrc;
-    if(_rerenderRichCard(wrap)){ btn.textContent='✓ Reset'; setTimeout(()=>{btn.textContent='↺ Reset';},1400); }
+    if(_rerenderCard(wrap)){ btn.textContent='✓ Reset'; setTimeout(()=>{btn.textContent='↺ Reset';},1400); }
   }else if(act==='geo-interact'){
     const wrap=btn.closest('.rich-wrap');
-    if(!wrap||!wrap.querySelector('.rich-output'))return;   // maximized elsewhere
+    const why=_rerenderBlocked(wrap); if(why){toast(why,'info');return;}
     const on=wrap.dataset.geoLive==='1';
     wrap.dataset.geoLive=on?'0':'1';
     btn.classList.toggle('svg-act-active',!on);
@@ -9389,31 +9759,40 @@ async function _abcPlay(btn){
     toast('Audio playback is not available in this browser','warning'); return;
   }
   btn.disabled=true; btn.textContent='… loading';
+  // Apply/Reset bump _abcGen while the soundfont is still loading: the synth
+  // being built belongs to the score that was just replaced and must be dropped.
+  const gen=out._abcGen||0;
+  let ac=null;
   try{
     if(!out._abcSynth){
       const tune=out._abcTune;
-      if(!tune){ toast('Nothing to play — the score did not parse','error'); return; }
+      if(!tune){ toast('Nothing to play — the score did not parse','error'); btn.textContent='▶ Play'; return; }
       const synth=new ABCJS.synth.CreateSynth();
-      const ac=new (window.AudioContext||window.webkitAudioContext)();
+      ac=new (window.AudioContext||window.webkitAudioContext)();
       await synth.init({audioContext:ac,visualObj:tune,
         options:{soundFontUrl:_ABC_SOUNDFONT,program:0}});
       await synth.prime();
-      out._abcSynth=synth;
+      if((out._abcGen||0)!==gen){ try{ ac.close(); }catch(e){} return; }   // superseded by an Apply
+      out._abcSynth=synth; out._abcCtx=ac;
     }
     out._abcSynth.start();
+    // Each start gets its own id: the end-of-tune timer below must not clear a
+    // LATER playback (Stop then Play, or Apply then Play) that outlived this one.
+    const playId=out._abcPlayId=(out._abcPlayId||0)+1;
     out._abcPlaying=true; btn.textContent='⏸ Stop';
     // No 'ended' event on the basic synth, so fall back to the primed synth's length.
     const ms=_abcDurationMs(out._abcSynth);
-    if(ms>0) setTimeout(()=>{ if(out._abcPlaying){out._abcPlaying=false;btn.textContent='▶ Play';} },ms+250);
+    if(ms>0) setTimeout(()=>{ if(out._abcPlayId===playId&&out._abcPlaying){out._abcPlaying=false;btn.textContent='▶ Play';} },ms+250);
   }catch(e){
     toast('Playback failed: '+(e&&e.message?e.message:e),'error');
+    if(ac&&out._abcCtx!==ac){ try{ ac.close(); }catch(e2){} }   // a context the card never adopted
     btn.textContent='▶ Play';
   }finally{ btn.disabled=false; }
 }
 
 function renderAbcBlocks(el){
   if(!el || !window.ABCJS) return;
-  el.querySelectorAll('.abc-render-wrap').forEach(wrap=>{
+  _cardsIn(el,'.abc-render-wrap').forEach(wrap=>{
     const out=wrap.querySelector('.abc-render-output');
     if(!out || out.dataset.rendered) return;
     const src=(wrap.querySelector('.abc-src-pre code')?.textContent||'').trim();
@@ -9434,7 +9813,7 @@ function renderAbcBlocks(el){
 // EXACT polyline — accuracy no longer depends on the model's arithmetic.
 function renderPlotBlocks(el){
   if(!el || !window.math) return;
-  el.querySelectorAll('.plot-render-wrap').forEach(wrap=>{
+  _cardsIn(el,'.plot-render-wrap').forEach(wrap=>{
     const out=wrap.querySelector('.plot-render-output');
     if(!out || out.dataset.rendered) return;
     const spec=(wrap.querySelector('.plot-src-pre code')?.textContent||'').trim();
@@ -9506,9 +9885,10 @@ function _attachPlotParams(wrap,out,spec,params){
       // when the page is not actively painting (background tab, embedded preview),
       // which would leave the slider updating its label but never the curve.
       if(raf)return;
-      raf=setTimeout(()=>{ raf=0;
+      raf=setTimeout(()=>{ raf=0; bar._ppTimer=0;
         try{ out.innerHTML=_buildFunctionPlot(spec, params.values); }catch(e){}
       },16);
+      bar._ppTimer=raf;   // so an Apply can cancel a redraw of THIS spec (see _rerenderCard)
     };
     box.appendChild(lab); box.appendChild(inp); box.appendChild(val); bar.appendChild(box);
   });

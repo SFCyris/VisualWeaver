@@ -466,7 +466,7 @@ def test_the_prompt_does_not_offer_coefficients_a_system_ignores():
 # the 120000-symbol budget well before that and throw "reduce depth". The numbers
 # are pinned here because DOCS.md and the model-facing prompt both quote them.
 _MAX_ORDER = {"peano": 4, "gosper": 5, "moore": 6, "hilbert": 7, "koch": 7,
-              "plant": 7, "arrowhead": 10, "tree": 13, "dragon": 14, "levy": 14}
+              "plant": 7, "frond": 7, "arrowhead": 10, "tree": 13, "dragon": 14, "levy": 14}
 
 
 def test_documented_max_order_per_curve_is_what_the_lane_actually_renders():
@@ -501,6 +501,55 @@ def test_the_prompt_and_docs_quote_the_real_order_limits():
         for where, text in (("prompt", bullet), ("DOCS.md", section)):
             near = re.search(rf"{name}[^.]*?{limit}\b|{limit}\b[^.]*?{name}", text, re.I)
             assert near, f"{where} does not state order ≤{limit} for {name}"
+
+
+
+# ── deterministic depth-mode IFS (MRCM), offline ─────────────────────────────
+# The box-zoom maths lives in pure helpers tested by test_fractal_zoom_js; the
+# MRCM affine composition is likewise pure (_fracIFSLeaves), so it is checked
+# here without a browser — the in-browser probe would skip where playwright is
+# absent, leaving the composition unguarded.
+def test_mrcm_depth1_places_the_three_corner_copies():
+    leaves = _val("_fracIFSLeaves(_FRAC_PRESETS.sierpinski.maps,1,_FRAC_MAX_POINTS)")
+    assert len(leaves) == 3
+    assert sorted(round(l[0], 4) for l in leaves) == [0.5, 0.5, 0.5]   # each a half-scale copy
+    trans = sorted((round(l[4], 4), round(l[5], 4)) for l in leaves)
+    assert trans == [(0.0, 0.0), (0.25, 0.433), (0.5, 0.0)], trans      # 3 corners, apex at √3/4
+
+
+def test_mrcm_nests_translations_with_depth():
+    r = _val("(()=>{const L=_fracIFSLeaves(_FRAC_PRESETS.sierpinski.maps,2,_FRAC_MAX_POINTS);"
+             "return {n:L.length, pos:[...new Set(L.map(t=>t[4].toFixed(5)+','+t[5].toFixed(5)))].length,"
+             "scale:[...new Set(L.map(t=>t[0].toFixed(5)))]};})()")
+    assert r["n"] == 9, r
+    # Each depth-2 copy must sit at its OWN nested position; a compose that dropped
+    # the accumulated translation would collapse all nine onto three (M424).
+    assert r["pos"] == 9, f"depth-2 copies collapsed to {r['pos']} positions"
+    assert r["scale"] == ["0.25000"], r["scale"]                        # 0.5**2
+
+
+def test_mrcm_leaf_count_is_capped():
+    # sierpinski (3 maps) tops out at depth 11 (3**11=177147 <= 200000)
+    n = _val("_fracIFSLeaves(_FRAC_PRESETS.sierpinski.maps,11,_FRAC_MAX_POINTS).length")
+    assert n == 3 ** 11
+    capped = _val("_fracIFSLeaves(_FRAC_PRESETS.sierpinski.maps,20,_FRAC_MAX_POINTS).length")
+    assert capped <= _val("_FRAC_MAX_POINTS") * 3   # the guard stops one pass past the cap
+
+
+def test_ifs_render_mode_and_seed_per_preset():
+    val = lambda s: _val(f"_fracSpec('{s}')")
+    sp = val('{"type":"sierpinski"}'); assert sp["ifsMode"] == "depth" and sp["ifsSeed"] == "triangle", sp
+    cp = val('{"type":"carpet"}');     assert cp["ifsMode"] == "depth" and cp["ifsSeed"] == "square", cp
+    assert val('{"type":"fern"}')["ifsMode"] == "chaos"                 # Barnsley stays the IFS point cloud
+    assert val('{"type":"ifs","maps":[[0.5,0,0,0.5,0,0]]}')["ifsMode"] == "chaos"
+    assert val('{"type":"ifs","ctl":"depth","maps":[[0.5,0,0,0.5,0,0]]}')["ifsMode"] == "depth"
+
+
+def test_frond_is_an_lsystem_distinct_from_the_barnsley_fern():
+    assert _val('_fracSpec(\'{"type":"frond"}\').type') == "lsystem"
+    assert _val('_fracSpec(\'{"type":"fern"}\').type') == "ifs"
+    for alias in ("fern-lsystem", "lsystem-fern", "fern-curve"):
+        assert _val(f'_fracSpec(JSON.stringify({{type:{alias!r}}})).type') == "lsystem", alias
 
 
 # ── the remaining curve rule strings ─────────────────────────────────────────

@@ -194,7 +194,7 @@ Answers are rendered inline: the model writes a short, declarative block and the
 | ` ```mermaid ` | **Diagram** — flowchart, sequence, class, state, ER, Gantt | mermaid syntax | Mermaid |
 | ` ```dot ` | **Auto-laid-out graph** — dependency/call graphs | Graphviz DOT | Viz.js |
 | ` ```geometry ` | **Geometric construction** | JSON: `boundingbox` + `elements` | JSXGraph |
-| ` ```fractal ` | **Fractal** — Mandelbrot/Julia (click-to-zoom), IFS chaos game, L-system curves, strange attractors; 21 presets ([full list](#fractals-and-attractors)) | JSON: `type` + parameters | plain canvas (no library) |
+| ` ```fractal ` | **Fractal** — Mandelbrot/Julia (drag a box or click to zoom), IFS chaos game, L-system curves, strange attractors; 21 presets ([full list](#fractals-and-attractors)) | JSON: `type` + parameters | plain canvas (no library) |
 | ` ```map ` | **Map** with markers / GeoJSON | JSON: `center`, `zoom`, `markers` | Leaflet + OpenStreetMap |
 | ` ```plot3d ` | **3-D surface / scatter** | Plotly JSON | Plotly |
 | ` ```molecule ` | **Chemical structure** | a SMILES string | SmilesDrawer |
@@ -215,7 +215,11 @@ Answers are rendered inline: the model writes a short, declarative block and the
 
 Notes:
 
-- Every rendered *figure* (chart, diagram, plot, map, molecule, score, SVG, LaTeX) carries a **Source** toggle and **Copy** button, so the underlying markup is always inspectable; SVG additionally offers **⬇ PNG**. Ordinary Markdown and code blocks are not figures — code blocks get a plain **Copy** button.
+- Every rendered *figure* (chart, diagram, plot, map, molecule, score, SVG, LaTeX) carries a **Source** toggle and **Copy** button, so the underlying markup is always inspectable; SVG additionally offers **⬇ PNG**. The Source pane is editable: change the markup or spec and press **▶ Apply** to re-render the figure in place, or **↺ Reset** to return to the original. While a figure is maximized, both wait until it is restored. Edits are local to the page — the stored message is unchanged, and a reload shows the original again. Ordinary Markdown and code blocks are not figures — code blocks get a plain **Copy** button.
+
+<p align="center">
+  <img src="screenshots/rendering/editable-source.png" alt="A plot card whose Source pane has been edited to add a parameter and a second function, then re-rendered with Apply" width="66%">
+</p>
 - A raw `<svg>…</svg>` with no code fence is detected and rendered too.
 - **Computed, not asserted:** `calc`, `solve`, `stats`, `truth`, `table`, `diff` and `regex` are evaluated in your browser, not produced by the model. The model states *what* to compute (an expression, a data list, two texts); the browser returns the exact result — so unit conversions, column totals, derivatives and truth tables don't inherit the model's arithmetic mistakes. `calc`/`solve`/`stats`/`truth` use math.js (already loaded); `table`/`diff`/`regex` use no library at all.
 - **Interactive `plot`:** declare a parameter with `param: a = <lo> .. <hi> (<init>)` and the block renders a slider; dragging it re-evaluates the formula and redraws instantly, with no round trip to the model.
@@ -238,6 +242,7 @@ Notes:
 | ![Timeline](screenshots/rendering/timeline.png) | ![Gantt](screenshots/rendering/gantt.png) |
 | ![Network](screenshots/rendering/network.png) | ![GeoJSON](screenshots/rendering/geojson.png) |
 | ![Lorenz attractor](screenshots/rendering/fractal.png) | ![Hilbert curve](screenshots/rendering/fractal-curve.png) |
+| ![Box-zoom on a Mandelbrot set](screenshots/rendering/fractal-zoom.png) | ![Sierpinski triangle as nested outlines](screenshots/rendering/fractal-sierpinski.png) |
 
 ### Fractals and attractors
 
@@ -246,20 +251,23 @@ Naming a preset is all a question needs:
 
 | Group | Presets |
 |---|---|
-| Escape-time | `mandelbrot`, `julia` — click to zoom in, shift-click to zoom out |
-| Chaos game (IFS) | `fern`, `sierpinski`, `carpet` |
-| Curves (L-system) | `koch`, `dragon`, `levy`, `arrowhead`, `gosper`, `plant`, `tree` |
+| Escape-time | `mandelbrot`, `julia` — drag a box to zoom into it (kept to the card's proportions), or click to zoom in and shift-click to zoom out |
+| Chaos game (IFS) | `fern` (Barnsley — a point cloud) |
+| Nested subdivision | `sierpinski` (nested triangles), `carpet` (nested squares) — a **Depth** slider divides the figure into smaller copies of itself |
+| Curves (L-system) | `koch`, `dragon`, `levy`, `arrowhead`, `gosper`, `plant`, `frond` (an L-system fern), `tree` |
 | Space-filling curves | `hilbert`, `peano`, `moore` |
 | Strange attractors | `lorenz`, `rossler`, `thomas`, `halvorsen`, `clifford`, `dejong` |
 
 Common spellings reach the same preset — `Hilbert Curve`, `flowsnake`,
 `Koch snowflake` and `lorenz_attractor` all resolve.
 
+Every rendered fractal also carries a slider under the canvas that changes how far it iterates and re-renders in place, with no round trip to the model: **Iterations** for Mandelbrot and Julia, **Depth** for the L-system curves and the self-tiling `sierpinski`/`carpet` (each level replaces the figure with smaller copies of itself), **Iterations** for the Barnsley fern and other chaos-game IFS, and **Steps** for the strange attractors. On a Mandelbrot or Julia card, **⟲ Reset zoom** returns to the starting view.
+
 Every option is optional:
 
 - `palette` — `viridis` (default), `fire`, `ocean` or `mono`.
 - `order` — recursion depth of a curve, from 1 up to a per-curve maximum:
-  `peano` 4, `gosper` 5, `moore` 6, `hilbert`, `koch` and `plant` 7, `arrowhead` 10,
+  `peano` 4, `gosper` 5, `moore` 6, `hilbert`, `koch`, `plant` and `frond` 7, `arrowhead` 10,
   `tree` 13, `dragon` and `levy` 14. An order above 14 is reduced to 14; between
   a curve's own maximum and 14 it reports `L-system exceeds 120000 symbols`
   instead of drawing.

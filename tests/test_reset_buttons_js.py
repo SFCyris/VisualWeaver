@@ -49,7 +49,7 @@ def test_reset_handler_only_acts_when_something_was_actually_captured():
         "must no-op before Source has ever been opened (nothing captured yet)"
     assert "code.textContent===code._originalSrc" in block, \
         "must short-circuit when there is nothing to undo"
-    assert "_rerenderRichCard(wrap)" in block
+    assert "_rerenderCard(wrap)" in block, "Reset must go through the family-aware re-render"
 
 
 def test_apply_bar_css_has_a_gap_between_the_two_buttons():
@@ -75,12 +75,18 @@ def test_fractal_view_reset_restores_the_specs_own_center_and_zoom():
         "(else zooming would mutate origView too and Reset would restore nothing)"
 
 
-def test_click_zoom_reveals_the_reset_button():
+def test_zoom_reveals_the_reset_button():
     html = _html()
-    i = html.index("canvas.addEventListener('click',e=>{")
-    block = html[i:html.index("\n        });", i)]
-    assert 'querySelector(\'[data-act="fractal-reset"]\')' in block
-    assert "b.style.display=''" in block
+    # The reveal is a shared helper (captured at draw time, before openMaximize
+    # can move the output out of the card); both the box-zoom and the click paths
+    # call it.
+    i = html.index("const showReset=()=>{")
+    reveal = html[i:html.index("};", i) + 2]
+    assert 'querySelector(\'[data-act="fractal-reset"]\')' in reveal
+    assert "b.style.display=''" in reveal
+    fn = html[html.index("function _fracEnableBoxZoom("):html.index("function _fracCtlSpec(")]
+    assert fn.count("showReset()") >= 2, \
+        "both a box-zoom and a plain click should reveal Reset zoom"
 
 
 def test_reset_zoom_handler_hides_the_button_again():

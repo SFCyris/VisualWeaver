@@ -57,6 +57,7 @@ The model writes a short, declarative block — the browser does the drawing. Th
 | ` ```geometry ` | Geometric construction | points/lines/circles as JSON |
 | ` ```map ` | Map with markers / GeoJSON | `center`, `zoom`, `markers` |
 | ` ```plot3d ` | 3-D surface / scatter | Plotly JSON |
+| ` ```fractal ` | Mandelbrot/Julia (drag/click to zoom), IFS, L-system curves, strange attractors — interactive iteration/depth | JSON: `type` + parameters |
 | ` ```molecule ` | Chemical structure | a SMILES string |
 | ` ```molecule3d ` | 3D structure, rotatable/zoomable | XYZ format (atoms + coordinates) |
 | ` ```gantt ` | Project schedule — dates, durations, dependencies | mermaid gantt syntax |
@@ -91,7 +92,15 @@ The bottom group (`calc`, `solve`, `stats`, `table`, `diff`, `regex`, `truth`) i
   <img src="screenshots/rendering/molecule3d.png" alt="Rotatable 3D molecule structure rendered in a chat answer" width="32%">
 </p>
 
-Every rendered figure gets a **Source** toggle, **Copy** button, and an **⛶ Maximize** button that opens it full-viewport; most also have a **⬇ PNG** export.
+Every rendered figure gets a **Source** toggle, **Copy** button, and an **⛶ Maximize** button that opens it full-viewport; most also have a **⬇ PNG** export. The source is editable in place: **▶ Apply** re-renders the figure from your changes and **↺ Reset** restores the original.
+
+<p align="center">
+  <img src="screenshots/rendering/fractal-zoom.png" alt="Mandelbrot card with a ratio-locked box-zoom selection and an Iterations slider" width="32%">
+  <img src="screenshots/rendering/fractal-sierpinski.png" alt="Sierpinski triangle drawn as nested outlines with a Depth slider" width="32%">
+  <img src="screenshots/rendering/editable-source.png" alt="A plot card whose Source pane has been edited and re-rendered with Apply / Reset" width="32%">
+</p>
+
+Fractals are interactive: drag a box on a Mandelbrot or Julia card to zoom in, and every fractal has a slider — **Iterations**, **Depth** or **Steps** — that re-renders it in place.
 
 The heavier renderers (Mermaid, Chart.js, Plotly, Leaflet, JSXGraph, Viz.js, SmilesDrawer, 3Dmol.js, highlight.js) are **lazy-loaded on first use**, so they cost nothing at page load. All renderer libraries come from a public CDN; ` ```map ` additionally requests OpenStreetMap tiles for the coordinates shown. See [DOCS.md](DOCS.md#rich-content-rendering) for the full reference.
 
