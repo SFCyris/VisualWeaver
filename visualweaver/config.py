@@ -179,6 +179,10 @@ def _enumerated_names(text: str) -> set:
     return out
 
 
+# How many missing options / names the drift notice lists before "+N more".
+_DRIFT_LIST_CAP = 50
+
+
 def base_instruction_drift(stored: str | None = None) -> dict:
     """What the SHIPPED Base Instruction offers that a saved copy does not.
 
@@ -262,12 +266,51 @@ def base_instruction_drift(stored: str | None = None) -> dict:
     return {"differs": True,
             "stale": bool(missing_lanes or missing or missing_names),
             "missing_lanes": missing_lanes,
-            "missing_options": missing[:40],
+            # The notice lists up to _DRIFT_LIST_CAP of each; the *_total fields carry
+            # the true count so a longer list still says "+N more" rather than looking complete.
+            "missing_options": missing[:_DRIFT_LIST_CAP],
             "missing_options_total": len(missing),
-            "missing_names": missing_names[:40],
+            "missing_names": missing_names[:_DRIFT_LIST_CAP],
             "missing_names_total": len(missing_names),
             "stored_chars": len(stored),
             "shipped_chars": len(shipped)}
+
+
+def _visual_lane_supplement(base: str) -> str:
+    """Instructions for shipped visual blocks a saved base_instruction never mentions.
+
+    A base_instruction saved before a lane existed shadows it forever (see
+    base_instruction_drift): the model is never told the fence exists, so it draws
+    the subject with whatever it already knows — a circuit as a mermaid graph, a
+    3-D scene as a plot. Rather than depend on a manual "Reset to shipped default",
+    the missing lanes' OWN bullets (and the routing rule) from the shipped default
+    are appended to what the model receives each turn. The user's customised prose
+    is untouched — only capability the app can actually render is added back.
+    Returns "" when the base already mentions every lane, or when visual blocks are
+    switched off for this deployment (the whole section is cut before sending, so
+    adding one back would contradict that).
+    """
+    if not state._config.get("visual_instructions", True):
+        return ""
+    try:
+        missing = base_instruction_drift(base).get("missing_lanes") or []
+    except Exception:
+        return ""
+    if not missing:
+        return ""
+    lines = constants.DEFAULT_BASE_INSTRUCTION.split("\n")
+    bullets = []
+    for lane in missing:
+        for ln in lines:
+            if ln.startswith(f"- ```{lane} \u2014") or ln.startswith(f"- ```{lane} -"):
+                bullets.append(ln)
+                break
+    if not bullets:
+        return ""
+    routing = next((ln for ln in lines if ln.strip().startswith("Routing \u2014")), "")
+    header = ("=== ALSO AVAILABLE \u2014 visual blocks your saved instruction predates; "
+              "use these too, and the routing rule below ===")
+    return "\n".join([header] + ([routing] if routing else []) + bullets)
 
 
 def compose_system_prompt(client_system: str | None) -> str:
@@ -294,6 +337,12 @@ def compose_system_prompt(client_system: str | None) -> str:
         cut = base.find(constants.VISUAL_SECTION_MARKER)
         if cut != -1:
             base = base[:cut].rstrip()
+    else:
+        # Fill in any shipped visual block the saved instruction predates, so a
+        # circuit is drawn as ```circuit even when the stored copy never heard of it.
+        supp = _visual_lane_supplement(base)
+        if supp:
+            base = (base + "\n\n" + supp).strip() if base else supp
     client = (client_system or "").strip()
     parts  = [p for p in (base, client) if p]
     return "\n\n".join(parts) if parts else "You are a helpful assistant."

@@ -105,7 +105,7 @@ def test_enumerated_names_exclude_parenthetical_asides():
 
 def test_the_reported_name_count_is_the_true_total():
     d = config.base_instruction_drift("Be terse.")
-    assert len(d["missing_names"]) <= 40
+    assert len(d["missing_names"]) <= config._DRIFT_LIST_CAP
     assert d["missing_names_total"] >= len(d["missing_names"])
 
 
@@ -133,9 +133,9 @@ def test_the_reported_option_count_is_the_true_total_not_the_capped_list():
     """The UI says "and N more" from this number. Reporting the capped length
     would have understated it by 19."""
     d = config.base_instruction_drift("Be terse.")
-    assert len(d["missing_options"]) <= 40
+    assert len(d["missing_options"]) <= config._DRIFT_LIST_CAP
     assert d["missing_options_total"] >= len(d["missing_options"])
-    assert d["missing_options_total"] > 40, \
+    assert d["missing_options_total"] > config._DRIFT_LIST_CAP, \
         "this input should exceed the cap, otherwise the test proves nothing"
 
 

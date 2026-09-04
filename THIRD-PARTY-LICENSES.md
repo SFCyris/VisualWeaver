@@ -55,9 +55,10 @@ These are **not** bundled with VisualWeaver or included in the Docker image. `vi
 | [@viz-js/viz](https://github.com/mdaines/viz.js) | `dot` graph layout | MIT — embeds [Graphviz](https://graphviz.org) 15.1.1 (EPL-2.0) and Expat (MIT) |
 | [JSXGraph](https://jsxgraph.org) | `geometry` constructions | MIT or LGPL-3.0-or-later (**MIT elected**) |
 | [Leaflet](https://leafletjs.com) | `map` maps | BSD-2-Clause |
-| [Plotly.js](https://plotly.com/javascript/) | `plot3d` 3-D plots | MIT |
+| [Plotly.js](https://plotly.com/javascript/) | `plot3d` 3-D plots, `plotly` statistical charts | MIT |
 | [SmilesDrawer](https://github.com/reymond-group/smilesDrawer) | `molecule` structures | MIT |
 | [3Dmol.js](https://3dmol.csb.pitt.edu/) | `molecule3d` 3D structures | BSD-3-Clause |
+| [three.js](https://threejs.org/) r128 | `scene` 3-D scenes | MIT |
 | [abcjs](https://www.abcjs.net) | `abc` sheet music | MIT |
 | [vis-network](https://github.com/visjs/vis-network) | `network` force-directed graphs | Apache-2.0 or MIT |
 | [highlight.js](https://highlightjs.org) | code syntax highlighting | BSD-3-Clause |

@@ -836,6 +836,46 @@ def _full_answer(markdown_pairs):
     return run
 
 
+SCENE_3D = """```scene
+{"objects":[{"type":"box","size":[2.4,0.2,1.6],"position":[0,0.1,0],"color":"#4f8fe6"},
+ {"type":"cylinder","radius":0.25,"height":1.2,"position":[-0.7,0.8,0],"color":"#f0a530"},
+ {"type":"sphere","radius":0.35,"position":[0.6,0.55,0.3],"color":"tomato"},
+ {"type":"cone","radius":0.3,"height":0.8,"position":[0.5,0.6,-0.5],"color":"#4cbf7a"},
+ {"type":"torus","radius":0.35,"tube":0.1,"position":[-0.6,0.4,-0.6],"rotation":[90,0,0],"color":"#8b6be6"}],
+ "axes":true}
+```
+"""
+
+ODE_PENDULUM = """```ode
+dx = y
+dy = -sin(x) - c*y
+x = -6 .. 6
+y = -3 .. 3
+start: 2, 0
+start: 4, 1
+param: c = 0 .. 1 (0.2)
+```
+"""
+
+CIRCUIT_LED = """```circuit
+{"components":[{"type":"battery","from":[0,2],"to":[0,0],"label":"9 V"},
+ {"type":"resistor","from":[0,0],"to":[3,0],"label":"R1 220 Ω"},
+ {"type":"led","from":[3,0],"to":[3,2],"label":"D1"},
+ {"type":"wire","from":[3,2],"to":[0,2]}]}
+```
+"""
+
+SEQUENCE_ALIGNMENT = """```sequence
+>human
+MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ
+>mouse
+MKTAYIAKQRQISFVKSHFSRQLEERLGLVEVQ
+>zebrafish
+MKSAYVAKQRQISFVKSHFSRQLEERLGLIEIQ
+```
+"""
+
+
 async def _fractal_zoom(page):
     """A box-zoom in progress on a Mandelbrot card: the ratio-locked selection
     rectangle over the set, plus the Iterations slider underneath."""
@@ -880,6 +920,36 @@ async def _editable_source(page):
     }""")
     await page.wait_for_timeout(200)
     return page.locator(".plot-render-wrap").first
+
+
+async def _scene_3d(page):
+    """A 3-D scene of primitives after a short orbit, so the Reset view button
+    is showing alongside PNG and Maximize."""
+    card = await one_card(page, SCENE_3D, settle=3200)
+    await page.evaluate("""() => {
+      const canvas = document.querySelector('.rich-wrap[data-kind="scene"] canvas'), r = canvas.getBoundingClientRect();
+      const fire = (t, fx, fy) => canvas.dispatchEvent(new PointerEvent(t,
+        {clientX: r.left + r.width * fx, clientY: r.top + r.height * fy,
+         button: 0, bubbles: true, pointerId: 1}));
+      fire('pointerdown', 0.5, 0.5); fire('pointermove', 0.58, 0.46); fire('pointerup', 0.58, 0.46);
+    }""")
+    await page.wait_for_timeout(300)
+    return card
+
+
+async def _ode_portrait(page):
+    """A damped-pendulum phase portrait with its damping slider underneath."""
+    return await one_card(page, ODE_PENDULUM, settle=2200)
+
+
+async def _circuit(page):
+    """An LED circuit drawn from a JSON netlist."""
+    return await one_card(page, CIRCUIT_LED, settle=2000)
+
+
+async def _sequence_alignment(page):
+    """Three protein sequences shown as an alignment with the differing columns marked."""
+    return await one_card(page, SEQUENCE_ALIGNMENT, settle=2000)
 
 
 SHOTS: list[tuple[str, object]] = [
@@ -931,6 +1001,10 @@ SHOTS: list[tuple[str, object]] = [
     ("rendering/geojson.png",              _lane_shot(GEOJSON, settle=3000)),
     ("rendering/table-sort.png",           _table_sort),
     ("rendering/editable-source.png",      _editable_source),
+    ("rendering/scene.png",                _scene_3d),
+    ("rendering/ode.png",                  _ode_portrait),
+    ("rendering/circuit.png",              _circuit),
+    ("rendering/sequence.png",             _sequence_alignment),
     ("rendering/citations-scope.png",      _citations_scope),
     ("rendering/documents.png",            _documents),
     ("rendering/no-kb-match.png",          _no_kb_match),

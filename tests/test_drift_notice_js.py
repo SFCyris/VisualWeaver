@@ -90,10 +90,12 @@ def test_the_count_shown_is_the_true_total_not_the_capped_list():
 
 def test_it_does_not_claim_the_instruction_is_old():
     """"older than the app" is a diagnosis, and false for anyone who removed a
-    section deliberately. The notice states what is absent instead."""
+    section deliberately. The notice states what is absent, and that the app now
+    fills it in, instead."""
     t = _render(_drift(missing_lanes=["abc"]))["text"].lower()
     assert "older than the app" not in t
-    assert "leaves out" in t and "if that is deliberate" in t
+    assert "predates" in t and "adds the missing ones to every turn" in t
+    assert "reset to shipped default" in t
 
 
 def test_it_is_marked_as_a_note_and_uses_the_shared_warning_style():

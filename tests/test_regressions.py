@@ -1332,6 +1332,7 @@ CDN_MANIFEST = frozenset([
     "https://cdn.jsdelivr.net/npm/@viz-js/viz@3.29.0/dist/viz-global.js",
     "https://cdn.jsdelivr.net/npm/smiles-drawer@2.4.1/dist/smiles-drawer.min.js",
     _CDNJS + "3Dmol/2.5.5/3Dmol-min.js",
+    _CDNJS + "three.js/r128/three.min.js",          # ```scene
     _CDNJS + "Chart.js/4.5.0/chart.umd.min.js",
     _CDNJS + "KaTeX/0.17.0/contrib/auto-render.min.js",
     _CDNJS + "KaTeX/0.17.0/katex.min.css",
@@ -1384,7 +1385,7 @@ def test_lane_cdn_paths_are_the_verified_ones(app_module):
     found = _cdn_asset_urls(html)
     # Guard the extractor itself: a regex that stops matching would otherwise turn
     # this into a vacuous comparison of two empty sets.
-    assert len(found) == 24, f"extractor found {len(found)} asset URLs, expected 24"
+    assert len(found) == 25, f"extractor found {len(found)} asset URLs, expected 25"
     assert found == set(CDN_MANIFEST), (
         "index.html's asset URLs no longer match the HEAD-verified manifest.\n"
         f"  only in index.html: {sorted(found - CDN_MANIFEST)}\n"

@@ -164,14 +164,17 @@ def test_rich_lanes_parses_and_holds_every_lane():
     keys = _node(js)
     expected = ["mermaid", "chart", "gantt", "timeline", "network", "geojson", "dot",
                 "geometry", "fractal", "map", "plot3d", "calc", "solve", "stats",
-                "truth", "table", "diff", "regex", "molecule", "molecule3d"]
+                "truth", "table", "diff", "regex", "molecule", "molecule3d",
+                "plotly", "ode", "scene", "sequence", "phylo", "reaction", "circuit"]
     assert keys == expected, f"RICH_LANES changed shape: {keys}"
 
 
 @pytest.mark.parametrize("lane", ["mermaid", "chart", "gantt", "timeline", "network",
                                   "geojson", "dot", "geometry", "fractal", "map",
                                   "plot3d", "calc", "solve", "stats", "truth",
-                                  "table", "diff", "regex", "molecule", "molecule3d"])
+                                  "table", "diff", "regex", "molecule", "molecule3d",
+                                  "plotly", "ode", "scene", "sequence", "phylo",
+                                  "reaction", "circuit"])
 def test_every_lane_has_a_callable_draw(lane):
     """A lane whose draw is missing or not a function renders an empty card — and a
     lane whose load() throws or fetches an off-CDN asset silently fails to render.

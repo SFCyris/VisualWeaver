@@ -50,9 +50,9 @@ The model writes a short, declarative block — the browser does the drawing. Th
 
 | Fence | Renders | The model writes |
 |---|---|---|
-| ` ```plot ` | Function graph (exact), with optional live parameter **sliders** | `y = a*sin(b*x)` + `param: a = 0.5 .. 3 (1)` |
+| ` ```plot ` | Function graph (exact) — also parametric, polar, vector-field, contour and implicit — with optional live parameter **sliders** | `y = a*sin(b*x)` + `param: a = 0.5 .. 3 (1)` |
 | ` ```chart ` | Bar / line / pie / scatter / radar chart | Chart.js JSON |
-| ` ```mermaid ` | Flowchart, sequence, class, state, ER, Gantt | mermaid syntax |
+| ` ```mermaid ` | Flowchart, sequence, class, state, ER, Gantt, mindmap, quadrant, XY chart, sankey, block, kanban | mermaid syntax |
 | ` ```dot ` | Auto-laid-out graph (dependencies, call graphs) | Graphviz DOT |
 | ` ```geometry ` | Geometric construction | points/lines/circles as JSON |
 | ` ```map ` | Map with markers / GeoJSON | `center`, `zoom`, `markers` |
@@ -60,6 +60,13 @@ The model writes a short, declarative block — the browser does the drawing. Th
 | ` ```fractal ` | Mandelbrot/Julia (drag/click to zoom), IFS, L-system curves, strange attractors — interactive iteration/depth | JSON: `type` + parameters |
 | ` ```molecule ` | Chemical structure | a SMILES string |
 | ` ```molecule3d ` | 3D structure, rotatable/zoomable | XYZ format (atoms + coordinates) |
+| ` ```plotly ` | Histogram, box, violin, heatmap, contour, sankey, treemap, sunburst, candlestick, waterfall, funnel | Plotly figure JSON |
+| ` ```ode ` | Phase portrait — direction field + trajectories, with optional **sliders** | `dx = y`, `dy = -sin(x)`, `start: 1, 0` |
+| ` ```scene ` | 3-D scene of primitives — rotate, zoom, pan | JSON `objects` with `position`, `rotation`, `color` |
+| ` ```sequence ` | DNA / RNA / protein sequence, or an alignment | FASTA or a bare sequence |
+| ` ```phylo ` | Phylogenetic tree (phylogram or cladogram) | Newick |
+| ` ```reaction ` | Reaction scheme drawn from structures | reaction SMILES |
+| ` ```circuit ` | Electrical schematic on a grid | JSON `components` |
 | ` ```gantt ` | Project schedule — dates, durations, dependencies | mermaid gantt syntax |
 | ` ```timeline ` | Dated event sequence | mermaid timeline syntax |
 | ` ```network ` | Force-directed graph, draggable nodes | JSON nodes + edges |
@@ -90,6 +97,8 @@ The bottom group (`calc`, `solve`, `stats`, `table`, `diff`, `regex`, `truth`) i
 </p>
 <p align="center">
   <img src="screenshots/rendering/molecule3d.png" alt="Rotatable 3D molecule structure rendered in a chat answer" width="32%">
+  <img src="screenshots/rendering/scene.png" alt="A rotatable 3-D scene of primitives rendered in a chat answer" width="32%">
+  <img src="screenshots/rendering/ode.png" alt="A phase portrait with a damping slider rendered in a chat answer" width="32%">
 </p>
 
 Every rendered figure gets a **Source** toggle, **Copy** button, and an **⛶ Maximize** button that opens it full-viewport; most also have a **⬇ PNG** export. The source is editable in place: **▶ Apply** re-renders the figure from your changes and **↺ Reset** restores the original.
@@ -102,7 +111,39 @@ Every rendered figure gets a **Source** toggle, **Copy** button, and an **⛶ Ma
 
 Fractals are interactive: drag a box on a Mandelbrot or Julia card to zoom in, and every fractal has a slider — **Iterations**, **Depth** or **Steps** — that re-renders it in place.
 
-The heavier renderers (Mermaid, Chart.js, Plotly, Leaflet, JSXGraph, Viz.js, SmilesDrawer, 3Dmol.js, highlight.js) are **lazy-loaded on first use**, so they cost nothing at page load. All renderer libraries come from a public CDN; ` ```map ` additionally requests OpenStreetMap tiles for the coordinates shown. See [DOCS.md](DOCS.md#rich-content-rendering) for the full reference.
+The heavier renderers (Mermaid, Chart.js, Plotly, Leaflet, JSXGraph, Viz.js, SmilesDrawer, 3Dmol.js, three.js, highlight.js) are **lazy-loaded on first use**, so they cost nothing at page load. All renderer libraries come from a public CDN; ` ```map ` additionally requests OpenStreetMap tiles for the coordinates shown. See [DOCS.md](DOCS.md#rich-content-rendering) for the full reference.
+
+### Prompts to try
+
+Type any of these into the chat with **No RAG** selected (no documents needed). Each one is a single sentence; the answer comes back as a live figure you can zoom, rotate, drag or edit.
+
+| Ask | What you get |
+|---|---|
+| *Show me the Mandelbrot set.* | The full set on a canvas — drag a box anywhere on the edge to zoom in, again and again, and push the **Iterations** slider up as you go deeper |
+| *Show the Julia set for c = −0.8 + 0.156i.* | A swirling Julia set with the same box-zoom and slider |
+| *Draw the Lorenz attractor.* | The butterfly, traced as an orbit; the **Steps** slider integrates it further |
+| *Draw a Barnsley fern.* | The fern as a dense point cloud, filling in as you raise **Iterations** |
+| *Draw a Koch snowflake and a Sierpinski triangle.* | Two cards; step each one's **Depth** slider from 1 upward and watch the structure build |
+| *Build a 3D scene of a red box on a blue plate with a golden sphere on top and a purple torus beside it.* | A rotatable 3-D scene — drag to orbit, wheel to zoom, shift-drag to pan, **⟲ Reset view** to go back |
+| *Plot the 3D surface z = sin(x)·cos(y).* | A shaded surface you can spin |
+| *Plot y = sin(a·x)/x with a slider for a from 1 to 10.* | A graph with a live slider; drag it and the curve re-draws instantly |
+| *Graph the rose curve r = cos(4θ).* | An eight-petal polar rose |
+| *Show the vector field of a vortex, −y, x.* | A whirl of arrows across the plane |
+| *Plot the contours of x² − y² and the implicit curve x² + y² = 4.* | Saddle contours in a blue ramp with the circle drawn in red on top |
+| *Plot the phase portrait of a damped pendulum with a slider for the damping.* | Direction field, spiralling trajectories, and a damping slider that re-integrates them as you drag |
+| *Draw the structure of caffeine.* | The molecule as a chemical structure |
+| *Show the esterification of acetic acid and ethanol as a reaction scheme.* | Reactants, arrow and products drawn as structures |
+| *Draw the schematic of an LED circuit: a 9 V battery, a 220 Ω resistor and an LED.* | A schematic with the symbols on a grid |
+| *Show the phylogenetic tree of the great apes with branch lengths.* | A phylogram with a scale bar |
+| *Align the first 60 residues of human and mouse hemoglobin alpha.* | A coloured alignment with every differing column marked |
+| *Make a sunburst chart of a typical monthly household budget.* | A drillable ring chart |
+| *Draw a mind map of the solar system.* | A radial mind map, planets branching from the Sun |
+| *Put the seven wonders of the ancient world on a map.* | A world map with a marker and popup for each |
+| *Draw a timeline of the Apollo missions.* | A dated timeline card |
+| *Write sheet music for the first line of "Twinkle, Twinkle, Little Star".* | A rendered score with a **▶ Play** button |
+| *Show a geometric construction of the golden ratio.* | An interactive construction — press **✋ Interact** and drag its points |
+
+Every card has a **Source** button: change a number in the block, press **▶ Apply**, and the figure re-renders in place. If an answer comes back as plain text, ask the model to *"render that as a ```fractal block"* (or whichever fence fits) — the fence names are listed in the table above.
 
 ---
 
@@ -279,9 +320,10 @@ VisualWeaver is built on excellent open-source projects:
 | [Viz.js](https://github.com/mdaines/viz.js) | ` ```dot ` graph layout — a build of [Graphviz](https://graphviz.org) 15.1.1 *(EPL-2.0)* | MIT |
 | [JSXGraph](https://jsxgraph.org) | ` ```geometry ` constructions | MIT or LGPL-3.0-or-later |
 | [Leaflet](https://leafletjs.com) | ` ```map ` maps | BSD-2-Clause |
-| [Plotly.js](https://plotly.com/javascript/) | ` ```plot3d ` 3-D plots | MIT |
-| [SmilesDrawer](https://github.com/reymond-group/smilesDrawer) | ` ```molecule ` structures | MIT |
+| [Plotly.js](https://plotly.com/javascript/) | ` ```plot3d ` 3-D plots and ` ```plotly ` statistical charts | MIT |
+| [SmilesDrawer](https://github.com/reymond-group/smilesDrawer) | ` ```molecule ` structures and ` ```reaction ` schemes | MIT |
 | [3Dmol.js](https://3dmol.csb.pitt.edu) | ` ```molecule3d ` rotatable 3-D structures | BSD-3-Clause |
+| [three.js](https://threejs.org) | ` ```scene ` 3-D scenes | MIT |
 | [abcjs](https://www.abcjs.net) | ` ```abc ` sheet music | MIT |
 | [highlight.js](https://highlightjs.org) | code syntax highlighting | BSD-3-Clause |
 

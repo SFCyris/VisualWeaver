@@ -21,7 +21,7 @@ import re
 import shutil
 import subprocess
 
-from _jsrun import run_node
+from _jsrun import extract_js_function, run_node
 
 import pytest
 
@@ -56,7 +56,9 @@ def _plot(spec: dict) -> dict:
         "const window={ Plotly };\n"
         "function El(tag){ return {tag,style:{},children:[],appendChild(c){this.children.push(c);return c}}; }\n"
         "const document={createElement:El,createElementNS:(ns,t)=>El(t)};\n"
-        "const RICH_LANES={\n" + _lane(html, "plot3d") + "\n};\n"
+        # the lane now delegates its sanitising/title normalisation to the shared helper
+        + extract_js_function(html, "_plotlyClean") + "\n"
+        + "const RICH_LANES={\n" + _lane(html, "plot3d") + "\n};\n"
         "(async()=>{\n"
         "  const out=El('div');\n"
         f"  await RICH_LANES.plot3d.draw(out, {json.dumps(json.dumps(spec))});\n"

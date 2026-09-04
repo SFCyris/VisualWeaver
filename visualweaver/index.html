@@ -815,6 +815,17 @@ table.data-table tr:last-child td{border-bottom:none}
 .frac-ctl input[type=range]{flex:1;min-width:120px}
 .frac-ctl output{font-family:'SF Mono',monospace;min-width:52px;text-align:right;color:var(--text1);font-variant-numeric:tabular-nums}
 .frac-zoom-box{position:absolute;border:1px dashed var(--accent3);background:rgba(124,111,247,.16);pointer-events:none;z-index:3;border-radius:2px}
+/* ── reaction scheme: reactants + → products, agents over the arrow ── */
+.rxn-row{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;width:100%}
+.rxn-mol{width:140px;height:140px;flex:0 0 auto}
+.rxn-sign{font-size:22px;color:var(--text2);padding:0 2px}
+.rxn-arrow{display:flex;flex-direction:column;align-items:center;min-width:64px}
+.rxn-agents{font-size:11px;color:var(--text2);max-width:120px;text-align:center;word-break:break-all}
+.rxn-arrowline{font-size:28px;line-height:1;color:var(--text1)}
+.scene-hint{position:absolute;left:8px;bottom:6px;font-size:11px;color:var(--text2);background:rgba(127,127,127,.18);padding:2px 7px;border-radius:6px;pointer-events:none}
+.scene-paused{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text1);background:rgba(127,127,127,.25);cursor:pointer}
+/* a gene of a few kb is an ordinary request: cap the card and scroll it instead of a 4,000-px figure */
+.rich-wrap[data-kind="sequence"] .rich-output{max-height:520px;overflow:auto}
 .plot-src-pre code{font-family:'SF Mono','Fira Code',monospace;font-size:12px;white-space:pre;color:var(--text1);display:block;overflow-x:auto}
 /* Lazy rich lanes (mermaid / chart / dot / geometry / map / plot3d / molecule) */
 /* An explicit width is required: map/chart/plot3d/geometry render into an empty
@@ -5957,11 +5968,11 @@ function renderBaseInstructionDrift(d){
   // States what is absent, not WHY. "older than the app" is a diagnosis, and it
   // is wrong for anyone who removed a section on purpose — who would then be
   // told their deliberate edit is out of date, above a button that undoes it.
-  el.innerHTML='<b>Your saved instruction leaves out part of what this version ships.</b> '
-    +'This box is what the model receives, so it cannot use anything missing from it'
-    +(short?(' \u2014 about '+short+' characters shorter than the shipped one'):'')+'. '
+  el.innerHTML='<b>Your saved instruction predates some blocks this version ships.</b> '
+    +'The app adds the missing ones to every turn automatically, so the model can still '
+    +'use them'+(short?(' \u2014 your saved copy is about '+short+' characters shorter than the shipped one'):'')+'. '
     +(bits.length?bits.join('. ')+'. ':'')
-    +'If that is deliberate, ignore this. To take the current text instead, use '
+    +'To fold them into your saved copy instead of relying on the automatic top-up, use '
     +'<b>\u21ba Reset to shipped default</b> below \u2014 it replaces the box, so copy '
     +'any wording of your own out first.';
 }
@@ -6614,6 +6625,8 @@ function _repaintFractals(){
       if(inst.raf)clearTimeout(inst.raf);
       try{ inst.redraw(); }catch(e){}
     }
+    // a scene bakes its lights and grid colours at draw time
+    if(inst?.kind==='scene'&&inst.retheme){ try{ inst.retheme(); }catch(e){} }
   }
 }
 function setTheme(t){applyTheme(t);}
@@ -6886,11 +6899,13 @@ const _GEO_POINT_LIST_TYPES=new Set(['line','segment','arrow','vector','polygon'
 function _geoArgs(type,args,attrs){
   const a=Array.isArray(args)?args:[args];
   if(type==='text'){                       // JSXGraph needs [x, y, content]
+    // The position often arrives nested, as for a point: [[x,y],"…"] → [x,y,"…"].
+    const flat=p=>(p.length===1&&Array.isArray(p[0])&&p[0].length===2)?p[0]:p;
     const last=a[a.length-1];
-    if(typeof last==='string')return a.slice(0,-1).map(_geoNum).concat([_geoText(last)]);
+    if(typeof last==='string')return flat(a.slice(0,-1).map(_geoNum)).concat([_geoText(last)]);
     // Content commonly arrives in attrs instead of args — accept that too.
     const c=attrs&&(attrs.text!=null?attrs.text:(attrs.content!=null?attrs.content:attrs.name));
-    return a.map(_geoNum).concat([_geoText(c==null?'':c)]);
+    return flat(a.map(_geoNum)).concat([_geoText(c==null?'':c)]);
   }
   const nums=a.map(_geoNum);
   if(type==='point'&&nums.length===1&&Array.isArray(nums[0])&&nums[0].length===2)
@@ -8093,6 +8108,432 @@ function _timelineSafeColons(src){
   }).join('\n');
 }
 
+// ── Shared helpers for the data/science lanes ─────────────────────────────────
+//    (```plotly, ```ode, ```scene, ```sequence, ```phylo, ```reaction, ```circuit)
+
+// Plotly renders a small HTML subset in titles/annotations/hovertext, including
+// <a href>. Strip tags from EVERY model-supplied string in the figure (deep — a
+// sankey's node.label or a treemap's labels are nested), and normalise the string
+// form of `title` (dropped in Plotly 3, silently) to {text} everywhere Plotly
+// takes one. Shared by ```plot3d and ```plotly so the two can never disagree.
+function _plotlyClean(spec){
+  // Plotly draws a small HTML subset itself (<br>, <b>, <i>, <sub>, <sup> and the
+  // <extra> hover block); those pass, every other tag — links, images, anything
+  // carrying attributes — is stripped from every string in the figure.
+  const _strip=v=>typeof v==='string'?v.replace(/<(?!\/?(?:br|b|i|em|sub|sup|extra)\s*\/?>)[^>]*>/gi,''):
+    (Array.isArray(v)?v.map(_strip):(v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,_strip(x)])):v));
+  spec.layout=_strip(spec.layout||{});
+  spec.data=(Array.isArray(spec.data)?spec.data:[]).map(_strip);
+  // layout.images and an image trace's `source` fetch a model-chosen URL when the
+  // figure draws — an outbound request from the reader's browser to any host.
+  delete spec.layout.images; delete spec.layout.mapbox;
+  spec.data.forEach(t=>{ if(t&&typeof t==='object'&&typeof t.source==='string'&&!/^data:image\//i.test(t.source))delete t.source; });
+  const _titleFix=o=>{ if(o&&typeof o.title==='string') o.title={text:o.title}; };
+  _titleFix(spec.layout);
+  for(const ax of ['xaxis','yaxis','zaxis']) _titleFix(spec.layout[ax]);
+  if(spec.layout.scene) for(const ax of ['xaxis','yaxis','zaxis']) _titleFix(spec.layout.scene[ax]);
+  _titleFix(spec.layout.legend);
+  if(spec.layout.coloraxis) _titleFix(spec.layout.coloraxis.colorbar);
+  spec.data.forEach(t=>{ if(!t||typeof t!=='object')return;
+    _titleFix(t.colorbar);
+    if(t.marker) _titleFix(t.marker.colorbar);
+    if(t.line)   _titleFix(t.line.colorbar); });
+  return spec;
+}
+
+// Marching squares: the level set f(x,y)=level over a grid g[j][i]=f(xs[i],ys[j]),
+// returned as [x1,y1,x2,y2] segments in data coordinates. Drives ```plot's
+// `contour:` and `implicit:` lines. Corner bits: v0=(x0,y0) 1, v1=(x1,y0) 2,
+// v2=(x1,y1) 4, v3=(x0,y1) 8; edges t (v0–v1), r (v1–v2), b (v3–v2), l (v0–v3).
+function _marchingSquares(g, xs, ys, level){
+  const segs=[]; const nx=xs.length, ny=ys.length;
+  const lerp=(a,b,va,vb)=>{ const t=(level-va)/((vb-va)||1e-12); return a+(b-a)*Math.max(0,Math.min(1,t)); };
+  const CASES={1:'lt',2:'tr',3:'lr',4:'rb',5:'lt rb',6:'tb',7:'lb',8:'bl',9:'tb',10:'tr bl',11:'rb',12:'lr',13:'tr',14:'lt'};
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
+    const v0=g[j][i],v1=g[j][i+1],v2=g[j+1][i+1],v3=g[j+1][i];
+    if(![v0,v1,v2,v3].every(v=>typeof v==='number'&&isFinite(v)))continue;
+    const idx=(v0>=level?1:0)|(v1>=level?2:0)|(v2>=level?4:0)|(v3>=level?8:0);
+    if(idx===0||idx===15)continue;
+    const x0=xs[i],x1=xs[i+1],y0=ys[j],y1=ys[j+1];
+    const E={t:[lerp(x0,x1,v0,v1),y0], r:[x1,lerp(y0,y1,v1,v2)], b:[lerp(x0,x1,v3,v2),y1], l:[x0,lerp(y0,y1,v0,v3)]};
+    for(const pair of CASES[idx].split(' ')){ const a=E[pair[0]],b=E[pair[1]]; segs.push([a[0],a[1],b[0],b[1]]); }
+  }
+  return segs;
+}
+
+// Newick → {name, length, children}. Bracket comments are dropped, quoted names
+// and missing branch lengths are accepted.
+function _newickParse(str){
+  let s=String(str).replace(/\[[^\]]*\]/g,'').trim(); if(s.endsWith(';'))s=s.slice(0,-1);
+  if(!s)throw new Error('empty Newick string');
+  let i=0;
+  const node=()=>{
+    const n={name:'',length:null,children:[]};
+    if(s[i]==='('){ i++; for(;;){ n.children.push(node()); if(s[i]===','){i++;continue;} if(s[i]===')'){i++;break;} throw new Error('Newick: expected , or ) at position '+i); } }
+    let name='';
+    if(s[i]==="'"){ i++; for(;i<s.length;i++){ if(s[i]==="'"){ if(s[i+1]==="'"){ name+="'"; i++; continue; } break; } name+=s[i]; } i++; }
+    else while(i<s.length&&!/[,:;()]/.test(s[i]))name+=s[i++];
+    n.name=name.trim();
+    if(s[i]===':'){ i++; let num=''; while(i<s.length&&/[\d.eE+\-]/.test(s[i]))num+=s[i++]; const v=parseFloat(num); n.length=isFinite(v)?v:null; }
+    return n;
+  };
+  const root=node();
+  if(i<s.length)throw new Error('Newick: unexpected "'+s[i]+'" at position '+i);
+  return root;
+}
+// Rectangular tree as SVG: a phylogram when branch lengths are given (with a
+// scale bar), a cladogram when they are not. Leaves are evenly spaced.
+function _phyloSvg(root){
+  const leaves=[];
+  const hasLen=(function any(n){ return n.length!=null||n.children.some(any); })(root);
+  let maxD=0;
+  (function walk(n,d){ n.d=d+(hasLen?(n.length||0):1); if(!n.children.length)leaves.push(n); else n.children.forEach(c=>walk(c,n.d)); if(n.d>maxD)maxD=n.d; })(root,0);
+  const rootD=root.d; (function fix(n){ n.d-=rootD; n.children.forEach(fix); })(root); maxD-=rootD; if(!(maxD>0))maxD=1;
+  if(leaves.length>200)throw new Error('too many leaves (max 200)');
+  if(!leaves.length)throw new Error('the tree has no leaves');
+  leaves.forEach((l,k)=>l.y=k);
+  (function ypos(n){ if(n.children.length){ n.children.forEach(ypos); n.y=(n.children[0].y+n.children[n.children.length-1].y)/2; } })(root);
+  const rowH=22, padL=16, padT=16;
+  const labelW=Math.min(400, 7*Math.max(4,...leaves.map(l=>l.name.length))+20);
+  const W=Math.max(640, 420+labelW);   // long taxon names widen the figure instead of being clipped
+  const H=padT*2+Math.max(0,leaves.length-1)*rowH+(hasLen?28:0);
+  const treeW=W-padL-labelW-20;
+  const sx=d=>padL+d/maxD*treeW, sy=y=>padT+y*rowH;
+  const esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const ink='#475569';
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${hasLen?'phylogram':'cladogram'} of ${leaves.length} taxa" font-family="sans-serif" font-size="12"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
+  (function draw(n){
+    if(n.children.length){
+      const ys=n.children.map(c=>c.y), X=sx(n.d).toFixed(1);
+      s+=`<line x1="${X}" y1="${sy(Math.min(...ys)).toFixed(1)}" x2="${X}" y2="${sy(Math.max(...ys)).toFixed(1)}" stroke="${ink}" stroke-width="1.5"/>`;
+      n.children.forEach(c=>{ s+=`<line x1="${X}" y1="${sy(c.y).toFixed(1)}" x2="${sx(c.d).toFixed(1)}" y2="${sy(c.y).toFixed(1)}" stroke="${ink}" stroke-width="1.5"/>`; draw(c); });
+      if(n.name)s+=`<text x="${(sx(n.d)+4).toFixed(1)}" y="${(sy(n.y)-5).toFixed(1)}" font-size="10" fill="#64748b">${esc(n.name)}</text>`;
+    }else{
+      s+=`<circle cx="${sx(n.d).toFixed(1)}" cy="${sy(n.y).toFixed(1)}" r="2.5" fill="${ink}"/>`;
+      s+=`<text x="${(sx(n.d)+7).toFixed(1)}" y="${(sy(n.y)+4).toFixed(1)}" fill="#1e293b">${esc(n.name)}</text>`;
+    }
+  })(root);
+  if(hasLen){ const unit=Math.pow(10,Math.floor(Math.log10(Math.max(1e-9,maxD/3)))), px=unit/maxD*treeW, y=H-10;
+    s+=`<line x1="${padL}" y1="${y}" x2="${(padL+px).toFixed(1)}" y2="${y}" stroke="${ink}" stroke-width="1.5"/><text x="${(padL+px+6).toFixed(1)}" y="${y+4}" font-size="10" fill="#64748b">${unit}</text>`; }
+  return s+'</svg>';
+}
+
+// Sequences: FASTA records (`>name` then residues) or one bare sequence. The
+// palette is picked from the alphabet — nucleotides by base, amino acids by
+// property class. One record wraps; several are shown aligned, with a marker row
+// flagging the columns that differ.
+function _seqParse(src){
+  const recs=[]; let cur=null;
+  String(src).split(/\n/).forEach(line=>{ line=line.trim();
+    if(!line){ if(cur&&!cur.name)cur=null; return; }   // a blank line separates headerless sequences
+    if(line[0]==='>'){ cur={name:line.slice(1).trim()||('seq'+(recs.length+1)),seq:''}; recs.push(cur); }
+    else { if(!cur){ cur={name:'',seq:''}; recs.push(cur); } cur.seq+=line.replace(/[\s\d]/g,''); } });
+  recs.forEach(r=>{ r.seq=r.seq.toUpperCase().slice(0,5000);
+    const bad=r.seq.match(/[^A-Z\-*.]/);
+    if(bad)throw new Error('"'+bad[0]+'" is not a residue — a sequence is letters (A, C, G, T, U or amino-acid codes), "-" for a gap and "*" for a stop; for a diagram use ```mermaid'); });
+  const out=recs.filter(r=>r.seq.length);
+  out.forEach((r,i)=>{ if(!r.name&&out.length>1)r.name='seq'+(i+1); });
+  return out;
+}
+const _SEQ_NT={A:'#86efac',C:'#93c5fd',G:'#fde68a',T:'#fca5a5',U:'#fca5a5',N:'#e2e8f0','-':'#f1f5f9'};
+const _SEQ_AA={A:'#fde68a',V:'#fde68a',L:'#fde68a',I:'#fde68a',M:'#fde68a',F:'#fdba74',W:'#fdba74',Y:'#fdba74',P:'#fcd34d',G:'#fcd34d',
+  S:'#86efac',T:'#86efac',C:'#86efac',N:'#86efac',Q:'#86efac',K:'#93c5fd',R:'#93c5fd',H:'#93c5fd',D:'#fca5a5',E:'#fca5a5','-':'#f1f5f9','*':'#f1f5f9',X:'#e2e8f0'};
+function _seqSvg(recs){
+  const all=recs.map(r=>r.seq).join('');
+  const nt=/^[ACGTUN\-]*$/.test(all), pal=nt?_SEQ_NT:_SEQ_AA;
+  const cell=14, rowH=20, esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const box=(x,y,ch)=>`<rect x="${x}" y="${y}" width="${cell-1}" height="${rowH-2}" fill="${pal[ch]||'#e2e8f0'}" rx="2"/><text x="${x+cell/2-0.5}" y="${y+13}" text-anchor="middle" fill="#0f172a">${esc(ch)}</text>`;
+  const open=(W,H,label)=>`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(label)}" font-family="ui-monospace,Menlo,monospace" font-size="11"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
+  let s='';
+  if(recs.length===1){
+    const seq=recs[0].seq, per=36, lines=Math.ceil(seq.length/per), W=52+per*cell+8, H=lines*(rowH+16)+12;
+    s+=open(W,H,(nt?'nucleotide':'protein')+' sequence of '+seq.length+' residues');
+    for(let l=0;l<lines;l++){ const y=8+l*(rowH+16);
+      s+=`<text x="4" y="${y+13}" fill="#64748b" font-size="10">${l*per+1}</text>`;
+      for(let k=0;k<per&&l*per+k<seq.length;k++){ const idx=l*per+k, x=52+k*cell; s+=box(x,y,seq[idx]);
+        if((idx+1)%10===0)s+=`<text x="${x+cell/2}" y="${y+rowH+9}" text-anchor="middle" fill="#94a3b8" font-size="9">${idx+1}</text>`; } }
+  }else{
+    // Blocks of 60 columns: a 300-column alignment used to be one 4,000-px-wide
+    // SVG that the card scaled down to a 9-px hairline.
+    const len=Math.max(...recs.map(r=>r.seq.length)), nameW=Math.min(120,7*Math.max(...recs.map(r=>r.name.length))+12);
+    const per=60, blocks=Math.ceil(len/per), blockH=16+recs.length*rowH+18;
+    const W=nameW+8+Math.min(len,per)*cell+8, H=blocks*blockH+4;
+    s+=open(W,H,'alignment of '+recs.length+' sequences, '+len+' columns');
+    for(let b=0;b<blocks;b++){ const y0=b*blockH, c0=b*per, c1=Math.min(len,c0+per);
+      for(let k=c0;k<c1;k++)if(k===c0||(k+1)%10===0)s+=`<text x="${nameW+8+(k-c0)*cell+cell/2}" y="${y0+10}" text-anchor="middle" fill="#94a3b8" font-size="9">${k+1}</text>`;
+      recs.forEach((r,ri)=>{ const y=y0+16+ri*rowH; s+=`<text x="4" y="${y+13}" fill="#334155">${esc(r.name.slice(0,16))}</text>`;
+        for(let k=c0;k<c1&&k<r.seq.length;k++)s+=box(nameW+8+(k-c0)*cell,y,r.seq[k]); });
+      const y=y0+16+recs.length*rowH+2;
+      for(let k=c0;k<c1;k++){ const col=recs.map(r=>r.seq[k]||'-'), same=col.every(c=>c===col[0]);
+        s+=`<text x="${nameW+8+(k-c0)*cell+cell/2}" y="${y+9}" text-anchor="middle" fill="${same?'#16a34a':'#dc2626'}" font-size="11">${same?'*':'·'}</text>`; }
+    }
+  }
+  return s+'</svg>';
+}
+
+// Circuit schematic from a JSON netlist on a unit grid: each component is drawn
+// along its from→to segment with the symbol at the midpoint; ground and node
+// sit at a point. Pure SVG, auto-fitted to the extents.
+function _circuitSvg(spec){
+  const comps=Array.isArray(spec.components)?spec.components:[];
+  if(!comps.length)throw new Error('no "components" — each is {"type":…,"from":[x,y],"to":[x,y]}');
+  if(comps.length>200)throw new Error('too many components (max 200)');
+  const U=60, num=(v,d)=>{ const n=Number(v); return isFinite(n)?n:d; }, pts=[];
+  const items=comps.map(c=>{ c=c&&typeof c==='object'?c:{};
+    const at=Array.isArray(c.at)?c.at:null, from=Array.isArray(c.from)?c.from:(at||[0,0]), to=Array.isArray(c.to)?c.to:(at||from);
+    const f=[num(from[0],0),num(from[1],0)], t=[num(to[0],0),num(to[1],0)]; pts.push(f,t);
+    return {type:String(c.type||'wire').toLowerCase(),f,t,label:c.label!=null?String(c.label):''}; });
+  let minx=Math.min(...pts.map(p=>p[0])),maxx=Math.max(...pts.map(p=>p[0])),miny=Math.min(...pts.map(p=>p[1])),maxy=Math.max(...pts.map(p=>p[1]));
+  minx-=1;maxx+=1;miny-=1;maxy+=1;
+  const W=Math.max(220,Math.round((maxx-minx)*U)), H=Math.max(160,Math.round((maxy-miny)*U));
+  const X=x=>(x-minx)*U, Y=y=>(maxy-y)*U, esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;'), ink='#1f2937';
+  const line=(x1,y1,x2,y2,w=2)=>`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${ink}" stroke-width="${w}" stroke-linecap="round"/>`;
+  const circ=(r,extra='')=>`<circle cx="0" cy="0" r="${r}" fill="none" stroke="${ink}" stroke-width="2"/>${extra}`;
+  const txt=(x,y,t,size=11)=>`<text x="${x}" y="${y}" text-anchor="middle" font-size="${size}" fill="${ink}">${t}</text>`;
+  // symbols in a local frame: origin at the midpoint, +x along the segment; L = half-length,
+  // H = half-extent across it (the label sits beyond H, not on top of the symbol)
+  const SYM={
+    resistor:{L:20,H:8,d:()=>{ let d='M-20 0'; for(let k=0;k<6;k++)d+=` L${(-20+(k+0.5)*(40/6)).toFixed(1)} ${k%2?8:-8}`; return `<path d="${d} L20 0" fill="none" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/>`; }},
+    capacitor:{H:12,L:5,d:()=>line(-5,-12,-5,12)+line(5,-12,5,12)},
+    inductor:{H:6,L:22,d:()=>{ let d='M-22 0'; for(let k=0;k<4;k++)d+=` A5.5 6 0 0 1 ${(-22+(k+1)*11).toFixed(1)} 0`; return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="2"/>`; }},
+    battery:{H:14,L:8,d:()=>line(-7,-14,-7,14)+line(-2,-7,-2,7,3)+line(3,-14,3,14)+line(8,-7,8,7,3)+`<text x="-18" y="-16" font-size="11" fill="${ink}">+</text>`},
+    source:{H:13,L:13,d:()=>circ(13,txt(0,4,'~'))},
+    dc:{H:13,L:13,d:()=>circ(13)+line(-5,0,5,0)+line(0,-5,0,5)},
+    diode:{H:9,L:9,d:()=>`<path d="M-9 -9 L9 0 L-9 9 Z" fill="${ink}"/>`+line(9,-9,9,9)},
+    led:{H:12,L:9,d:()=>`<path d="M-9 -9 L9 0 L-9 9 Z" fill="${ink}"/>`+line(9,-9,9,9)+`<path d="M2 -12 l6 -6 m-3 0 h3 v3 M8 -12 l6 -6 m-3 0 h3 v3" fill="none" stroke="${ink}" stroke-width="1.5" stroke-linecap="round"/>`},
+    switch:{H:12,L:14,d:()=>line(-14,0,-10,0)+line(-10,0,10,-12)+`<circle cx="-10" cy="0" r="2" fill="${ink}"/><circle cx="12" cy="0" r="2" fill="${ink}"/>`},
+    lamp:{H:11,L:11,d:()=>circ(11)+line(-7.8,-7.8,7.8,7.8,1.5)+line(-7.8,7.8,7.8,-7.8,1.5)},
+    ammeter:{H:12,L:12,d:()=>circ(12,txt(0,4,'A'))},
+    voltmeter:{H:12,L:12,d:()=>circ(12,txt(0,4,'V'))},
+    fuse:{H:5,L:12,d:()=>`<rect x="-12" y="-5" width="24" height="10" fill="none" stroke="${ink}" stroke-width="2"/>`+line(-12,0,12,0,1.5)},
+  };
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="circuit schematic with ${items.length} components" font-family="sans-serif" font-size="12"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
+  items.forEach(it=>{
+    const x1=X(it.f[0]),y1=Y(it.f[1]),x2=X(it.t[0]),y2=Y(it.t[1]);
+    if(it.type==='ground'){ s+=line(x1,y1,x1,y1+10)+line(x1-10,y1+10,x1+10,y1+10)+line(x1-6,y1+15,x1+6,y1+15)+line(x1-2,y1+20,x1+2,y1+20); return; }
+    if(it.type==='node'||it.type==='junction'){ s+=`<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="3.5" fill="${ink}"/>`; if(it.label)s+=`<text x="${(x1+7).toFixed(1)}" y="${(y1-6).toFixed(1)}" fill="${ink}">${esc(it.label)}</text>`; return; }
+    const sym=Object.prototype.hasOwnProperty.call(SYM,it.type)?SYM[it.type]:null, mx=(x1+x2)/2,my=(y1+y2)/2, dx=x2-x1,dy=y2-y1, len=Math.hypot(dx,dy);
+    if(!sym||len<1){ s+=line(x1,y1,x2,y2); if(it.label)s+=`<text x="${(mx+6).toFixed(1)}" y="${(my-6).toFixed(1)}" fill="${ink}">${esc(it.label)}</text>`; return; }
+    // a symbol longer than its segment is scaled down to fit between the terminals
+    const ux=dx/len,uy=dy/len, k=Math.min(1,Math.max(0.15,(len/2-2)/sym.L)), L=sym.L*k, ang=Math.atan2(dy,dx)*180/Math.PI;
+    s+=line(x1,y1,mx-ux*L,my-uy*L)+line(mx+ux*L,my+uy*L,x2,y2);
+    s+=`<g transform="translate(${mx.toFixed(1)} ${my.toFixed(1)}) rotate(${ang.toFixed(1)})${k<1?' scale('+k.toFixed(2)+')':''}">${sym.d()}</g>`;
+    if(it.label){ const off=(sym.H||8)*k+12, lx=mx-uy*off, ly=my+ux*off; s+=`<text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" fill="${ink}">${esc(it.label)}</text>`; }
+  });
+  const segs=items.filter(it=>it.type!=='ground'&&it.type!=='node'&&it.type!=='junction');
+  const ends={}; segs.forEach(it=>{ [it.f,it.t].forEach(p=>{ const k=p.join(','); ends[k]=(ends[k]||0)+1; }); });
+  // a T: an endpoint that lands on the MIDDLE of another component's segment is a
+  // junction too, though only two endpoints meet there
+  const onSeg=(p,a,b)=>{ const cross=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]); if(Math.abs(cross)>1e-9)return false;
+    const dot=(p[0]-a[0])*(b[0]-a[0])+(p[1]-a[1])*(b[1]-a[1]), len2=(b[0]-a[0])**2+(b[1]-a[1])**2; return dot>1e-9&&dot<len2-1e-9; };
+  segs.forEach(it=>[it.f,it.t].forEach(p=>{ if(segs.some(o=>o!==it&&onSeg(p,o.f,o.t))){ const k=p.join(','); ends[k]=Math.max(ends[k]||0,3); } }));
+  Object.entries(ends).forEach(([k,n])=>{ if(n>=3){ const [x,y]=k.split(',').map(Number); s+=`<circle cx="${X(x).toFixed(1)}" cy="${Y(y).toFixed(1)}" r="3.5" fill="${ink}"/>`; } });
+  return s+'</svg>';
+}
+
+// The error a formula gets for a symbol that is neither a variable nor a declared
+// param. The field, contour and trajectory loops skip a sample that throws, so
+// without an up-front probe an undeclared symbol drew an EMPTY window, not a cause.
+function _plotUndefinedErr(e){
+  const msg=(e&&e.message)||String(e), m=/^Undefined symbol (\w+)$/i.exec(msg);
+  return new Error(m?`'${m[1]}' is not defined — add \`param: ${m[1]} = <lo> .. <hi> (<init>)\` for a slider, or replace it with a plain number.`:msg);
+}
+
+// "fx, fy" of a field line, split at the TOP-LEVEL comma with the outer parentheses
+// stripped only when they wrap the whole pair. A lazy regex with an optional
+// trailing `\)?` handed `1, cos(x)` back as `cos(x` — every field whose second
+// component ended in a call failed to parse.
+function _plotPair(str){
+  let s=String(str).trim();
+  if(s.startsWith('(')&&s.endsWith(')')){ let d=0,whole=true;
+    for(let i=0;i<s.length-1;i++){ if(s[i]==='(')d++; else if(s[i]===')')d--; if(d===0){whole=false;break;} }
+    if(whole)s=s.slice(1,-1); }
+  let d=0;
+  for(let i=0;i<s.length;i++){ const c=s[i];
+    if(c==='(')d++; else if(c===')')d--;
+    else if(c===','&&d===0){ const a=s.slice(0,i).trim(), b=s.slice(i+1).trim(); return (a&&b)?[a,b]:null; } }
+  return null;
+}
+
+// ```ode: a 2-D system dx/dt=f(x,y), dy/dt=g(x,y) → direction field + RK4
+// trajectories, integrated forward and backward from each start point.
+function _odeParse(spec){
+  const o={fx:null,fy:null,xr:[-5,5],yr:[-5,5],starts:[],steps:600,dt:0.02,arrows:18};
+  const range=/^(?:=|from|in)\s*:?\s*\[?\s*(-?[\w.+\-*/^()\s]+?)\s*(?:\.\.|\bto\b)\s*(-?[\w.+\-*/^()\s]+?)\s*\]?$/i;
+  const span=m=>{ const a=_plotNum(m[1]),b=_plotNum(m[2]); return (isFinite(a)&&isFinite(b)&&a!==b)?[Math.min(a,b),Math.max(a,b)]:null; };
+  String(spec).split(/\n+/).forEach(line=>{
+    line=line.trim(); if(!line||line[0]==='#'||line.startsWith('//')||/^param\s*:/i.test(line))return;
+    let m, r;
+    if((m=line.match(/^(?:dx\/dt|dx|x')\s*=\s*(.+)$/i))){ o.fx=m[1].trim(); return; }
+    if((m=line.match(/^(?:dy\/dt|dy|y')\s*=\s*(.+)$/i))){ o.fy=m[1].trim(); return; }
+    if((m=line.match(/^x\s*(.*)$/i))&&(m=m[1].match(range))&&(r=span(m))){ o.xr=r; return; }
+    if((m=line.match(/^y\s*(.*)$/i))&&(m=m[1].match(range))&&(r=span(m))){ o.yr=r; return; }
+    if((m=line.match(/^(?:start|initial|trajectory)\s*:\s*\(?\s*([^,]+?)\s*,\s*([^,)]+?)\s*\)?$/i))){
+      const a=_plotNum(m[1]),b=_plotNum(m[2]);
+      if(isFinite(a)&&isFinite(b)){ o.starts.push([a,b]); return; }
+      throw new Error('cannot read "'+line+'" — a start point is `start: x, y` (numbers or constants such as pi)'); }
+    if((m=line.match(/^steps\s*:\s*(\d+)$/i))){ o.steps=Math.min(5000,Math.max(10,+m[1])); return; }
+    if((m=line.match(/^dt\s*:\s*([\d.eE+\-]+)$/i))){ const v=+m[1]; if(v>0&&v<1)o.dt=v; return; }
+    if((m=line.match(/^(?:arrows|grid)\s*:\s*(\d+)$/i))){ o.arrows=Math.min(40,Math.max(6,+m[1])); return; }
+    // an equation this parser does not know is a mistake worth reporting; a
+    // `title:`-style label or a free-text note is not
+    if(/=/.test(line))throw new Error('cannot read "'+line+'" — expected `dx = …`, `dy = …`, `x = a .. b`, `y = a .. b` or `start: x, y`');
+  });
+  if(!o.fx||!o.fy)throw new Error('an ```ode block needs both `dx = …` and `dy = …`');
+  if(o.starts.length>12)o.starts=o.starts.slice(0,12);
+  return o;
+}
+function _odeSvg(spec, params){
+  const o=_odeParse(spec);
+  let cfx,cfy; try{ cfx=math.compile(o.fx); cfy=math.compile(o.fy); }catch(e){ throw new Error('cannot parse: '+e.message); }
+  const F=(x,y)=>{ const sc=Object.assign({},params||{},{x,y}); const a=cfx.evaluate(sc), b=cfy.evaluate(sc);
+    if(typeof a!=='number'||typeof b!=='number')throw new Error('dx and dy must evaluate to numbers — a symbol other than x, y or a declared param?');
+    return [a,b,0]; };
+  const [xmin,xmax]=o.xr,[ymin,ymax]=o.yr, W=640,H=360,L=48,Rr=624,T=16,Bb=326;
+  const sx=x=>L+(x-xmin)/(xmax-xmin)*(Rr-L), sy=y=>Bb-(y-ymin)/(ymax-ymin)*(Bb-T);
+  try{ F((xmin+xmax)/2,(ymin+ymax)/2); }catch(e){ throw _plotUndefinedErr(e); }
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
+  _plotTicks(xmin,xmax,8).forEach(t=>{ const X=sx(t).toFixed(1); s+=`<line x1="${X}" y1="${T}" x2="${X}" y2="${Bb}" stroke="#eef0f2"/><text x="${X}" y="${Bb+14}" text-anchor="middle" font-size="10" font-family="sans-serif" fill="#6b7280">${_plotFmt(t)}</text>`; });
+  _plotTicks(ymin,ymax,6).forEach(t=>{ const Y=sy(t); s+=`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${Rr}" y2="${Y.toFixed(1)}" stroke="#eef0f2"/><text x="${L-6}" y="${(Y+3).toFixed(1)}" text-anchor="end" font-size="10" font-family="sans-serif" fill="#6b7280">${_plotFmt(t)}</text>`; });
+  if(ymin<0&&ymax>0)s+=`<line x1="${L}" y1="${sy(0).toFixed(1)}" x2="${Rr}" y2="${sy(0).toFixed(1)}" stroke="#9ca3af" stroke-width="1.2"/>`;
+  if(xmin<0&&xmax>0)s+=`<line x1="${sx(0).toFixed(1)}" y1="${T}" x2="${sx(0).toFixed(1)}" y2="${Bb}" stroke="#9ca3af" stroke-width="1.2"/>`;
+  // direction field: one unit arrow per grid cell, oriented in SCREEN space so a
+  // non-square data window does not skew the slopes
+  const n=o.arrows, kx=(Rr-L)/(xmax-xmin), ky=(Bb-T)/(ymax-ymin), alen=Math.min((Rr-L)/n,(Bb-T)/n)*0.42;
+  let arrows='';
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    const x=xmin+(i+0.5)*(xmax-xmin)/n, y=ymin+(j+0.5)*(ymax-ymin)/n; let v; try{ v=F(x,y); }catch(e){ continue; }
+    const px=v[0]*kx, py=-v[1]*ky, mag=Math.hypot(px,py); if(!(mag>1e-12))continue;
+    const ux=px/mag, uy=py/mag, cx=sx(x), cy=sy(y), x1=cx-ux*alen/2, y1=cy-uy*alen/2, x2=cx+ux*alen/2, y2=cy+uy*alen/2;
+    arrows+=`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/><path d="M${x2.toFixed(1)} ${y2.toFixed(1)} l${(-ux*4-uy*2.5).toFixed(1)} ${(-uy*4+ux*2.5).toFixed(1)} M${x2.toFixed(1)} ${y2.toFixed(1)} l${(-ux*4+uy*2.5).toFixed(1)} ${(-uy*4-ux*2.5).toFixed(1)}"/>`;
+  }
+  s+=`<g stroke="#94a3b8" stroke-width="1" fill="none">${arrows}</g>`;
+  const colors=['#2563eb','#dc2626','#059669','#d97706','#7c3aed'];
+  const starts=o.starts.length?o.starts:[[xmin+(xmax-xmin)*0.62, ymin+(ymax-ymin)*0.62]];
+  starts.forEach((p0,k)=>{
+    [1,-1].forEach(dir=>{ let x=p0[0],y=p0[1], d='M'+sx(x).toFixed(1)+' '+sy(y).toFixed(1);
+      for(let i=0;i<o.steps;i++){ let r; try{ r=_fracRK4((a,b)=>F(a,b),x,y,0,dir*o.dt,null); }catch(e){ break; }
+        x=r[0]; y=r[1]; if(!isFinite(x)||!isFinite(y)||x<xmin||x>xmax||y<ymin||y>ymax)break;
+        d+=' L'+sx(x).toFixed(1)+' '+sy(y).toFixed(1); }
+      s+=`<path d="${d}" fill="none" stroke="${colors[k%colors.length]}" stroke-width="2"/>`; });
+    s+=`<circle cx="${sx(p0[0]).toFixed(1)}" cy="${sy(p0[1]).toFixed(1)}" r="3.5" fill="${colors[k%colors.length]}"/>`;
+  });
+  return s+'</svg>';
+}
+
+// ```scene: a small 3-D scene of primitives (three.js), orbited with the pointer:
+// drag rotates, wheel zooms, shift-drag pans. Renders on demand, not in a loop.
+function _sceneBuild(out, spec, onInteract){
+  const T=window.THREE; if(!T)throw new Error('three.js did not load');
+  const objs=Array.isArray(spec.objects)?spec.objects:[];
+  if(!objs.length)throw new Error('no "objects" — each is {"type":"box|sphere|cylinder|cone|torus|plane|…","position":[x,y,z]}');
+  if(objs.length>200)throw new Error('too many objects (max 200)');
+  const TYPES=['box','sphere','cylinder','cone','torus','plane','tetrahedron','octahedron','icosahedron','dodecahedron'];
+  const num=(v,d)=>{ const n=Number(v); return isFinite(n)?n:d; };
+  const vec=(v,d)=>Array.isArray(v)?[num(v[0],d[0]),num(v[1],d[1]),num(v[2],d[2])]:((typeof v==='number'&&isFinite(v))?[v,v,v]:d);
+  const host=document.createElement('div'); host.className='scene-host'; host.style.cssText='width:100%;height:100%;position:relative'; out.appendChild(host);
+  const w=Math.max(50,host.clientWidth||out.clientWidth||560), h=Math.max(50,host.clientHeight||out.clientHeight||380);
+  let renderer; try{ renderer=new T.WebGLRenderer({antialias:true,alpha:true}); }
+  catch(e){ throw new Error('WebGL is not available in this browser'); }
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(w,h);
+  const el=renderer.domElement;
+  // pan-y: a vertical swipe on a phone still scrolls the page past the card
+  el.style.cssText='width:100%;height:100%;display:block;cursor:grab;touch-action:pan-y;outline:none';
+  el.setAttribute('role','img'); el.setAttribute('tabindex','0');
+  el.setAttribute('aria-label','3-D scene of '+objs.length+' object'+(objs.length===1?'':'s')+' — drag or arrow keys rotate, wheel or +/- zoom, shift-drag pans, Home resets');
+  host.appendChild(el);
+  const scene=new T.Scene();
+  if(spec.background!=null){ try{ scene.background=new T.Color(String(spec.background)); }catch(e){} }
+  const hemi=new T.HemisphereLight(0xffffff,0x8899aa,0.95), dl=new T.DirectionalLight(0xffffff,0.7); dl.position.set(5,10,7); scene.add(hemi); scene.add(dl);
+  const disposables=[], palette=['#4f8fe6','#ef6b6b','#4cbf7a','#f0a530','#8b6be6','#3cbcd4'];
+  // three.js only WARNS on a colour it cannot read (and paints white); ask CSS first
+  const cssColor=s=>{ try{ return (!window.CSS||!CSS.supports)?true:CSS.supports('color',s); }catch(e){ return false; } };
+  const geo=(o,t)=>{ const sz=Array.isArray(o.size)?o.size:null;
+    switch(t){
+      case 'sphere':       return new T.SphereGeometry(num(o.radius,0.5),32,24);
+      case 'cylinder':     return new T.CylinderGeometry(num(o.radiusTop,num(o.radius,0.5)),num(o.radiusBottom,num(o.radius,0.5)),num(o.height,1),32);
+      case 'cone':         return new T.ConeGeometry(num(o.radius,0.5),num(o.height,1),32);
+      case 'torus':        return new T.TorusGeometry(num(o.radius,1),num(o.tube,0.3),16,48);
+      case 'plane':        return new T.PlaneGeometry(num(sz?sz[0]:o.width,1),num(sz?sz[1]:o.height,1));
+      case 'tetrahedron':  return new T.TetrahedronGeometry(num(o.radius,0.6));
+      case 'octahedron':   return new T.OctahedronGeometry(num(o.radius,0.6));
+      case 'icosahedron':  return new T.IcosahedronGeometry(num(o.radius,0.6));
+      case 'dodecahedron': return new T.DodecahedronGeometry(num(o.radius,0.6));
+      default:             return new T.BoxGeometry(num(sz?sz[0]:o.width,1),num(sz?sz[1]:o.height,1),num(sz?sz[2]:o.depth,1));
+    } };
+  const bbox=new T.Box3();
+  objs.forEach((o,i)=>{ if(!o||typeof o!=='object')return;
+    const type=String(o.type||'box').toLowerCase();
+    if(!TYPES.includes(type))throw new Error('unknown object type "'+type.slice(0,30)+'" — use '+TYPES.join(', '));
+    const g=geo(o,type); disposables.push(g);
+    const wanted=o.color!=null?String(o.color):null;
+    let color; try{ color=new T.Color((wanted&&cssColor(wanted))?wanted:palette[i%palette.length]); }catch(e){ color=new T.Color(palette[i%palette.length]); }
+    const op=Math.max(0.05,Math.min(1,num(o.opacity,1)));
+    const mat=new T.MeshStandardMaterial({color,roughness:0.55,metalness:0.1,transparent:op<1,opacity:op,wireframe:!!o.wireframe,side:type==='plane'?T.DoubleSide:T.FrontSide});
+    disposables.push(mat);
+    const mesh=new T.Mesh(g,mat);
+    const p=vec(o.position,[0,0,0]); mesh.position.set(p[0],p[1],p[2]);
+    if(o.rotation!=null){ const r=vec(o.rotation,[0,0,0]); mesh.rotation.set(r[0]*Math.PI/180,r[1]*Math.PI/180,r[2]*Math.PI/180); }
+    else if(type==='plane')mesh.rotation.x=-Math.PI/2;   // a plane lies flat unless rotated
+    const sc=vec(o.scale,[1,1,1]); mesh.scale.set(sc[0]||1,sc[1]||1,sc[2]||1);
+    scene.add(mesh); bbox.expandByObject(mesh);
+  });
+  if(bbox.isEmpty())bbox.set(new T.Vector3(-1,-1,-1),new T.Vector3(1,1,1));
+  const center=bbox.getCenter(new T.Vector3()), size=bbox.getSize(new T.Vector3()), radius=Math.max(size.x,size.y,size.z,0.5);
+  let grid=null;
+  const makeGrid=()=>{ if(grid){ scene.remove(grid); try{ grid.geometry.dispose(); grid.material.dispose(); }catch(e){} grid=null; }
+    if(spec.grid===false)return; const dark=_isDark(), n=Math.max(4,Math.ceil(radius*2.2));
+    // size follows the scene; the division count is capped, or a large scene asks for 10^5 lines
+    grid=new T.GridHelper(n,Math.min(40,n),dark?0x5b6470:0xb6bec9,dark?0x3a4149:0xe1e6ec); grid.position.y=bbox.min.y-0.002; scene.add(grid); };
+  if(spec.axes){ const ax=new T.AxesHelper(radius*1.2); scene.add(ax); disposables.push(ax.geometry,ax.material); }
+  const retheme=()=>{ const dark=_isDark(); hemi.intensity=dark?0.75:0.95; dl.intensity=dark?0.6:0.7; makeGrid(); };
+  retheme();
+  const camera=new T.PerspectiveCamera(45,w/h,0.01,radius*100);
+  const tgt=spec.camera&&Array.isArray(spec.camera.target)?vec(spec.camera.target,[center.x,center.y,center.z]):[center.x,center.y,center.z];
+  const target=new T.Vector3(tgt[0],tgt[1],tgt[2]), dist0=radius*2.6;
+  const sph=new T.Spherical(dist0,Math.PI/3,Math.PI/4);
+  if(spec.camera&&Array.isArray(spec.camera.position)){ const cp=vec(spec.camera.position,[dist0,dist0*0.7,dist0]); sph.setFromVector3(new T.Vector3(cp[0],cp[1],cp[2]).sub(target)); }
+  const initial={radius:sph.radius,phi:sph.phi,theta:sph.theta,target:target.clone()};
+  const place=()=>{ sph.phi=Math.max(0.05,Math.min(Math.PI-0.05,sph.phi)); sph.radius=Math.max(radius*0.3,Math.min(radius*30,sph.radius)); camera.position.setFromSpherical(sph).add(target); camera.lookAt(target); };
+  const render=()=>{ place(); renderer.render(scene,camera); };
+  const hint=document.createElement('div'); hint.className='scene-hint'; hint.textContent='drag to rotate · wheel to zoom · shift-drag to pan'; host.appendChild(hint);
+  const paused=document.createElement('div'); paused.className='scene-paused'; paused.hidden=true; paused.textContent='3-D view paused — click to redraw'; host.appendChild(paused);
+  const inst={kind:'scene',spec,renderer,scene,camera,target,sph,initial,disposables,host,render,interacted:false,
+    resize(){ const W=host.clientWidth,Hh=host.clientHeight; if(!W||!Hh)return; renderer.setSize(W,Hh); camera.aspect=W/Hh; camera.updateProjectionMatrix(); render(); },
+    reset(){ sph.radius=initial.radius; sph.phi=initial.phi; sph.theta=initial.theta; target.copy(initial.target); render(); },
+    retheme(){ retheme(); render(); },
+    // after a lost context (the browser caps live WebGL contexts) a fresh renderer is
+    // the only way back: build the card again from its spec
+    rebuild(){ inst.dispose(); out.innerHTML=''; out._richInst=_sceneBuild(out,spec,onInteract); return out._richInst; },
+    dispose(){ try{ inst._ro&&inst._ro.disconnect(); }catch(e){} clearTimeout(inst._roTimer);
+      disposables.forEach(d=>{ try{ d.dispose(); }catch(e){} }); if(grid){ try{ grid.geometry.dispose(); grid.material.dispose(); }catch(e){} }
+      try{ renderer.dispose(); }catch(e){} try{ renderer.forceContextLoss(); }catch(e){} }};
+  let drag=null;
+  const touched=()=>{ hint.hidden=true; if(!inst.interacted){ inst.interacted=true; if(onInteract)onInteract(); } };
+  el.addEventListener('pointerdown',e=>{ if(e.button!==0)return; drag={x:e.clientX,y:e.clientY,shift:e.shiftKey}; el.style.cursor='grabbing'; try{el.setPointerCapture(e.pointerId);}catch(_){} });
+  el.addEventListener('pointermove',e=>{ if(!drag)return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
+    if(drag.shift){ const k=sph.radius*0.0015, right=new T.Vector3().setFromMatrixColumn(camera.matrix,0), up=new T.Vector3().setFromMatrixColumn(camera.matrix,1);
+      target.addScaledVector(right,-dx*k).addScaledVector(up,dy*k); }
+    else { sph.theta-=dx*0.008; sph.phi-=dy*0.008; }
+    touched(); render(); });
+  const end=e=>{ if(!drag)return; drag=null; el.style.cursor='grab'; try{el.releasePointerCapture(e.pointerId);}catch(_){} };
+  el.addEventListener('pointerup',end); el.addEventListener('pointercancel',end);
+  el.addEventListener('wheel',e=>{ e.preventDefault(); sph.radius*=Math.exp(e.deltaY*0.0012); touched(); render(); },{passive:false});
+  el.addEventListener('keydown',e=>{ const k=e.key; let used=true;
+    if(k==='ArrowLeft')sph.theta+=0.15; else if(k==='ArrowRight')sph.theta-=0.15; else if(k==='ArrowUp')sph.phi-=0.15; else if(k==='ArrowDown')sph.phi+=0.15;
+    else if(k==='+'||k==='=')sph.radius*=0.85; else if(k==='-')sph.radius*=1.18;
+    else if(k==='Home'||k==='0'){ e.preventDefault(); inst.reset(); return; } else used=false;
+    if(used){ e.preventDefault(); touched(); render(); } });
+  el.addEventListener('webglcontextlost',e=>{ e.preventDefault(); paused.hidden=false; });
+  el.addEventListener('webglcontextrestored',()=>{ paused.hidden=true; render(); });
+  paused.addEventListener('click',()=>{ try{ inst.rebuild(); }catch(e){ toast('3D Scene: '+((e&&e.message)||e),'error'); } });
+  // the canvas is a fixed raster: follow the card's width (a sidebar toggle, a window
+  // resize) instead of letting CSS stretch it
+  if(window.ResizeObserver){ inst._ro=new ResizeObserver(()=>{ clearTimeout(inst._roTimer); inst._roTimer=setTimeout(()=>{ const W=host.clientWidth; if(W&&Math.abs(W-renderer.getSize(new T.Vector2()).x)>1)inst.resize(); },120); }); inst._ro.observe(host); }
+  render();
+  return inst;
+}
+
 const RICH_LANES={
   mermaid:{
     label:'⬗ Diagram',
@@ -8475,34 +8916,7 @@ const RICH_LANES={
         spec.data=[{type:'surface',x:xs,y:ys,z,colorscale:spec.colorscale||'Blues',showscale:false}];
       }
       if(!Array.isArray(spec.data)||!spec.data.length)throw new Error('no "data" traces (or "zfunction") to plot');
-      // Plotty renders a small HTML subset in titles/annotations/hovertext, including
-      // <a href>. Strip tags from model-supplied strings so a chart title cannot
-      // become a clickable link to an attacker-chosen site.
-      const _strip=v=>typeof v==='string'?v.replace(/<[^>]*>/g,''):
-        (Array.isArray(v)?v.map(_strip):(v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,_strip(x)])):v));
-      spec.layout=_strip(spec.layout||{});
-      // Plotly 3.x dropped the string form of every `title` — a bare string is
-      // ignored and the placeholder ("Click to enter … title") is shown instead,
-      // silently. The base instruction documents the string form, and so does most
-      // Plotly material on the web, so accept both and normalise to {text:…} at
-      // every place Plotly takes a title: the plot, the cartesian axes, the 3-D
-      // scene axes, the legend, the shared coloraxis colorbar, and each trace's own
-      // colorbar (direct for surface/heatmap, or via marker/line for scatter). _strip
-      // has already run over layout, so wrapping a layout title is a no-op there;
-      // trace titles below have not been stripped, so _titleFix strips them too.
-      const _titleFix=o=>{ if(o&&typeof o.title==='string') o.title={text:_strip(o.title)}; };
-      _titleFix(spec.layout);
-      for(const ax of ['xaxis','yaxis','zaxis']) _titleFix(spec.layout[ax]);
-      if(spec.layout.scene) for(const ax of ['xaxis','yaxis','zaxis']) _titleFix(spec.layout.scene[ax]);
-      _titleFix(spec.layout.legend);
-      if(spec.layout.coloraxis) _titleFix(spec.layout.coloraxis.colorbar);
-      spec.data=spec.data.map(t=>t&&typeof t==='object'
-        ? {...t, ...(t.text!==undefined?{text:_strip(t.text)}:{}), ...(t.name!==undefined?{name:_strip(t.name)}:{}),
-           ...(t.hovertext!==undefined?{hovertext:_strip(t.hovertext)}:{})} : t);
-      spec.data.forEach(t=>{ if(!t||typeof t!=='object')return;
-        _titleFix(t.colorbar);
-        if(t.marker) _titleFix(t.marker.colorbar);
-        if(t.line)   _titleFix(t.line.colorbar); });
+      _plotlyClean(spec);   // strip HTML from every model string, normalise title forms
       const host=document.createElement('div'); host.style.width='100%'; host.style.height='100%';
       out.appendChild(host);
       await Plotly.newPlot(host, spec.data, {autosize:true,margin:{l:0,r:0,t:40,b:0},...(spec.layout||{})},
@@ -8868,6 +9282,111 @@ const RICH_LANES={
       // unreliable in some embedded webviews here, so defer with a timer.
       setTimeout(()=>{try{viewer.resize();viewer.render();}catch(e){}},0);
     }},
+
+  // ── Data & science lanes ─────────────────────────────────────────────────
+  plotly:{
+    label:'📈 Plotly', fixed:'380px',
+    load:()=>_loadScript(CDN+'plotly.js/3.1.1/plotly.min.js'),
+    async draw(out,src){
+      let spec; try{ spec=JSON.parse(src); }catch(e){ throw new Error('invalid JSON — '+e.message); }
+      if(Array.isArray(spec))spec={data:spec};
+      if(!spec||!Array.isArray(spec.data)||!spec.data.length)throw new Error('no "data" traces to plot');
+      if(spec.data.length>30)throw new Error('too many traces (max 30)');
+      _plotlyClean(spec);
+      const host=document.createElement('div'); host.style.width='100%'; host.style.height='100%'; out.appendChild(host);
+      await Plotly.newPlot(host, spec.data, {autosize:true,margin:{l:48,r:16,t:40,b:40},...(spec.layout||{})},{displayModeBar:false,responsive:true});
+      out._richInst={kind:'plotly',obj:host};
+    }},
+  ode:{
+    label:'🌀 Phase portrait',
+    load:()=>Promise.resolve(),   // math.js is already on the page
+    async draw(out,src){
+      if(!window.math)throw new Error('math.js did not load');
+      // A re-render (Apply/Reset) rebuilds the card; the slider strip is a sibling of
+      // `out`, so drop the old one — and its queued redraw — before adding a new one.
+      out.parentElement?.querySelectorAll('.plot-params').forEach(e=>{ clearTimeout(e._ppTimer); e.remove(); });
+      const params=_parsePlotParams(src);
+      out.innerHTML=_odeSvg(src, params.values);
+      out._richInst={kind:'ode'};
+      if(params.list.length)_attachPlotParams(out.parentElement||out,out,src,params,(s,v)=>_odeSvg(s,v));
+    }},
+  scene:{
+    label:'🧱 3D Scene', fixed:'380px',
+    load:()=>_loadScript(CDN+'three.js/r128/three.min.js'),
+    async draw(out,src){
+      let spec; try{ spec=JSON.parse(src); }catch(e){ throw new Error('invalid JSON — '+e.message); }
+      if(Array.isArray(spec))spec={objects:spec};
+      if(!spec||typeof spec!=='object')throw new Error('a scene is a JSON object with "objects"');
+      const card=out.closest?.('.rich-wrap');
+      out._richInst=_sceneBuild(out,spec,()=>{ const b=card?.querySelector('[data-act="scene-reset"]'); if(b)b.style.display=''; });
+    }},
+  sequence:{
+    label:'🧬 Sequence',
+    load:()=>Promise.resolve(),
+    async draw(out,src,uid){
+      // A model that means a mermaid *sequence diagram* may well pick this fence
+      // name: hand that body to the mermaid lane instead of colouring it as residues.
+      if(/^\s*sequenceDiagram\b/.test(src)){ const mm=_lane('mermaid'); await mm.load(); return mm.draw(out,src,uid); }
+      const recs=_seqParse(src);
+      if(!recs.length)throw new Error('no sequence found — FASTA records (>name, then residues) or one bare sequence');
+      if(recs.length>40)throw new Error('too many sequences (max 40)');
+      out.innerHTML=_seqSvg(recs); out._richInst={kind:'sequence'};
+    }},
+  phylo:{
+    label:'🌿 Phylogeny',
+    load:()=>Promise.resolve(),
+    async draw(out,src){
+      const root=_newickParse(src.split(/\n/).map(s=>s.trim()).filter(Boolean).join(''));
+      out.innerHTML=_phyloSvg(root); out._richInst={kind:'phylo'};
+    }},
+  reaction:{
+    label:'⚗️ Reaction',   // no fixed height: a scheme wraps onto a second row in a narrow card
+    load:()=>_loadScript('https://cdn.jsdelivr.net/npm/smiles-drawer@2.4.1/dist/smiles-drawer.min.js'),
+    async draw(out,src,uid){
+      const rx=src.split(/\n/).map(s=>s.trim()).filter(Boolean)[0]||'';
+      const parts=rx.split('>');
+      if(parts.length<2||parts.length>3)throw new Error('reaction SMILES is reactants>>products (or reactants>agents>products)');
+      const [reac,agents,prod]=parts.length===3?parts:[parts[0],'',parts[1]];
+      const split=s=>s.split('.').map(x=>x.trim()).filter(Boolean), R=split(reac),P=split(prod),A=split(agents);
+      if(!R.length||!P.length)throw new Error('a reaction needs at least one reactant and one product');
+      if(R.length+P.length>12)throw new Error('too many species (max 12)');
+      const n=R.length+P.length, theme=_isDark()?'dark':'light';
+      // Structures are sized from the card: two species get large boxes, twelve get
+      // small ones that wrap — and a maximized card redraws them larger.
+      const paint=()=>{ out.innerHTML=''; let k=0; const pending=[];
+        const row=document.createElement('div'); row.className='rxn-row'; out.appendChild(row);
+        const avail=out.clientWidth||560;
+        const sz=Math.max(120,Math.min(240,Math.floor((avail-90-(n-1)*30)/n)));
+        // As in ```molecule: draw()'s 4th parameter is `infoOnly`, not an error callback,
+        // and parse errors are swallowed — failure is "nothing drawn". Every species is
+        // drawn in one pass and checked ONCE, not with a 600 ms wait per structure.
+        const mol=smi=>{ const box=document.createElement('div'); box.className='rxn-mol'; box.style.width=box.style.height=sz+'px';
+          const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.id=`rxn-${uid}-${k++}`;
+          svg.setAttribute('width',String(sz)); svg.setAttribute('height',String(sz)); box.appendChild(svg); row.appendChild(box);
+          try{ new SmiDrawer({width:sz,height:sz},{}).draw(smi,'#'+svg.id,theme); }catch(e){ throw new Error('could not parse SMILES: '+smi.slice(0,40)); }
+          pending.push({svg,smi}); };
+        const sign=t=>{ const d=document.createElement('div'); d.className='rxn-sign'; d.textContent=t; row.appendChild(d); };
+        for(let i=0;i<R.length;i++){ if(i)sign('+'); mol(R[i]); }
+        const arrow=document.createElement('div'); arrow.className='rxn-arrow';
+        const ag=document.createElement('span'); ag.className='rxn-agents'; ag.textContent=A.join(', ');
+        const al=document.createElement('span'); al.className='rxn-arrowline'; al.textContent='⟶';
+        arrow.appendChild(ag); arrow.appendChild(al); row.appendChild(arrow);
+        for(let i=0;i<P.length;i++){ if(i)sign('+'); mol(P[i]); }
+        return pending; };
+      const pending=paint();
+      await new Promise(res=>setTimeout(res,600+50*n));
+      const bad=pending.find(q=>!q.svg.childElementCount); if(bad)throw new Error('could not parse SMILES: '+bad.smi.slice(0,40));
+      out._richInst={kind:'reaction', redraw:()=>{ try{ paint(); }catch(e){} }};
+    }},
+  circuit:{
+    label:'⚡ Circuit',
+    load:()=>Promise.resolve(),
+    async draw(out,src){
+      let spec; try{ spec=JSON.parse(src); }catch(e){ throw new Error('invalid JSON — '+e.message); }
+      if(Array.isArray(spec))spec={components:spec};
+      out.innerHTML=_circuitSvg(spec||{}); out._richInst={kind:'circuit'};
+    }},
+
 };
 
 // Render every not-yet-drawn rich card inside `el`. Async + per-lane lazy load;
@@ -8913,7 +9432,10 @@ function destroyRichBlocks(root){
     try{
       if(inst.kind==='chart')inst.obj.destroy();
       else if(inst.kind==='map')inst.obj.remove();
-      else if(inst.kind==='plot3d'&&window.Plotly)Plotly.purge(inst.obj);
+      else if((inst.kind==='plot3d'||inst.kind==='plotly')&&window.Plotly)Plotly.purge(inst.obj);
+      // three.js: release geometries/materials and the WebGL context — a page can
+      // hold only a handful of contexts, and each re-render would otherwise leak one.
+      else if(inst.kind==='scene'&&inst.dispose)inst.dispose();
       else if(inst.kind==='geometry'&&window.JXG)JXG.JSXGraph.freeBoard(inst.obj);
       // 3Dmol has no explicit dispose/destroy call — clear() drops the scene's
       // objects; the WebGL context itself is released when the canvas node is GC'd.
@@ -9108,12 +9630,14 @@ let _rrMathFinalize=true;
           // haven't added) and the plain-DOM compute lanes (table/diff/etc, calc,
           // solve, stats, truth, regex) — not meaningfully an "image" without adding
           // a DOM-to-canvas dependency just for this.
-          const svgPngLanes=new Set(['mermaid','dot','geometry','molecule']);
+          const svgPngLanes=new Set(['mermaid','dot','geometry','molecule','ode','sequence','phylo','circuit']);
           const pngBtn = laneKey==='geometry' ? `<button class="svg-act-btn" data-act="geo-interact" title="Toggle interactive mode — show the construction's control points and drag them">✋ Interact</button><button class="svg-act-btn" data-act="rich-png">⬇ PNG</button>`
                        : svgPngLanes.has(laneKey) ? `<button class="svg-act-btn" data-act="rich-png">⬇ PNG</button>`
                        : laneKey==='chart' ? `<button class="svg-act-btn" data-act="chart-data">▦ Data</button><button class="svg-act-btn" data-act="chart-reset" style="display:none">⟲ Reset zoom</button><button class="svg-act-btn" data-act="chart-png">⬇ PNG</button>`
                        : laneKey==='fractal' ? `<button class="svg-act-btn" data-act="fractal-reset" style="display:none">⟲ Reset zoom</button><button class="svg-act-btn" data-act="fractal-png">⬇ PNG</button>`
                        : laneKey==='plot3d' ? `<button class="svg-act-btn" data-act="plot3d-png">⬇ PNG</button>`
+                       : laneKey==='plotly' ? `<button class="svg-act-btn" data-act="plot3d-png">⬇ PNG</button>`
+                       : laneKey==='scene' ? `<button class="svg-act-btn" data-act="scene-reset" style="display:none">⟲ Reset view</button><button class="svg-act-btn" data-act="scene-png">⬇ PNG</button>`
                        : laneKey==='molecule3d' ? `<button class="svg-act-btn" data-act="molecule3d-png">⬇ PNG</button>`
                        : '';
           return `<div class="rich-wrap" data-kind="${laneKey}">
@@ -9182,7 +9706,7 @@ function _rerenderRichCard(wrap){
   // A fresh render starts at the spec's own view (fractal zoom, chart zoom) —
   // a "Reset zoom" left over from the PREVIOUS instance would be a harmless but
   // confusing no-op click on the new one, so it goes back to hidden here too.
-  wrap.querySelector('[data-act="fractal-reset"],[data-act="chart-reset"]')
+  wrap.querySelector('[data-act="fractal-reset"],[data-act="chart-reset"],[data-act="scene-reset"]')
     ?.setAttribute('style','display:none');
   renderRichBlocks(wrap);                            // this card only — never its siblings
   return true;
@@ -9437,11 +9961,17 @@ document.addEventListener('click',function(e){
     }
   }else if(act==='plot3d-png'){
     const wrap=btn.closest('.rich-wrap'); const inst=wrap?.querySelector('.rich-output')?._richInst;
-    if(inst?.kind==='plot3d'&&window.Plotly){
+    if((inst?.kind==='plot3d'||inst?.kind==='plotly')&&window.Plotly){
       Plotly.toImage(inst.obj,{format:'png',width:900,height:700}).then(url=>{
-        const a=document.createElement('a'); a.href=url; a.download=`plot3d_${Date.now()}.png`; a.click(); toast('PNG downloaded','success');
+        const a=document.createElement('a'); a.href=url; a.download=`${inst.kind}_${Date.now()}.png`; a.click(); toast('PNG downloaded','success');
       }).catch(()=>toast('PNG export failed','error'));
     }
+  }else if(act==='scene-png'){
+    const inst=btn.closest('.rich-wrap')?.querySelector('.rich-output')?._richInst;
+    if(inst?.kind==='scene'){ inst.render(); const a=document.createElement('a'); a.href=inst.renderer.domElement.toDataURL('image/png'); a.download=`scene_${Date.now()}.png`; a.click(); toast('PNG downloaded','success'); }
+  }else if(act==='scene-reset'){
+    const inst=btn.closest('.rich-wrap')?.querySelector('.rich-output')?._richInst;
+    if(inst?.kind==='scene'&&inst.reset){ inst.reset(); btn.style.display='none'; inst.interacted=false; }
   }else if(act==='molecule3d-png'){
     const wrap=btn.closest('.rich-wrap'); const inst=wrap?.querySelector('.rich-output')?._richInst;
     if(inst?.kind==='molecule3d'){
@@ -9536,7 +10066,7 @@ function _lbKeyClose(e){if(e.key==='Escape')closeLightbox();}
 // as a CSS transform on the SVG — no library, and closeMaximize's cssText
 // restore wipes it on exit. Only the static-SVG lanes get it: chart/plot3d/map
 // have their own native zoom, and a live geometry board has draggable points.
-const _PZ_KINDS=new Set(['mermaid','dot','gantt','timeline','svg']);
+const _PZ_KINDS=new Set(['mermaid','dot','gantt','timeline','svg','sequence','phylo','circuit']);
 function _pzEnable(container,outEl){
   const svg=outEl.querySelector('svg');
   if(!svg)return;
@@ -9605,7 +10135,9 @@ function _vizResize(outEl){
   try{
     if(inst.kind==='chart')inst.obj.resize();
     else if(inst.kind==='map')inst.obj.invalidateSize();
-    else if(inst.kind==='plot3d'&&window.Plotly)Plotly.Plots.resize(inst.obj);
+    else if((inst.kind==='plot3d'||inst.kind==='plotly')&&window.Plotly)Plotly.Plots.resize(inst.obj);
+    else if(inst.kind==='scene'&&inst.resize)inst.resize();
+    else if(inst.kind==='reaction'&&inst.redraw)inst.redraw();   // structures are sized from the card width
     else if(inst.kind==='geometry'&&inst.obj.resizeContainer){
       const host=inst.obj.containerObj;
       if(host)inst.obj.resizeContainer(host.clientWidth,host.clientHeight,true);
@@ -9868,7 +10400,8 @@ function _parsePlotParams(spec){
   return {list,values};
 }
 
-function _attachPlotParams(wrap,out,spec,params){
+function _attachPlotParams(wrap,out,spec,params,render){
+  render=render||_buildFunctionPlot;   // ```ode passes its own; ```plot uses the default
   const bar=document.createElement('div'); bar.className='plot-params';
   let raf=0;
   params.list.forEach(p=>{
@@ -9886,7 +10419,7 @@ function _attachPlotParams(wrap,out,spec,params){
       // which would leave the slider updating its label but never the curve.
       if(raf)return;
       raf=setTimeout(()=>{ raf=0; bar._ppTimer=0;
-        try{ out.innerHTML=_buildFunctionPlot(spec, params.values); }catch(e){}
+        try{ out.innerHTML=render(spec, params.values); }catch(e){}
       },16);
       bar._ppTimer=raf;   // so an Apply can cancel a redraw of THIS spec (see _rerenderCard)
     };
@@ -9913,49 +10446,87 @@ function _plotDefLabel(m){ return m[1]+(m[2]?'('+m[2].slice(1,-1).trim()+')':'(x
 
 function _plotDefsHtml(spec){
   const colors=['#2563eb','#dc2626','#059669','#d97706','#7c3aed'];
-  const fns=[];
-  String(spec).split(/\n+/).forEach(line=>{
-    line=line.trim();
-    if(!line||line[0]==='#'||/^param\s*:/i.test(line))return;
-    // Domain line — same detection as _buildFunctionPlot, so the two never disagree:
-    // "x = a .. b", "x from a to b", "domain: a..b", or a bare "a..b" that parses to
-    // a valid ascending numeric range. Skip it — it is not a function.
-    const dm=line.match(/^(?:x\s*=|x\s+(?:from|in)|domain)\s*:?\s*\[?\s*(.+?)\s*(?:\.\.|\bto\b|,|;)\s*(.+?)\s*\]?$/i)
-          || line.match(/^\s*(-?[\w.+\-*/^()\s]+?)\s*\.\.\s*(-?[\w.+\-*/^()\s]+?)\s*$/);
-    if(dm){ const a=_plotNum(dm[1]),b=_plotNum(dm[2]); if(isFinite(a)&&isFinite(b)&&b>a) return; }
+  const fns=[], extras=[]; let px=null, py=null, polar=null;
+  const lines=String(spec).split(/\n+/).map(l=>l.trim()).filter(l=>l&&l[0]!=='#'&&!/^param\s*:/i.test(l));
+  const isRange=r=>{ const m=String(r).match(/^\s*\[?\s*(-?[\w.+\-*/^()\s]+?)\s*(?:\.\.|\bto\b|,|;)\s*(-?[\w.+\-*/^()\s]+?)\s*\]?\s*$/); if(!m)return false; const a=_plotNum(m[1]),b=_plotNum(m[2]); return isFinite(a)&&isFinite(b)&&a!==b; };
+  // A parametric block: the x(t) line turns the y line into y(t).
+  const parametric=lines.some(l=>{ const m=l.match(/^x\s*=\s*(.+)$/i); return m&&!isRange(m[1]); });
+  lines.forEach(line=>{
+    let m;
+    // window / range lines are not functions
+    if((m=line.match(/^(?:x\s*=|x\s+(?:from|in)|domain|y\s*(?:=|from|in)|t\s*(?:=|from|in)|theta\s*(?:=|from|in)|θ\s*(?:=|from|in))\s*:?(.*)$/i))&&isRange(m[1]))return;
+    if(/^\s*-?[\w.+\-*/^()\s]+?\s*\.\.\s*-?[\w.+\-*/^()\s]+?\s*$/.test(line)&&isRange(line))return;
+    if((m=line.match(/^(?:field|vector\s*field|vectors)\s*:\s*(.+)$/i))){ const pr=_plotPair(m[1]); extras.push({name:'field', expr:pr?'('+pr[0]+', '+pr[1]+')':m[1].trim(), color:'#64748b'}); return; }
+    if((m=line.match(/^contour\s*:\s*(.+)$/i))){ extras.push({name:'contour', expr:m[1].trim(), color:'hsl(220 80% 58%)'}); return; }
+    if((m=line.match(/^implicit\s*:\s*(.+)$/i))){ extras.push({name:'implicit', expr:m[1].trim(), color:'#dc2626'}); return; }
+    if((m=line.match(/^r\s*=\s*(.+)$/i))&&/\btheta\b|θ/i.test(m[1])){ polar=m[1].trim(); return; }
+    if(parametric&&(m=line.match(/^x\s*=\s*(.+)$/i))){ px=m[1].trim(); return; }
+    if(parametric&&py==null&&(m=line.match(/^y\s*=\s*(.+)$/i))){ py=m[1].trim(); return; }
     const fm=line.match(_PLOT_DEF);
     if(fm)fns.push({name:_plotDefLabel(fm), expr:fm[3].trim()});
     else fns.push({name:'y', expr:line});
   });
-  if(!fns.length)return '';
-  const rows=fns.map((f,i)=>`<span class="plot-def" style="color:${colors[i%colors.length]}"><b>${_plotEsc(f.name)}</b> = ${_plotEsc(f.expr)}</span>`).join('');
-  return `<div class="plot-defs-block"><span class="plot-defs-cap">${fns.length>1?'Functions':'Function'}</span>${rows}</div>`;
+  // Rows carry the colour the renderer actually uses: series and curves by index in
+  // draw order (plain functions, then the parametric pair, then the polar curve);
+  // a field, level set or implicit curve its fixed stroke.
+  const rows=fns.map((f,i)=>({...f, sep:'=', color:colors[i%colors.length]}));
+  if(px&&py)rows.push({name:'(x(t), y(t))', expr:'('+px+', '+py+')', sep:'=', color:colors[rows.length%colors.length]});
+  else if(px)rows.push({name:'x(t)', expr:px, sep:'=', color:colors[rows.length%colors.length]});
+  if(polar)rows.push({name:'r(θ)', expr:polar, sep:'=', color:colors[rows.length%colors.length]});
+  extras.forEach(e=>rows.push({...e, sep:':'}));
+  if(!rows.length)return '';
+  const html=rows.map(f=>`<span class="plot-def" style="color:${f.color}"><b>${_plotEsc(f.name)}</b> ${f.sep} ${_plotEsc(f.expr)}</span>`).join('');
+  return `<div class="plot-defs-block"><span class="plot-defs-cap">${rows.length>1?'Functions':'Function'}</span>${html}</div>`;
 }
 
 function _buildFunctionPlot(spec, params){
   const W=640,H=360,L=52,Rr=624,T=22,Bb=316;
   const colors=['#2563eb','#dc2626','#059669','#d97706','#7c3aed'];
-  let xmin=NaN,xmax=NaN; const fns=[];
+  let xmin=NaN,xmax=NaN, ymin0=NaN,ymax0=NaN, px=null,polar=null, tr=[0,2*Math.PI], thr=[0,2*Math.PI];
+  const fns=[], fields=[], contours=[];
+  const rangeOf=str=>{ const m=String(str).match(/^\s*\[?\s*(-?[\w.+\-*/^()\s]+?)\s*(?:\.\.|\bto\b)\s*(-?[\w.+\-*/^()\s]+?)\s*\]?\s*$/);
+    if(!m)return null; const a=_plotNum(m[1]),b=_plotNum(m[2]); return (isFinite(a)&&isFinite(b)&&a!==b)?[Math.min(a,b),Math.max(a,b)]:null; };
   spec.split(/\n+/).forEach(line=>{
     line=line.trim(); if(!line||line[0]==='#'||/^param\s*:/i.test(line)) return;
+    let m;
     // domain: "x = a..b", "x from a to b", "domain: a..b", or a bare "a..b"
-    let m=line.match(/^(?:x\s*=|x\s+(?:from|in)|domain)\s*:?\s*\[?\s*(.+?)\s*(?:\.\.|\bto\b|,|;)\s*(.+?)\s*\]?$/i)
-        || line.match(/^\s*(-?[\w.+\-*/^()\s]+?)\s*\.\.\s*(-?[\w.+\-*/^()\s]+?)\s*$/);
-    if(m){ const a=_plotNum(m[1]),b=_plotNum(m[2]); if(isFinite(a)&&isFinite(b)&&b>a){ xmin=a; xmax=b; return; } }
+    m=line.match(/^(?:x\s*=|x\s+(?:from|in)|domain)\s*:?\s*\[?\s*(.+?)\s*(?:\.\.|\bto\b|,|;)\s*(.+?)\s*\]?$/i)
+      || line.match(/^\s*(-?[\w.+\-*/^()\s]+?)\s*\.\.\s*(-?[\w.+\-*/^()\s]+?)\s*$/);
+    if(m){ const a=_plotNum(m[1]),b=_plotNum(m[2]); if(isFinite(a)&&isFinite(b)&&a!==b){ xmin=Math.min(a,b); xmax=Math.max(a,b); return; } }
+    // y-window for fields / level sets: "y = a .. b"
+    if((m=line.match(/^y\s*(?:=|from|in)\s*:?(.*)$/i))&&(m=rangeOf(m[1]))){ ymin0=m[0]; ymax0=m[1]; return; }
+    // parameter ranges: "t = a .. b" (parametric), "theta = a .. b" (polar)
+    if((m=line.match(/^(t|theta|θ)\s*(?:=|from|in)\s*:?(.*)$/i))){ const r=rangeOf(m[2]); if(r){ if(m[1].toLowerCase()==='t')tr=r; else thr=r; return; } }
+    // vector field: "field: fx, fy"
+    if((m=line.match(/^(?:field|vector\s*field|vectors)\s*:\s*(.+)$/i))){ const pr=_plotPair(m[1]); if(!pr)throw new Error('a field line is `field: fx, fy`'); fields.push({fx:pr[0],fy:pr[1]}); return; }
+    // level sets: "contour: f(x,y)" draws several levels; "implicit: f = g" draws f-g=0
+    if((m=line.match(/^contour\s*:\s*(.+)$/i))){ contours.push({expr:m[1].trim(),levels:null,implicit:false}); return; }
+    if((m=line.match(/^implicit\s*:\s*(.+?)\s*=\s*(.+)$/i))){ contours.push({expr:'('+m[1].trim()+')-('+m[2].trim()+')',levels:[0],implicit:true}); return; }
+    // polar: "r = f(theta)"
+    if((m=line.match(/^r\s*=\s*(.+)$/i))&&/\btheta\b|θ/i.test(m[1])){ polar=m[1].trim(); return; }   // `r = 0.05` is a plain function named r
+    // parametric x: "x = f(t)" (a numeric range was caught by the domain rule above)
+    if((m=line.match(/^x\s*=\s*(.+)$/i))){ px=m[1].trim(); return; }
     // function: strip an optional "y =", "f(x) =", "g(x) =" prefix
     let label=null, expr=line;
     const fm=line.match(_PLOT_DEF);
     if(fm){ label=_plotDefLabel(fm); expr=fm[3]; }
-    fns.push({label, expr:expr.trim()});
+    fns.push({label, expr:expr.trim(), isY:/^y\s*=/i.test(line)});
   });
-  if(!fns.length) throw new Error('no function to plot');
-  if(!(isFinite(xmin)&&isFinite(xmax)&&xmax>xmin)){ xmin=-10; xmax=10; }
+  // A parametric curve pairs the x(t) line with the y line.
+  let py=null;
+  if(px){ const i=fns.findIndex(f=>f.isY); if(i<0)throw new Error('a parametric curve needs both `x = …` and `y = …` in t'); py=fns.splice(i,1)[0].expr; }
+  const hasOverlay=fields.length>0||contours.length>0;
+  if(!fns.length&&!px&&!polar&&!hasOverlay) throw new Error('no function to plot');
+  const explicitX=isFinite(xmin)&&isFinite(xmax)&&xmax>xmin;
+  if(!explicitX){ xmin=-10; xmax=10; }
+  const scope=o=>Object.assign({},params||{},o);
+  const compile=ex=>{ try{ return math.compile(ex); }catch(err){ throw new Error('cannot parse "'+ex+'"'); } };
   const N=300;
   const series=fns.map((f,i)=>{
-    let code; try{ code=math.compile(f.expr); }catch(e){ throw new Error('cannot parse "'+f.expr+'"'); }
+    const code=compile(f.expr);
     const pts=[]; let firstErr=null, nonNumeric=null;
     for(let k=0;k<=N;k++){ const x=xmin+(xmax-xmin)*k/N; let y;
-      try{ y=code.evaluate(Object.assign({},params||{},{x})); }
+      try{ y=code.evaluate(scope({x})); }
       catch(e){ y=NaN; if(firstErr==null)firstErr=e; }
       // An expression can compile and evaluate without throwing yet hand back something
       // that is not a number — mathjs returns a function for "name(arg) = …". Remember
@@ -9975,14 +10546,37 @@ function _buildFunctionPlot(spec, params){
       throw new Error(`"${f.expr}" evaluates to a ${nonNumeric}, not a number — put the value to plot on the right of the "=".`);
     return {label:f.label||('f'+(i+1)), color:colors[i%colors.length], pts};
   });
-  let ys=[]; series.forEach(s=>s.pts.forEach(p=>{ if(isFinite(p.y)) ys.push(p.y); }));
-  if(!ys.length) throw new Error('no finite values on ['+_plotFmt(xmin)+', '+_plotFmt(xmax)+']');
-  ys.sort((a,b)=>a-b);
-  let ymin=ys[0], ymax=ys[ys.length-1];
-  const p2=ys[Math.floor(ys.length*0.02)], p98=ys[Math.min(ys.length-1,Math.ceil(ys.length*0.98))];
-  if((ymax-ymin) > 15*Math.max(1e-9,(p98-p2))){ ymin=p2; ymax=p98; }   // tame asymptotic blow-ups
-  if(ymax-ymin<1e-9){ ymin-=1; ymax+=1; }
-  const padY=(ymax-ymin)*0.08; ymin-=padY; ymax+=padY;
+  // Parametric and polar curves are sampled over their own parameter, not x.
+  const curves=[];
+  const sample=(fx,fy,r,label)=>{ const pts=[]; for(let k=0;k<=400;k++){ const u=r[0]+(r[1]-r[0])*k/400; const [x,y]=[fx(u),fy(u)];
+      pts.push({x:(typeof x==='number'&&isFinite(x))?x:NaN, y:(typeof y==='number'&&isFinite(y))?y:NaN}); }
+    if(!pts.some(p=>isFinite(p.x)&&isFinite(p.y)))throw new Error(label+' has no finite points on its range');
+    curves.push({label, color:colors[(series.length+curves.length)%colors.length], pts}); };
+  if(px&&py){ const cx=compile(px), cy=compile(py);
+    sample(u=>{ try{ return cx.evaluate(scope({t:u})); }catch(e){ return NaN; } }, u=>{ try{ return cy.evaluate(scope({t:u})); }catch(e){ return NaN; } }, tr, '(x(t), y(t))'); }
+  if(polar){ const cr=compile(polar); const rAt=u=>{ try{ const v=cr.evaluate(scope({theta:u,'θ':u,t:u})); return (typeof v==='number')?v:NaN; }catch(e){ return NaN; } };
+    sample(u=>rAt(u)*Math.cos(u), u=>rAt(u)*Math.sin(u), thr, 'r(θ)'); }
+  // With only a curve and no domain given, frame the curve rather than the default window.
+  if(!explicitX&&curves.length&&!series.length&&!hasOverlay){
+    const xs=[]; curves.forEach(c=>c.pts.forEach(p=>{ if(isFinite(p.x)&&isFinite(p.y))xs.push(p.x); }));
+    xs.sort((a,b)=>a-b); const a=xs[0], b=xs[xs.length-1], pad=Math.max(1e-6,(b-a)*0.08); xmin=a-pad; xmax=b+pad;
+  }
+  // y-range: a stated window (or, for a field/level set with none, a window mirroring x);
+  // otherwise from the values, taming asymptotic blow-ups.
+  let ymin,ymax;
+  const winY=(isFinite(ymin0)&&isFinite(ymax0)&&ymax0>ymin0)?[ymin0,ymax0]:(hasOverlay?[xmin,xmax]:null);
+  if(winY){ [ymin,ymax]=winY; }
+  else{
+    let ys=[]; series.forEach(s=>s.pts.forEach(p=>{ if(isFinite(p.y)) ys.push(p.y); }));
+    curves.forEach(c=>c.pts.forEach(p=>{ if(isFinite(p.x)&&isFinite(p.y)) ys.push(p.y); }));
+    if(!ys.length) throw new Error('no finite values on ['+_plotFmt(xmin)+', '+_plotFmt(xmax)+']');
+    ys.sort((a,b)=>a-b);
+    ymin=ys[0]; ymax=ys[ys.length-1];
+    const p2=ys[Math.floor(ys.length*0.02)], p98=ys[Math.min(ys.length-1,Math.ceil(ys.length*0.98))];
+    if((ymax-ymin) > 15*Math.max(1e-9,(p98-p2))){ ymin=p2; ymax=p98; }   // tame asymptotic blow-ups
+    if(ymax-ymin<1e-9){ ymin-=1; ymax+=1; }
+    const padY=(ymax-ymin)*0.08; ymin-=padY; ymax+=padY;
+  }
   const sx=x=>L+(x-xmin)/(xmax-xmin)*(Rr-L);
   const sy=y=>Bb-(y-ymin)/(ymax-ymin)*(Bb-T);
   let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#ffffff"/>`;
@@ -9990,11 +10584,43 @@ function _buildFunctionPlot(spec, params){
   _plotTicks(ymin,ymax,6).forEach(t=>{ const Y=sy(t); s+=`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${Rr}" y2="${Y.toFixed(1)}" stroke="#eef0f2" stroke-width="1"/><text x="${L-6}" y="${(Y+3).toFixed(1)}" text-anchor="end" font-size="10" font-family="sans-serif" fill="#6b7280">${_plotFmt(t)}</text>`; });
   if(ymin<0&&ymax>0){ const Y=sy(0).toFixed(1); s+=`<line x1="${L}" y1="${Y}" x2="${Rr}" y2="${Y}" stroke="#9ca3af" stroke-width="1.2"/>`; }
   if(xmin<0&&xmax>0){ const X=sx(0).toFixed(1); s+=`<line x1="${X}" y1="${T}" x2="${X}" y2="${Bb}" stroke="#9ca3af" stroke-width="1.2"/>`; }
-  series.forEach(se=>{ let d='',pen=false; se.pts.forEach(p=>{ const on=isFinite(p.y)&&p.y>=ymin&&p.y<=ymax;
+  // Level sets via marching squares over the window.
+  if(contours.length){
+    const G=64, xs=[],ys=[]; for(let i=0;i<=G;i++){ xs.push(xmin+(xmax-xmin)*i/G); ys.push(ymin+(ymax-ymin)*i/G); }
+    contours.forEach(c=>{ const code=compile(c.expr); const g=[]; const vals=[];
+      try{ code.evaluate(scope({x:xs[0],y:ys[0]})); }catch(e){ throw _plotUndefinedErr(e); }
+      for(let j=0;j<=G;j++){ const row=[]; for(let i=0;i<=G;i++){ let v; try{ v=code.evaluate(scope({x:xs[i],y:ys[j]})); }catch(e){ v=NaN; }
+        v=(typeof v==='number'&&isFinite(v))?v:NaN; row.push(v); if(isFinite(v))vals.push(v); } g.push(row); }
+      if(!vals.length)throw new Error('"'+c.expr+'" has no finite values on the window');
+      let levels=c.levels;
+      if(!levels){ vals.sort((a,b)=>a-b); const lo=vals[Math.floor(vals.length*0.05)], hi=vals[Math.floor(vals.length*0.95)];
+        levels=[]; if(hi>lo)for(let k=1;k<=8;k++)levels.push(lo+(hi-lo)*k/9); }
+      levels.forEach((lv,k)=>{ const segs=_marchingSquares(g,xs,ys,lv); if(!segs.length)return;
+        const col=c.implicit?'#dc2626':`hsl(${220-k*10} 80% ${58-k*4}%)`; let d='';
+        segs.forEach(sg=>{ d+=`M${sx(sg[0]).toFixed(1)} ${sy(sg[1]).toFixed(1)} L${sx(sg[2]).toFixed(1)} ${sy(sg[3]).toFixed(1)}`; });
+        s+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${c.implicit?2:1.4}" stroke-linecap="round"/>`; }); });
+  }
+  // Vector field: unit arrows on a grid, oriented in screen space.
+  if(fields.length){
+    const n=16, kx=(Rr-L)/(xmax-xmin), ky=(Bb-T)/(ymax-ymin), alen=Math.min((Rr-L)/n,(Bb-T)/n)*0.45;
+    fields.forEach(f=>{ const cfx=compile(f.fx), cfy=compile(f.fy); let a='';
+      try{ cfx.evaluate(scope({x:xmin,y:ymin})); cfy.evaluate(scope({x:xmin,y:ymin})); }catch(e){ throw _plotUndefinedErr(e); }
+      for(let i=0;i<n;i++)for(let j=0;j<n;j++){ const x=xmin+(i+0.5)*(xmax-xmin)/n, y=ymin+(j+0.5)*(ymax-ymin)/n; let vx,vy;
+        try{ vx=cfx.evaluate(scope({x,y})); vy=cfy.evaluate(scope({x,y})); }catch(e){ continue; }
+        if(typeof vx!=='number'||typeof vy!=='number')continue;
+        const pxv=vx*kx, pyv=-vy*ky, mag=Math.hypot(pxv,pyv); if(!(mag>1e-12))continue;
+        const ux=pxv/mag, uy=pyv/mag, cx=sx(x), cy=sy(y), x1=cx-ux*alen/2, y1=cy-uy*alen/2, x2=cx+ux*alen/2, y2=cy+uy*alen/2;
+        a+=`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/><path d="M${x2.toFixed(1)} ${y2.toFixed(1)} l${(-ux*4-uy*2.5).toFixed(1)} ${(-uy*4+ux*2.5).toFixed(1)} M${x2.toFixed(1)} ${y2.toFixed(1)} l${(-ux*4+uy*2.5).toFixed(1)} ${(-uy*4-ux*2.5).toFixed(1)}"/>`; }
+      s+=`<g stroke="#64748b" stroke-width="1.1" fill="none">${a}</g>`; });
+  }
+  const strokePts=(pts,color)=>{ let d='',pen=false; pts.forEach(p=>{ const on=isFinite(p.x)&&isFinite(p.y)&&p.y>=ymin&&p.y<=ymax&&p.x>=xmin&&p.x<=xmax;
     if(on){ d+=(pen?' L':' M')+sx(p.x).toFixed(1)+' '+sy(p.y).toFixed(1); pen=true; } else pen=false; });
-    if(d) s+=`<path d="${d.trim()}" fill="none" stroke="${se.color}" stroke-width="2"/>`; });
-  const showLegend = series.length>1 || (series[0].label && series[0].label!=='f1');
-  if(showLegend) series.forEach((se,i)=>{ const ly=T+8+i*15; s+=`<line x1="${Rr-116}" y1="${ly}" x2="${Rr-98}" y2="${ly}" stroke="${se.color}" stroke-width="2.5"/><text x="${Rr-94}" y="${ly+4}" font-size="11" font-family="sans-serif" fill="${se.color}">${_plotEsc(se.label)}</text>`; });
+    if(d) s+=`<path d="${d.trim()}" fill="none" stroke="${color}" stroke-width="2"/>`; };
+  series.forEach(se=>strokePts(se.pts,se.color));
+  curves.forEach(c=>strokePts(c.pts,c.color));
+  const legend=[...series,...curves];
+  const showLegend = legend.length>1 || (legend.length===1 && legend[0].label && legend[0].label!=='f1');
+  if(showLegend) legend.forEach((se,i)=>{ const ly=T+8+i*15; s+=`<line x1="${Rr-116}" y1="${ly}" x2="${Rr-98}" y2="${ly}" stroke="${se.color}" stroke-width="2.5"/><text x="${Rr-94}" y="${ly+4}" font-size="11" font-family="sans-serif" fill="${se.color}">${_plotEsc(se.label)}</text>`; });
   return s+'</svg>';
 }
 // ── Tables: sort / filter / export ──────────────────────────────────────────

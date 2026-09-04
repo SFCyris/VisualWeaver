@@ -5,6 +5,8 @@ Split out mechanically for maintainability; cross-module references are
 module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
+import os
+import threading
 from typing import Any, Optional
 import numpy as np
 try:
@@ -141,6 +143,44 @@ def vector_field_for(repo: str | None = None) -> str:
     return f"embedding_{dims}" if dims else "embedding"
 
 
+# One lock for both model loads: a request thread that needs the model while the
+# startup warmup is still loading it WAITS for that load instead of starting a
+# second one (the log showed "Loading embedding model" twice after a restart).
+_load_lock = threading.Lock()
+
+
+def _local_snapshot(repo: str) -> "str | None":
+    """The fully cached snapshot directory of a Hub repo, or None when it is not on
+    disk. A local directory is returned as is. Never touches the network."""
+    if os.path.isdir(repo):
+        return repo
+    try:
+        from huggingface_hub import snapshot_download  # noqa: PLC0415
+        return snapshot_download(repo, local_files_only=True)
+    except Exception:
+        return None
+
+
+def _load_model(cls: Any, name: str, what: str) -> Any:
+    """Construct ``cls`` for a Hub repo, from the local cache FIRST.
+
+    Loading by repo name asks the Hub whether every file is current even when all
+    of them are already on disk. With DNS down that is five retries with backoff
+    PER FILE — after a restart the page sat blank for over a minute while its
+    requests waited on the model. A cached snapshot directory loads with no
+    network at all; the download path is kept for a model not cached yet.
+    """
+    path = _local_snapshot(name)
+    if path:
+        try:
+            return cls(path)
+        except Exception as e:      # a partial cache: fall through to the download
+            log.warning(f"{what} {name}: cached copy failed to load ({e}); fetching from the Hub")
+    else:
+        log.info(f"{what} {name}: not in the local cache — fetching from the Hub")
+    return cls(name)
+
+
 def get_embed_model(name: str | None = None) -> Any:
     """
     Lazy-load the SentenceTransformer model.
@@ -150,11 +190,14 @@ def get_embed_model(name: str | None = None) -> Any:
     """
     name = name or state._config.get("embedding", {}).get("model", "all-MiniLM-L6-v2")
     if state._embed_model is None or state._embed_model_name != name:
-        log.info(f"Loading embedding model: {name}")
-        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
-        state._embed_model = SentenceTransformer(name)
-        state._embed_model_name = name
-        _warn_if_chunk_size_exceeds_model(state._embed_model, name)
+        with _load_lock:   # single flight
+            if state._embed_model is None or state._embed_model_name != name:
+                log.info(f"Loading embedding model: {name}")
+                from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+                model = _load_model(SentenceTransformer, name, "embedding model")
+                state._embed_model_name = name
+                state._embed_model = model
+                _warn_if_chunk_size_exceeds_model(model, name)
     return state._embed_model
 
 
@@ -284,13 +327,15 @@ def get_reranker() -> "CrossEncoder | None":
         return None
     model = state._config.get("reranker", {}).get("model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
     if state._reranker is None or state._reranker_model_name != model:
-        log.info(f"Loading cross-encoder reranker: {model}")
-        try:
-            state._reranker = CrossEncoder(model)
-            state._reranker_model_name = model
-        except Exception as e:
-            log.warning(f"Cross-encoder load failed: {e}")
-            return None
+        with _load_lock:   # single flight, as for the embedding model
+            if state._reranker is None or state._reranker_model_name != model:
+                log.info(f"Loading cross-encoder reranker: {model}")
+                try:
+                    state._reranker = _load_model(CrossEncoder, model, "reranker")
+                    state._reranker_model_name = model
+                except Exception as e:
+                    log.warning(f"Cross-encoder load failed: {e}")
+                    return None
     return state._reranker
 
 

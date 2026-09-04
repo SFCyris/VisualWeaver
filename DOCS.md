@@ -189,9 +189,9 @@ Answers are rendered inline: the model writes a short, declarative block and the
 | *(none)* | Markdown | Full GFM: headings, bold, tables, blockquotes, lists | marked |
 | ` ```<language> ` | Code | Ordinary code | highlight.js |
 | ` ```latex ` / ` ```math ` / `$…$` | Math formula | LaTeX | KaTeX |
-| ` ```plot ` | **Function graph** (exact); optional live parameter sliders | `y = a*sin(b*x)`, `x = -5 .. 5`, `param: a = 0.5 .. 3 (1)` | math.js |
+| ` ```plot ` | **Function graph** (exact) — also parametric, polar, vector-field, contour and implicit forms; optional live parameter sliders | `y = a*sin(b*x)`, `x = -5 .. 5`, `param: a = 0.5 .. 3 (1)`; `x = cos(t)` + `y = sin(2*t)`; `r = 1 + cos(theta)`; `field: -y, x`; `contour: x^2 - y^2`; `implicit: x^2 + y^2 = 4` | math.js |
 | ` ```chart ` | **Data chart** — bar, line, pie, doughnut, scatter, radar | Chart.js JSON | Chart.js |
-| ` ```mermaid ` | **Diagram** — flowchart, sequence, class, state, ER, Gantt | mermaid syntax | Mermaid |
+| ` ```mermaid ` | **Diagram** — flowchart, sequence, class, state, ER, Gantt, mindmap, quadrant chart, XY chart, sankey, block, kanban | mermaid syntax | Mermaid |
 | ` ```dot ` | **Auto-laid-out graph** — dependency/call graphs | Graphviz DOT | Viz.js |
 | ` ```geometry ` | **Geometric construction** | JSON: `boundingbox` + `elements` | JSXGraph |
 | ` ```fractal ` | **Fractal** — Mandelbrot/Julia (drag a box or click to zoom), IFS chaos game, L-system curves, strange attractors; 21 presets ([full list](#fractals-and-attractors)) | JSON: `type` + parameters | plain canvas (no library) |
@@ -199,6 +199,13 @@ Answers are rendered inline: the model writes a short, declarative block and the
 | ` ```plot3d ` | **3-D surface / scatter** | Plotly JSON | Plotly |
 | ` ```molecule ` | **Chemical structure** | a SMILES string | SmilesDrawer |
 | ` ```molecule3d ` | **3D structure**, rotatable/zoomable | XYZ format: atom count, comment line, then `Element x y z` per atom | 3Dmol.js |
+| ` ```plotly ` | **Statistical chart** — histogram, box, violin, heatmap, contour, sankey, treemap, sunburst, candlestick, waterfall, funnel | Plotly figure JSON (`data` + `layout`) | Plotly |
+| ` ```ode ` | **Phase portrait** — direction field and trajectories of a 2-D system; optional live parameter sliders | `dx = y`, `dy = -sin(x)`, `start: 1, 0`, `param: …` as in `plot` | math.js |
+| ` ```scene ` | **3-D scene** of primitives — drag to rotate, wheel to zoom, shift-drag to pan | JSON `objects` (box, sphere, cylinder, cone, torus, plane, polyhedra) with `position`, `rotation`, `color` | three.js |
+| ` ```sequence ` | **DNA / RNA / protein sequence**, or an alignment with the differing columns marked | FASTA (`>name` + residues) or a bare sequence | plain SVG (no library) |
+| ` ```phylo ` | **Phylogenetic tree** — a phylogram with a scale bar, or a cladogram | Newick | plain SVG (no library) |
+| ` ```reaction ` | **Reaction scheme** drawn from structures | reaction SMILES `reactants>agents>products` | SmilesDrawer |
+| ` ```circuit ` | **Electrical schematic** on a grid | JSON `components` (`type`, `from`, `to`, `label`); y grows upward | plain SVG (no library) |
 | ` ```gantt ` | **Project schedule** — dates, durations, dependencies | mermaid gantt syntax (no leading `gantt` line) | mermaid |
 | ` ```timeline ` | **Dated event sequence** | mermaid timeline syntax (no leading `timeline` line). Times of day are written as normal — `2024-01-01 00:00 : Sunrise` — in periods, section labels and accessibility lines alike | mermaid |
 | ` ```network ` | **Force-directed graph**, draggable nodes | JSON `{"nodes":[…],"edges":[{"from":…,"to":…}]}` | vis-network |
@@ -223,8 +230,10 @@ Notes:
 - A raw `<svg>…</svg>` with no code fence is detected and rendered too.
 - **Computed, not asserted:** `calc`, `solve`, `stats`, `truth`, `table`, `diff` and `regex` are evaluated in your browser, not produced by the model. The model states *what* to compute (an expression, a data list, two texts); the browser returns the exact result — so unit conversions, column totals, derivatives and truth tables don't inherit the model's arithmetic mistakes. `calc`/`solve`/`stats`/`truth` use math.js (already loaded); `table`/`diff`/`regex` use no library at all.
 - **Interactive `plot`:** declare a parameter with `param: a = <lo> .. <hi> (<init>)` and the block renders a slider; dragging it re-evaluates the formula and redraws instantly, with no round trip to the model.
-- **Lazy loading:** the heavier renderers — Chart.js, Mermaid, Viz.js, JSXGraph, Leaflet, Plotly, SmilesDrawer, 3Dmol.js and highlight.js — are fetched only the first time a block of that type appears, so they cost nothing at page load. Markdown, sanitising, math and music (marked, DOMPurify, KaTeX, math.js, abcjs) load with the page because they are needed for ordinary answers.
-- **Maximize and save as image:** every visual card (chart, diagram, plot, map, geometry, molecule, 3D molecule) has an ⛶ **Maximize** button that opens it full-viewport, and most also have a ⬇ **PNG** button. Not offered on `map` (no rasteriser wired up) or the plain-data lanes (`table`, `diff`, `regex`, `calc`, `solve`, `stats`, `truth`) — those aren't rasterised images.
+- **Interactive `ode`:** the same `param:` sliders re-integrate a phase portrait as you drag.
+- **`scene` navigation:** drag to rotate, wheel to zoom, shift-drag to pan; **⟲ Reset view** returns to the starting camera and **⬇ PNG** saves the current view.
+- **Lazy loading:** the heavier renderers — Chart.js, Mermaid, Viz.js, JSXGraph, Leaflet, Plotly, SmilesDrawer, 3Dmol.js, three.js and highlight.js — are fetched only the first time a block of that type appears, so they cost nothing at page load. Markdown, sanitising, math and music (marked, DOMPurify, KaTeX, math.js, abcjs) load with the page because they are needed for ordinary answers.
+- **Maximize and save as image:** every visual card (chart, diagram, plot, map, geometry, molecule, 3D molecule, 3-D scene) has an ⛶ **Maximize** button that opens it full-viewport, and most also have a ⬇ **PNG** button. Not offered on `map` (no rasteriser wired up) or the plain-data lanes (`table`, `diff`, `regex`, `calc`, `solve`, `stats`, `truth`) — those aren't rasterised images.
 - **Third-party requests:** all renderer libraries are served from a public CDN (cdnjs, plus jsDelivr for SmilesDrawer), so rendering is not fully offline. In addition, ` ```map ` fetches map tiles from `tile.openstreetmap.org` at view time — the only lane that sends *content-derived* data (the requested coordinates) to a third party. For an air-gapped deployment, vendor the libraries and serve them locally.
 - **Safety:** SVG and diagram output is sanitised (DOMPurify) before insertion, and ` ```geometry ` accepts data only — never function or code strings.
 
@@ -243,6 +252,8 @@ Notes:
 | ![Network](screenshots/rendering/network.png) | ![GeoJSON](screenshots/rendering/geojson.png) |
 | ![Lorenz attractor](screenshots/rendering/fractal.png) | ![Hilbert curve](screenshots/rendering/fractal-curve.png) |
 | ![Box-zoom on a Mandelbrot set](screenshots/rendering/fractal-zoom.png) | ![Sierpinski triangle as nested outlines](screenshots/rendering/fractal-sierpinski.png) |
+| ![3-D scene](screenshots/rendering/scene.png) | ![Phase portrait](screenshots/rendering/ode.png) |
+| ![Circuit schematic](screenshots/rendering/circuit.png) | ![Sequence alignment](screenshots/rendering/sequence.png) |
 
 ### Fractals and attractors
 

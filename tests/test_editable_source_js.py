@@ -178,7 +178,7 @@ def test_plot_rerender_drops_the_old_sliders_and_definitions_block():
 
 def test_slider_bar_stashes_its_redraw_timer_where_the_rerender_can_cancel_it():
     html = _html()
-    ap = _block(html, "function _attachPlotParams(wrap,out,spec,params){", "\n}\n")
+    ap = _block(html, "function _attachPlotParams(wrap,out,spec,params,render){", "\n}\n")
     assert "bar._ppTimer=raf;" in ap
     assert ap.index("},16);") < ap.index("bar._ppTimer=raf;")
 
@@ -292,5 +292,5 @@ def test_geometry_interact_goes_through_the_same_gate():
 
 
 def test_slider_timer_stash_is_cleared_when_the_timer_fires():
-    ap = _block(_html(), "function _attachPlotParams(wrap,out,spec,params){", "\n}\n")
+    ap = _block(_html(), "function _attachPlotParams(wrap,out,spec,params,render){", "\n}\n")
     assert "raf=setTimeout(()=>{ raf=0; bar._ppTimer=0;" in ap

@@ -51,6 +51,15 @@ def test_point_single_nested_pair_is_unwrapped():
     assert _val("_geoArgs('point',[[3,2]],{})") == [3, 2]
 
 
+def test_text_nested_position_is_flattened():
+    """Models position a text the way they position a point, as [[x,y], content],
+    but JSXGraph's text wants [x, y, content] and rejects the nested form with
+    a parent-type error, which skipped the label."""
+    assert _val("_geoArgs('text',[[0.5,0.2],'φ ≈ 1.618'],{})") == [0.5, 0.2, "φ ≈ 1.618"]
+    assert _val("_geoArgs('text',[[0.5,0.2]],{text:'hi'})") == [0.5, 0.2, "hi"]
+    assert _val("_geoArgs('text',[1.5,-1.5,'a²=9'],{})") == [1.5, -1.5, "a²=9"]   # the flat form is untouched
+
+
 def test_circle_flat_centre_radius_becomes_point_number():
     assert _val("_geoArgs('circle',[0,0,2],{})") == [[0, 0], 2]
 

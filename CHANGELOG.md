@@ -5,6 +5,53 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-09-03
+
+### Added
+- **`scene` — 3-D scenes.** A new fence draws a small scene of primitives (box,
+  sphere, cylinder, cone, torus, plane and the regular polyhedra): drag to rotate,
+  wheel to zoom, shift-drag to pan, **⟲ Reset view** to return to the starting
+  camera and **⬇ PNG** to save the current view.
+- **`plotly` — statistical charts.** Histograms, box and violin plots, heatmaps,
+  contours, sankey, treemap, sunburst, candlestick, waterfall and funnel charts
+  from Plotly figure JSON.
+- **`ode` — phase portraits.** A 2-D system (`dx = …`, `dy = …`) is drawn as its
+  direction field with trajectories integrated forward and backward from each
+  `start:` point; `param:` sliders re-integrate the portrait as you drag, as in
+  `plot`.
+- **`sequence` and `phylo`.** FASTA sequences — nucleotide or protein, coloured
+  and numbered; several records are shown as an alignment with the differing
+  columns marked — and Newick phylogenetic trees, drawn as a phylogram with a
+  scale bar when branch lengths are given and as a cladogram otherwise.
+- **`reaction` — reaction schemes.** Reaction SMILES (`reactants>agents>products`)
+  drawn as structures with plus signs and a labelled arrow.
+- **`circuit` — electrical schematics.** A JSON netlist on a grid (resistor,
+  capacitor, inductor, battery, AC and DC sources, diode, LED, switch, lamp, fuse,
+  meters, ground and wires) drawn as a schematic with junction dots and labels.
+- **`plot` — more curve forms.** Parametric curves (`x = f(t)`, `y = g(t)`,
+  `t = a .. b`), polar curves (`r = f(theta)`), vector fields (`field: fx, fy`),
+  contour plots (`contour: f(x, y)`) and implicit curves
+  (`implicit: f(x, y) = g(x, y)`), with an optional `y = a .. b` window; a curve
+  with no domain is framed to fit, and a formula that uses an undeclared symbol
+  says which one.
+- **`mermaid` — more diagram types.** Mindmaps, quadrant charts, XY charts,
+  sankey, block and kanban diagrams.
+- **A saved base instruction that predates new visual blocks still gets them.**
+  A base instruction saved before a block existed no longer hides it: the missing
+  blocks' instructions are added to each turn automatically, so the model draws a
+  circuit as a `circuit`, a scene as a `scene`, and so on, even when the saved copy
+  never mentioned them. Settings → Templates notes this and offers **↺ Reset to
+  shipped default** to fold them in permanently.
+
+### Fixed
+- A `geometry` text element positioned as a nested pair, `[[x, y], "…"]`, is
+  drawn instead of being skipped with a JSXGraph parent-type error.
+- The embedding model and the reranker load from the local model cache without
+  contacting Hugging Face when they are already on disk, and a request that
+  needs the model while it is still loading waits for that load instead of
+  starting a second one. After a restart with no route to huggingface.co, the
+  first page load no longer waits minutes for the Hub's retries.
+
 ## [1.12.0] — 2026-09-02
 
 ### Added

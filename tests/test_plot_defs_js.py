@@ -53,6 +53,7 @@ def _defs(spec: str) -> str:
         + _fn(html, "function _plotDefLabel(") + "\n"
         + _fn(html, "function _plotEsc(") + "\n"
         + _fn(html, "function _plotNum(") + "\n"
+        + _fn(html, "function _plotPair(") + "\n"
         + _fn(html, "function _plotDefsHtml(") + "\n"
         + "process.stdout.write(_plotDefsHtml(" + _json(spec) + "));\n"
     )
@@ -138,3 +139,28 @@ def test_a_bare_name_still_gains_the_x_argument():
     """`y = sin(x)` has always been labelled y(x); the broader match must not change it."""
     html = _defs("y = sin(x)\nx = 0 .. 1")
     assert "y(x)" in html, html
+
+
+def test_defs_rows_carry_the_colour_the_renderer_uses():
+    """A field is drawn slate, an implicit curve red, a contour in a blue ramp,
+    and a parametric pair is ONE curve — the block must not advertise the
+    per-index series colours for things drawn in other colours."""
+    out = _defs("field: -y, x\nx = -2 .. 2")
+    assert "color:#64748b" in out and "color:#2563eb" not in out
+    out = _defs("implicit: x^2 + y^2 = 4")
+    assert "color:#dc2626" in out
+    out = _defs("contour: x*y")
+    assert "color:hsl(220 80% 58%)" in out
+    out = _defs("x = cos(t)\ny = sin(2*t)")
+    assert out.count('class="plot-def"') == 1 and "(x(t), y(t))" in out and "(cos(t), sin(2*t))" in out
+    out = _defs("y = sin(x)\nr = 1 + cos(theta)")
+    assert "color:#2563eb\"><b>y(x)</b>" in out and "color:#dc2626\"><b>r(θ)</b>" in out   # the polar curve is the SECOND stroke
+
+
+def test_defs_list_a_field_whose_component_ends_in_a_call():
+    """`field: 1, cos(x)` — the closing paren belongs to cos, not to an optional
+    wrapper around the pair."""
+    out = _defs("field: 1, cos(x)\nx = -6 .. 6")
+    assert "(1, cos(x))" in out, out
+    out = _defs("field: (max(x, y), 1)")
+    assert "(max(x, y), 1)" in out, out
