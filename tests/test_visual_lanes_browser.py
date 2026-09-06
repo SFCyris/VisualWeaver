@@ -159,6 +159,35 @@ def test_geometry_bad_element_is_skipped_and_footnoted(probe):
     assert g["noteH"] > 0, f"the footnote has no rendered height: {g}"
 
 
+def test_geometry_draws_bezier_and_spline_curves(probe):
+    """A cubic Bezier and a Catmull-Rom spline are not JSXGraph element types; the
+    lane builds them as curves. All render, and nothing lands in the skip note."""
+    g = probe.get("geometry_bezier")
+    if not g:
+        pytest.skip("no geometry_bezier case in this probe build")
+    assert g["built"] and not g.get("error"), g
+    assert not g["note"], f"a curve was skipped: {g['note']!r}"
+    assert g["nCurves"] >= 3, f"the two beziers + spline did not draw (paths={g['nCurves']}): {g}"
+
+
+def test_geometry_dash_array_makes_a_dashed_stroke(probe):
+    g = probe.get("geometry_bezier")
+    if not g:
+        pytest.skip("no geometry_bezier case in this probe build")
+    assert g["nDashed"] >= 1, f"dashArray did not produce a dashed stroke: {g}"
+
+
+def test_geometry_text_renders_underscores_verbatim_not_as_sub_markup(probe):
+    """JSXGraph turns "R_s" into the literal string "R<sub>s</sub>" in SVG text.
+    The label must read exactly what the model wrote."""
+    g = probe.get("geometry_bezier")
+    if not g:
+        pytest.skip("no geometry_bezier case in this probe build")
+    label = next((l["text"] for l in g["labels"] if "R_s" in l["text"] or "sub" in l["text"]), None)
+    assert label == "Event Horizon (R_s), x^2", f"label mangled: {label!r}"
+    assert "<sub>" not in label and "<sup>" not in label
+
+
 def test_geometry_quoted_boundingbox_does_not_blank_the_figure(probe):
     """A model quoting the boundingbox numbers (["-4","4",...]) used to throw out of
     draw() — outside the per-element guard — and blank the whole card even though every

@@ -128,10 +128,11 @@ ODE = "async () => {" + _BUILD + r"""
 
 SCENE = "async () => {" + _BUILD + r"""
   const r={};
-  const {host,wrap,out,err}=await build('scene', JSON.stringify({objects:[
+  const specStr=JSON.stringify({objects:[
       {type:'box',size:[2,0.2,1],color:'#4f8fe6'},
       {type:'sphere',radius:0.5,position:[0,0.8,0],color:'tomato'},
-      {type:'cylinder',radius:0.3,height:1,position:[1.2,0.5,0]}],axes:true}));
+      {type:'cylinder',radius:0.3,height:1,position:[1.2,0.5,0]}],axes:true});
+  const {host,wrap,out,err}=await build('scene', specStr);
   if(err){ host.remove(); return {error:err}; }
   const inst=out._richInst, canvas=out.querySelector('canvas');
   if(!inst||!canvas){ host.remove(); return {error:'no scene instance / canvas'}; }
@@ -140,6 +141,16 @@ SCENE = "async () => {" + _BUILD + r"""
   const ink0=canvasInk(canvas,inst); r.ink=ink0.n;
   r.touchAction=getComputedStyle(canvas).touchAction; r.role=canvas.getAttribute('role'); r.tabIndex=canvas.tabIndex; r.aria=canvas.getAttribute('aria-label')||'';
   const hintEl=inst.host.querySelector('.scene-hint'); r.hint0=!!hintEl&&!hintEl.hidden&&getComputedStyle(hintEl).display!=='none';
+  // the "paused" overlay must not be PAINTED over a live scene (its hidden attribute
+  // alone proved nothing: a display:flex rule beat it), and the canvas must be what
+  // the pointer actually lands on
+  canvas.scrollIntoView({block:'center'}); await wait(80);
+  r.pausedDisplay0=getComputedStyle(inst.host.querySelector('.scene-paused')).display;
+  { const cr=canvas.getBoundingClientRect(); const hit=document.elementFromPoint(cr.left+cr.width/2,cr.top+cr.height/2); r.hitIsCanvas=hit===canvas; }
+  const ctl=wrap.querySelector('.scene-ctl'), sliders=ctl?[...ctl.querySelectorAll('input[type=range]')]:[], spinBtn=ctl&&ctl.querySelector('.scene-ctl-spin');
+  r.strips=wrap.querySelectorAll('.scene-ctl').length; r.sliderLabels=sliders.map(i=>i.getAttribute('aria-label')); r.spinBtn=!!spinBtn;
+  r.rotSlider0=sliders[0]?Number(sliders[0].value):null;
+  const wrapDeg=d=>((d+180)%360+360)%360-180;
   const rect=canvas.getBoundingClientRect();
   const fire=(type,x,y,extra={})=>canvas.dispatchEvent(new PointerEvent(type,{clientX:rect.left+x,clientY:rect.top+y,button:0,bubbles:true,pointerId:1,...extra}));
   const p0=inst.camera.position.clone(), t0=inst.target.clone();
@@ -151,6 +162,8 @@ SCENE = "async () => {" + _BUILD + r"""
   r.resetShown=getComputedStyle(resetBtn).display!=='none'; r.cursorAfter=canvas.style.cursor;
   r.pixelsChanged=canvasInk(canvas,inst).h!==ink0.h;
   r.hintHidden=hintEl.hidden;
+  r.rotSliderMoved=Number(sliders[0].value)!==r.rotSlider0;
+  r.sliderFollowsOrbit=Number(sliders[0].value)===wrapDeg(Math.round(inst.sph.theta*180/Math.PI));
   const rad0=inst.sph.radius;
   canvas.dispatchEvent(new WheelEvent('wheel',{deltaY:300,bubbles:true,cancelable:true}));
   r.zoomedOut=inst.sph.radius>rad0;
@@ -159,6 +172,13 @@ SCENE = "async () => {" + _BUILD + r"""
   resetBtn.click(); await wait(80);
   r.resetCamera=inst.camera.position.distanceTo(p0)<1e-6; r.resetTarget=inst.target.distanceTo(t0)<1e-9;
   r.resetHiddenAgain=getComputedStyle(resetBtn).display==='none'; r.interactedAfterReset=inst.interacted;
+  { sliders[0].value=90; sliders[0].dispatchEvent(new Event('input',{bubbles:true})); r.sliderSetsTheta=Math.abs(inst.sph.theta-Math.PI/2)<1e-6;
+    const z0=inst.sph.radius; sliders[2].value=Math.min(100,Number(sliders[2].value)+30); sliders[2].dispatchEvent(new Event('input',{bubbles:true})); r.zoomSliderZoomsIn=inst.sph.radius<z0;
+    r.sliderInkChanged=canvasInk(canvas,inst).h!==ink0.h;
+    spinBtn.click(); const ts=inst.sph.theta; await wait(300); r.spun=inst.sph.theta!==ts; r.spinPressed=spinBtn.getAttribute('aria-pressed');
+    fire('pointerdown',50,50); fire('pointerup',50,50); r.spinStoppedOnPointer=spinBtn.getAttribute('aria-pressed')==='false'&&!inst._spinRaf;
+    spinBtn.click(); await wait(120); r.spinAgain=!!inst._spinRaf; spinBtn.click(); r.spinToggledOff=!inst._spinRaf;
+    inst.reset(); resetBtn.style.display='none'; inst.interacted=false; }
   r.pngBtn=!!wrap.querySelector('[data-act="scene-png"]');
   inst.render(); r.png=canvas.toDataURL('image/png').length>2000;
   // keyboard orbit
@@ -172,14 +192,18 @@ SCENE = "async () => {" + _BUILD + r"""
   host.style.width='700px'; await wait(450); r.regrownCw=canvas.width;
   // a lost WebGL context pauses the view and a restore repaints it
   const pausedEl=inst.host.querySelector('.scene-paused'); const ext=inst.renderer.getContext().getExtension('WEBGL_lose_context');
-  if(ext){ ext.loseContext(); await wait(150); r.pausedShown=!pausedEl.hidden; ext.restoreContext(); await wait(500); r.pausedHidden=pausedEl.hidden; r.inkAfterRestore=canvasInk(canvas,inst).n; }
+  if(ext){ ext.loseContext(); await wait(150); r.pausedShown=!pausedEl.hidden; r.pausedDisplayLost=getComputedStyle(pausedEl).display;
+    ext.restoreContext(); await wait(500); r.pausedHidden=pausedEl.hidden; r.pausedDisplayRestored=getComputedStyle(pausedEl).display; r.inkAfterRestore=canvasInk(canvas,inst).n; }
   wrap.querySelector('[data-act="viz-max"]').click(); await wait(600);
   r.maxCw=canvas.width; r.maxInk=canvasInk(canvas,inst).n;
   closeMaximize(); await wait(400);
   r.restoredCw=canvas.width;
-  const gl=inst.renderer.getContext();
+  r.applied=await applySrc(wrap, specStr, ()=>out.querySelector('canvas'));
+  r.stripsAfterApply=wrap.querySelectorAll('.scene-ctl').length;
+  const inst2=out._richInst; inst2._ctl.querySelector('.scene-ctl-spin').click(); await wait(60); r.spinBeforeTeardown=!!inst2._spinRaf;
+  const gl=inst2.renderer.getContext();
   destroyRichBlocks(host); await wait(80);
-  r.contextLost=gl.isContextLost();
+  r.contextLost=gl.isContextLost(); r.stripAfterTeardown=wrap.querySelectorAll('.scene-ctl').length; r.spinAfterTeardown=!!inst2._spinRaf;
   host.remove(); return r;
 }
 """
@@ -198,6 +222,25 @@ SCENE_EDGE = "async () => {" + _BUILD + r"""
   destroyRichBlocks(c.host); c.host.remove();
   const d=await build('scene', JSON.stringify({objects:[{type:'sphere',radius:1e7}]})); r.hugeErr=d.err; r.hugeDrawn=!!d.out.querySelector('canvas'); if(!d.err)destroyRichBlocks(d.host); d.host.remove();
   return r;
+}
+"""
+
+SCENE_MOUSE_BUILD = "async () => {" + _BUILD + r"""
+  const {host,wrap,out,err}=await build('scene', JSON.stringify({objects:[{type:'box',size:[2,0.2,1]},{type:'sphere',radius:0.5,position:[0,0.8,0],color:'tomato'}]}));
+  if(err){ host.remove(); return {error:err}; }
+  const inst=out._richInst, canvas=out.querySelector('canvas');
+  canvas.scrollIntoView({block:'center'}); await wait(100);
+  const cr=canvas.getBoundingClientRect();
+  window.__sm={host,inst,canvas};
+  return {x:cr.left+cr.width/2, y:cr.top+cr.height/2, theta0:inst.sph.theta};
+}
+"""
+
+SCENE_MOUSE_READ = "() => {" + r"""
+  const {host,inst}=window.__sm; const sl=[...inst._ctl.querySelectorAll('input[type=range]')];
+  const wrapDeg=d=>((d+180)%360+360)%360-180;
+  const r={theta1:inst.sph.theta, rotSlider:Number(sl[0].value), sliderMatches:Number(sl[0].value)===wrapDeg(Math.round(inst.sph.theta*180/Math.PI)), interacted:inst.interacted};
+  destroyRichBlocks(host); host.remove(); return r;
 }
 """
 
@@ -372,6 +415,19 @@ def main(index: pathlib.Path) -> None:
                 OUT[key] = pg.evaluate(js)
             except Exception as exc:                  # noqa: BLE001 — reported per case
                 OUT[key] = {"error": f"{type(exc).__name__}: {exc}"}
+        # A REAL mouse drag through hit-testing — element.dispatchEvent on the canvas
+        # bypassed the overlay that was painted over every live scene in 1.13.0.
+        try:
+            m0 = pg.evaluate(SCENE_MOUSE_BUILD)
+            if "error" in m0:
+                OUT["scene_mouse"] = m0
+            else:
+                x, y = m0["x"], m0["y"]
+                pg.mouse.move(x, y); pg.mouse.down(); pg.mouse.move(x + 80, y + 20, steps=6); pg.mouse.up()
+                pg.wait_for_timeout(150)
+                OUT["scene_mouse"] = {**m0, **pg.evaluate(SCENE_MOUSE_READ)}
+        except Exception as exc:                  # noqa: BLE001
+            OUT["scene_mouse"] = {"error": f"{type(exc).__name__}: {exc}"}
         OUT["errors"] = errors[:5]
         OUT["ok"] = True
         b.close()

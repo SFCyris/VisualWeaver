@@ -824,6 +824,15 @@ table.data-table tr:last-child td{border-bottom:none}
 .rxn-arrowline{font-size:28px;line-height:1;color:var(--text1)}
 .scene-hint{position:absolute;left:8px;bottom:6px;font-size:11px;color:var(--text2);background:rgba(127,127,127,.18);padding:2px 7px;border-radius:6px;pointer-events:none}
 .scene-paused{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text1);background:rgba(127,127,127,.25);cursor:pointer}
+/* display:flex above beats the [hidden] attribute at equal specificity, so the overlay
+   was ALWAYS painted — over a live scene — and swallowed every drag and wheel. */
+.scene-paused[hidden]{display:none}
+.scene-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:7px 12px;border-top:1px solid var(--border);background:rgba(124,111,247,.05);font-size:12px}
+.scene-ctl-grp{display:flex;align-items:center;gap:6px;flex:1 1 150px;min-width:150px}
+.scene-ctl label{font-family:'SF Mono',monospace;color:var(--accent3);font-weight:700;flex-shrink:0;min-width:44px}
+.scene-ctl input[type=range]{flex:1;min-width:70px}
+.scene-ctl output{font-family:'SF Mono',monospace;min-width:46px;text-align:right;color:var(--text1);font-variant-numeric:tabular-nums}
+.scene-ctl .scene-ctl-spin.on{background:var(--accent3);color:#fff}
 /* a gene of a few kb is an ordinary request: cap the card and scroll it instead of a 4,000-px figure */
 .rich-wrap[data-kind="sequence"] .rich-output{max-height:520px;overflow:auto}
 .plot-src-pre code{font-family:'SF Mono','Fira Code',monospace;font-size:12px;white-space:pre;color:var(--text1);display:block;overflow-x:auto}
@@ -6856,7 +6865,29 @@ function _isDark(){ return document.documentElement.getAttribute('data-theme')==
 // so they could only ever throw. One that slips through anyway is caught per-element
 // in the draw loop and reported in a footnote rather than blanking the whole figure.
 const _GEO_TYPES=new Set(['point','line','segment','circle','ellipse','polygon','text','angle','arc',
-  'sector','midpoint','arrow','vector','bisector','rect','rectangle']);
+  'sector','midpoint','arrow','vector','bisector','rect','rectangle','bezier','curve','spline']);
+// A smooth curve through control points. JSXGraph has no 'bezier' element: a Bézier
+// is a 'curve' whose data comes from JXG.Math.Numerics.bezier(points), so it cannot
+// go through the generic board.create path and is built here. `bezier`/`curve` are a
+// cubic Bézier (control points off the curve); `spline` is a Catmull-Rom that passes
+// THROUGH every point. Control points arrive nested ([[x,y],…]) or flat ([x1,y1,…]).
+function _geoBezier(board, type, args, attrs){
+  const raw=Array.isArray(args)?args:[];
+  let pts=[];
+  if(raw.length&&Array.isArray(raw[0])) pts=raw.map(p=>[_geoNum(p[0]),_geoNum(p[1])]);
+  else for(let k=0;k+1<raw.length;k+=2) pts.push([_geoNum(raw[k]),_geoNum(raw[k+1])]);
+  pts=pts.filter(p=>Array.isArray(p)&&isFinite(p[0])&&isFinite(p[1]));
+  if(pts.length<2) throw new Error(type+' needs at least two control points, each [x, y]');
+  if(pts.length>200) throw new Error('too many control points (max 200)');
+  const jp=pts.map(p=>board.create('point',p,{visible:false,fixed:true,withLabel:false,name:'',showInfobox:false}));
+  // JXG.Math.Numerics.bezier draws cubic segments and needs 3n+1 points; pad the last
+  // point so a quadratic (3) or an arbitrary count still renders instead of vanishing.
+  let data;
+  if(type==='spline'){ data=JXG.Math.Numerics.CardinalSpline(jp, 0.5); }
+  else { const need=(Math.ceil((jp.length-1)/3))*3+1; while(jp.length&&jp.length<need) jp.push(jp[jp.length-1]);
+         data=JXG.Math.Numerics.bezier(jp); }
+  return board.create('curve', data, attrs);
+}
 // JSXGraph 1.12 has no 'vector' or 'rect'/'rectangle' element — a vector is just an
 // arrow between two points, and a rectangle is a 4-point polygon (its corners are
 // expanded from two opposite corners in _geoArgs). Translate the types a model
@@ -6886,6 +6917,7 @@ function _geoText(v){ return String(v).replace(/[<>&]/g,''); }
 const _GEO_ALIAS={fill:'fillColor','fill-color':'fillColor','fill-opacity':'fillOpacity',
   stroke:'strokeColor','stroke-color':'strokeColor','stroke-width':'strokeWidth',
   'stroke-opacity':'strokeOpacity','font-size':'fontSize','text-anchor':'anchorX',
+  'dasharray':'dash','dash-array':'dash','stroke-dasharray':'dash','stroke-dash':'dash',
   colour:'strokeColor',label:'name'};
 const _GEO_ANCHOR={middle:'middle',center:'middle',start:'left',left:'left',end:'right',right:'right'};
 // Element types whose parents are 2-D points (segment/line between two points, a
@@ -6996,6 +7028,10 @@ function _geoAttrs(type,attrs){
   });
   out.display='internal';                  // SVG <text>, never innerHTML
   out.label=Object.assign({},out.label,{display:'internal'});
+  // JSXGraph's default parse turns "R_s"/"x^2" into the STRINGS "R<sub>s</sub>"/
+  // "x<sup>2</sup>", which SVG <text> shows literally (angle brackets and all). The
+  // model means the characters it wrote, so render them verbatim.
+  if(type==='text') out.parse=false;
   // Auto-created corner/parent points are drag-handles for an INTERACTIVE construction;
   // in a rendered diagram they are just dots of noise on a filled box or an arc. Hide
   // them so a rect/polygon reads as a clean shape and an arc as a clean curve. (Explicit
@@ -8495,7 +8531,7 @@ function _sceneBuild(out, spec, onInteract){
   if(spec.camera&&Array.isArray(spec.camera.position)){ const cp=vec(spec.camera.position,[dist0,dist0*0.7,dist0]); sph.setFromVector3(new T.Vector3(cp[0],cp[1],cp[2]).sub(target)); }
   const initial={radius:sph.radius,phi:sph.phi,theta:sph.theta,target:target.clone()};
   const place=()=>{ sph.phi=Math.max(0.05,Math.min(Math.PI-0.05,sph.phi)); sph.radius=Math.max(radius*0.3,Math.min(radius*30,sph.radius)); camera.position.setFromSpherical(sph).add(target); camera.lookAt(target); };
-  const render=()=>{ place(); renderer.render(scene,camera); };
+  const render=()=>{ place(); renderer.render(scene,camera); syncCtl(); };
   const hint=document.createElement('div'); hint.className='scene-hint'; hint.textContent='drag to rotate · wheel to zoom · shift-drag to pan'; host.appendChild(hint);
   const paused=document.createElement('div'); paused.className='scene-paused'; paused.hidden=true; paused.textContent='3-D view paused — click to redraw'; host.appendChild(paused);
   const inst={kind:'scene',spec,renderer,scene,camera,target,sph,initial,disposables,host,render,interacted:false,
@@ -8505,12 +8541,44 @@ function _sceneBuild(out, spec, onInteract){
     // after a lost context (the browser caps live WebGL contexts) a fresh renderer is
     // the only way back: build the card again from its spec
     rebuild(){ inst.dispose(); out.innerHTML=''; out._richInst=_sceneBuild(out,spec,onInteract); return out._richInst; },
-    dispose(){ try{ inst._ro&&inst._ro.disconnect(); }catch(e){} clearTimeout(inst._roTimer);
+    dispose(){ try{ inst.stopSpin&&inst.stopSpin(); inst._ctl&&inst._ctl.remove(); }catch(e){} try{ inst._ro&&inst._ro.disconnect(); }catch(e){} clearTimeout(inst._roTimer);
       disposables.forEach(d=>{ try{ d.dispose(); }catch(e){} }); if(grid){ try{ grid.geometry.dispose(); grid.material.dispose(); }catch(e){} }
       try{ renderer.dispose(); }catch(e){} try{ renderer.forceContextLoss(); }catch(e){} }};
   let drag=null;
   const touched=()=>{ hint.hidden=true; if(!inst.interacted){ inst.interacted=true; if(onInteract)onInteract(); } };
-  el.addEventListener('pointerdown',e=>{ if(e.button!==0)return; drag={x:e.clientX,y:e.clientY,shift:e.shiftKey}; el.style.cursor='grabbing'; try{el.setPointerCapture(e.pointerId);}catch(_){} });
+  // ── control strip under the canvas: Rotate / Tilt / Zoom sliders + ↻ Spin ──
+  // Drag-to-orbit is invisible until tried. The sliders make the view legible and
+  // drivable (keyboard, touch, precision) and FOLLOW a mouse orbit, so the two never
+  // disagree; Spin turns the scene until any manual input.
+  const wrap=out.parentElement;
+  if(wrap) wrap.querySelectorAll('.scene-ctl').forEach(e=>e.remove());   // a re-render must not stack strips
+  const ctl=document.createElement('div'); ctl.className='scene-ctl';
+  const deg=r=>Math.round(r*180/Math.PI), wrapDeg=d=>((d+180)%360+360)%360-180;
+  const rMin=radius*0.3, rMax=radius*30;                                   // the clamps place() applies
+  const zoomOf=r=>Math.round(100*Math.log(rMax/Math.max(rMin,Math.min(rMax,r)))/Math.log(rMax/rMin));   // 0 farthest … 100 nearest
+  const radiusOf=z=>rMax*Math.pow(rMin/rMax, Math.max(0,Math.min(100,z))/100);
+  const mk=(label,min,max,fmt)=>{ const g=document.createElement('span'); g.className='scene-ctl-grp';
+    const l=document.createElement('label'); l.textContent=label;
+    const i=document.createElement('input'); i.type='range'; i.min=min; i.max=max; i.step=1; i.setAttribute('aria-label',label);
+    const o=document.createElement('output'); g.appendChild(l); g.appendChild(i); g.appendChild(o); ctl.appendChild(g);
+    return {i,o,fmt}; };
+  const cRot=mk('Rotate',-180,180,v=>v+'°'), cTilt=mk('Tilt',3,177,v=>v+'°'),
+        cZoom=mk('Zoom',0,100,v=>(initial.radius/radiusOf(v)).toFixed(2)+'×');
+  const spin=document.createElement('button'); spin.type='button'; spin.className='svg-act-btn scene-ctl-spin';
+  spin.textContent='↻ Spin'; spin.setAttribute('aria-pressed','false'); spin.title='Turn the scene continuously'; ctl.appendChild(spin);
+  const syncCtl=()=>{ const r=wrapDeg(deg(sph.theta)), ti=deg(sph.phi), z=zoomOf(sph.radius);
+    cRot.i.value=r; cRot.o.textContent=cRot.fmt(r); cTilt.i.value=ti; cTilt.o.textContent=cTilt.fmt(ti); cZoom.i.value=z; cZoom.o.textContent=cZoom.fmt(z); };
+  const stopSpin=()=>{ if(inst._spinRaf){ cancelAnimationFrame(inst._spinRaf); inst._spinRaf=0; } spin.setAttribute('aria-pressed','false'); spin.classList.remove('on'); };
+  const startSpin=()=>{ stopSpin(); spin.setAttribute('aria-pressed','true'); spin.classList.add('on'); touched();
+    const step=()=>{ if(renderer.getContext().isContextLost()){ stopSpin(); return; } sph.theta-=0.01; render(); inst._spinRaf=requestAnimationFrame(step); };
+    inst._spinRaf=requestAnimationFrame(step); };
+  spin.addEventListener('click',()=>{ inst._spinRaf?stopSpin():startSpin(); });
+  cRot.i.addEventListener('input',()=>{ stopSpin(); sph.theta=Number(cRot.i.value)*Math.PI/180; touched(); render(); });
+  cTilt.i.addEventListener('input',()=>{ stopSpin(); sph.phi=Number(cTilt.i.value)*Math.PI/180; touched(); render(); });
+  cZoom.i.addEventListener('input',()=>{ stopSpin(); sph.radius=radiusOf(Number(cZoom.i.value)); touched(); render(); });
+  if(wrap) wrap.insertBefore(ctl, out.nextSibling); else host.appendChild(ctl);
+  inst._ctl=ctl; inst.stopSpin=stopSpin;
+  el.addEventListener('pointerdown',e=>{ if(e.button!==0)return; stopSpin(); drag={x:e.clientX,y:e.clientY,shift:e.shiftKey}; el.style.cursor='grabbing'; try{el.setPointerCapture(e.pointerId);}catch(_){} });
   el.addEventListener('pointermove',e=>{ if(!drag)return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
     if(drag.shift){ const k=sph.radius*0.0015, right=new T.Vector3().setFromMatrixColumn(camera.matrix,0), up=new T.Vector3().setFromMatrixColumn(camera.matrix,1);
       target.addScaledVector(right,-dx*k).addScaledVector(up,dy*k); }
@@ -8518,8 +8586,8 @@ function _sceneBuild(out, spec, onInteract){
     touched(); render(); });
   const end=e=>{ if(!drag)return; drag=null; el.style.cursor='grab'; try{el.releasePointerCapture(e.pointerId);}catch(_){} };
   el.addEventListener('pointerup',end); el.addEventListener('pointercancel',end);
-  el.addEventListener('wheel',e=>{ e.preventDefault(); sph.radius*=Math.exp(e.deltaY*0.0012); touched(); render(); },{passive:false});
-  el.addEventListener('keydown',e=>{ const k=e.key; let used=true;
+  el.addEventListener('wheel',e=>{ e.preventDefault(); stopSpin(); sph.radius*=Math.exp(e.deltaY*0.0012); touched(); render(); },{passive:false});
+  el.addEventListener('keydown',e=>{ stopSpin(); const k=e.key; let used=true;
     if(k==='ArrowLeft')sph.theta+=0.15; else if(k==='ArrowRight')sph.theta-=0.15; else if(k==='ArrowUp')sph.phi-=0.15; else if(k==='ArrowDown')sph.phi+=0.15;
     else if(k==='+'||k==='=')sph.radius*=0.85; else if(k==='-')sph.radius*=1.18;
     else if(k==='Home'||k==='0'){ e.preventDefault(); inst.reset(); return; } else used=false;
@@ -8787,7 +8855,8 @@ const RICH_LANES={
           const t=String(e.type||'').toLowerCase();
           try{
             if(!_GEO_TYPES.has(t))throw new Error('unsupported type "'+t+'"');
-            board.create(_GEO_TYPE_ALIAS[t]||t, _geoArgs(t,e.args,e.attrs), _geoAttrs(t,e.attrs));
+            if(t==='bezier'||t==='curve'||t==='spline') _geoBezier(board, t, e.args, _geoAttrs(t,e.attrs));
+            else board.create(_GEO_TYPE_ALIAS[t]||t, _geoArgs(t,e.args,e.attrs), _geoAttrs(t,e.attrs));
           }catch(err){ _skipped.push('#'+(i+1)+' '+(t||'?')+' — '+((err&&err.message)||err)); }
         });
       }finally{ _GEO_LIVE=false; }

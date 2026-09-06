@@ -5,6 +5,28 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] — 2026-09-05
+
+### Added
+- **`geometry` draws smooth curves.** New element types `bezier`/`curve` (a cubic
+  Bézier through its control points) and `spline` (a curve passing through every
+  point), for light paths, trajectories and freehand shapes.
+- **`scene` cards have controls under the canvas.** **Rotate**, **Tilt** and
+  **Zoom** sliders show the current view and drive it — with the keyboard, a
+  finger, or for a precise angle — and follow a mouse orbit so the two never
+  disagree; **↻ Spin** turns the scene continuously until you touch it.
+
+### Fixed
+- A 3-D `scene` could not be rotated, zoomed or panned: the "3-D view paused"
+  overlay meant for a lost WebGL context was painted over every live scene and
+  took each drag and wheel. It now appears only when the context is actually
+  lost.
+- A `geometry` text label is drawn exactly as written: `R_s` and `x^2` stay `R_s`
+  and `x^2` instead of rendering as the literal strings `R<sub>s</sub>` and
+  `x<sup>2</sup>`.
+- A `geometry` stroke set the SVG way — `"dashArray": "5,5"` — is now dashed
+  instead of drawn solid.
+
 ## [1.13.0] — 2026-09-03
 
 ### Added

@@ -140,7 +140,9 @@ def build_harness(html: str) -> str:
         "  const cs=labels.map(l=>l.contrast).filter(x=>x!=null);\n"
         "  const noteEl=out.querySelector('.rich-note');\n"
         "  const nShapes=out.querySelectorAll('svg path, svg ellipse, svg line, svg circle, svg polygon').length;\n"
-        "  return {built:!!texts.length, bg, nLabels:labels.length, nShapes,\n"
+        "  const nCurves=out.querySelectorAll('svg path').length;\n"
+        "  const nDashed=[...out.querySelectorAll('svg *')].filter(e=>{const d=e.getAttribute('stroke-dasharray');return d&&d!=='none';}).length;\n"
+        "  return {built:!!texts.length, bg, nLabels:labels.length, nShapes, nCurves, nDashed,\n"
         "          note: noteEl?noteEl.textContent:null,\n"
         "          noteH: noteEl?Math.round(noteEl.getBoundingClientRect().height):0,\n"
         "          minContrast: cs.length?Math.min(...cs):null, labels:labels.slice(0,40)};\n"
@@ -208,6 +210,16 @@ GEO_RESILIENCE = json.dumps({"boundingbox": [-4, 4, 4, -4], "axis": False, "elem
 GEO_BADBOX = json.dumps({"boundingbox": ["-4", "4", "4", "-4"], "axis": False, "elements": [
     {"type": "circle", "args": [0, 0, 2]},
     {"type": "text", "args": [0, 3, "ok"]}]})
+# Cubic Beziers (a light path around a black hole), a Catmull-Rom spline, a dashed
+# circle written the SVG way (dashArray), and a label with `_`/`^` notation — all
+# forms a model reaches for. Expect every element drawn (no skip note) and the label
+# rendered VERBATIM, not JSXGraph's literal "R<sub>s</sub>".
+GEO_BEZIER = json.dumps({"boundingbox": [-10, 8, 10, -8], "axis": False, "elements": [
+    {"type": "circle", "args": [[0, 0], 3.75], "attrs": {"strokeColor": "#666", "dashArray": "5,5"}},
+    {"type": "bezier", "args": [[-10, 5], [-2, 5], [2, 7], [10, 7]], "attrs": {"strokeColor": "#ffaa00"}},
+    {"type": "bezier", "args": [[-10, -5], [-2, -5], [2, -7], [10, -7]], "attrs": {"strokeColor": "#ffaa00"}},
+    {"type": "spline", "args": [[-8, 0], [-4, 3], [0, -2], [6, 2]], "attrs": {"strokeColor": "#3cf"}},
+    {"type": "text", "args": [0, -6, "Event Horizon (R_s), x^2"]}]})
 
 _CT = {"application/javascript", "text/css"}
 
@@ -265,6 +277,7 @@ def run(index_html: pathlib.Path) -> dict:
         # rather than throwing and blanking the whole card.
         out["geometry_resilience"] = page.evaluate("s=>window.__geo(s)", GEO_RESILIENCE)
         out["geometry_badbox"] = page.evaluate("s=>window.__geo(s)", GEO_BADBOX)
+        out["geometry_bezier"] = page.evaluate("s=>window.__geo(s)", GEO_BEZIER)
 
         # B8 — abc reset duration source
         out["abc"] = page.evaluate("s=>window.__abc(s)", ABC_TUNE)

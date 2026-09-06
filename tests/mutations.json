@@ -1135,8 +1135,8 @@
  {
   "id": "M140_relational_type_readvertised",
   "file": "visualweaver/index.html",
-  "find": "  'sector','midpoint','arrow','vector','bisector','rect','rectangle']);",
-  "replace": "  'sector','midpoint','perpendicular','arrow','vector','bisector','rect','rectangle']);",
+  "find": "  'sector','midpoint','arrow','vector','bisector','rect','rectangle','bezier','curve','spline']);",
+  "replace": "  'sector','midpoint','perpendicular','arrow','vector','bisector','rect','rectangle','bezier','curve','spline']);",
   "defect": "a reference-only relational type is advertised again although it can never build data-only",
   "expect": "test_reference_only_relational_types_are_not_advertised"
  },
@@ -3804,5 +3804,61 @@
   "replace": "        supp = \"\"\n        if supp:\n            base = (base + \"\\n\\n\" + supp).strip() if base else supp",
   "defect": "a base_instruction saved before a lane existed is sent to the model unchanged, so the model is never told the fence exists and draws a circuit as a mermaid graph",
   "expect": "test_a_stale_instruction_is_topped_up_with_the_missing_lane_bullets"
+ },
+ {
+  "id": "M481_bezier_type_unsupported",
+  "file": "visualweaver/index.html",
+  "find": "            if(t==='bezier'||t==='curve'||t==='spline') _geoBezier(board, t, e.args, _geoAttrs(t,e.attrs));\n            else board.create(",
+  "replace": "            if(false) _geoBezier(board, t, e.args, _geoAttrs(t,e.attrs));\n            else board.create(",
+  "defect": "a bezier/curve/spline element is handed to the generic board.create, which JSXGraph has no such element for, so every smooth curve is skipped",
+  "expect": "test_geometry_draws_bezier_and_spline_curves"
+ },
+ {
+  "id": "M482_geometry_text_parsed_into_sub_markup",
+  "file": "visualweaver/index.html",
+  "find": "  if(type==='text') out.parse=false;",
+  "replace": "  if(type==='text') out.parse=true;",
+  "defect": "geometry text is parsed, so a label like R_s renders as the literal string R<sub>s</sub> in the SVG",
+  "expect": "test_text_is_not_parsed_so_underscores_stay_literal"
+ },
+ {
+  "id": "M483_svg_dasharray_dropped",
+  "file": "visualweaver/index.html",
+  "find": "  'dasharray':'dash','dash-array':'dash','stroke-dasharray':'dash','stroke-dash':'dash',\n",
+  "replace": "",
+  "defect": "the SVG dashArray attribute name is not aliased to JSXGraph's dash, so a dashed circle written the SVG way renders solid",
+  "expect": "test_svg_dash_attribute_names_alias_to_the_dash_style"
+ },
+ {
+  "id": "M484_scene_paused_overlay_always_painted",
+  "file": "visualweaver/index.html",
+  "find": ".scene-paused[hidden]{display:none}\n",
+  "replace": "",
+  "defect": "the paused overlay's display:flex beats its hidden attribute, so it is painted over every live scene and takes each drag and wheel (shipped in 1.13.0)",
+  "expect": "test_scene_paused_overlay_is_not_painted_over_a_live_scene"
+ },
+ {
+  "id": "M485_rotate_slider_does_not_move_camera",
+  "file": "visualweaver/index.html",
+  "find": "cRot.i.addEventListener('input',()=>{ stopSpin(); sph.theta=Number(cRot.i.value)*Math.PI/180; touched(); render(); });",
+  "replace": "cRot.i.addEventListener('input',()=>{ stopSpin(); touched(); render(); });",
+  "defect": "the Rotate slider repaints but never sets the azimuth",
+  "expect": "test_scene_sliders_drive_the_camera_and_repaint"
+ },
+ {
+  "id": "M486_sliders_do_not_follow_orbit",
+  "file": "visualweaver/index.html",
+  "find": "  const render=()=>{ place(); renderer.render(scene,camera); syncCtl(); };",
+  "replace": "  const render=()=>{ place(); renderer.render(scene,camera); };",
+  "defect": "a mouse orbit leaves the sliders where they were, so the strip and the view disagree",
+  "expect": "test_scene_sliders_follow_a_mouse_orbit"
+ },
+ {
+  "id": "M487_spin_ignores_pointer",
+  "file": "visualweaver/index.html",
+  "find": "if(e.button!==0)return; stopSpin(); drag=",
+  "replace": "if(e.button!==0)return; drag=",
+  "defect": "grabbing a spinning scene does not stop the spin, so the drag fights the animation",
+  "expect": "test_scene_spin_turns_until_a_manual_input"
  }
 ]

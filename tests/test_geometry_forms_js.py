@@ -112,6 +112,25 @@ def test_dash_is_coerced_to_a_valid_style_index(dash_in, expected):
     assert _val(f"_geoAttrs('line',{{dash:{dash_in}}}).dash") == expected
 
 
+@pytest.mark.parametrize("key", ["dashArray", "stroke-dasharray", "dash-array", "stroke-dash"])
+def test_svg_dash_attribute_names_alias_to_the_dash_style(key):
+    """A model writes the SVG name; JSXGraph wants `dash`. `"5,5"` -> a dashed
+    style index, not a dropped attribute (which rendered a solid line)."""
+    assert _val(f"_geoAttrs('circle',{{{json.dumps(key)}:'5,5'}}).dash") == 2
+
+
+def test_text_is_not_parsed_so_underscores_stay_literal():
+    """parse:false stops JSXGraph turning "R_s" into the literal "R<sub>s</sub>"."""
+    assert _val("_geoAttrs('text',{}).parse") is False
+    # only text opts out of parsing; other elements are unaffected
+    assert _val("_geoAttrs('circle',{}).parse === undefined") is True
+
+
+@pytest.mark.parametrize("t", ["bezier", "curve", "spline"])
+def test_smooth_curve_types_are_advertised(t):
+    assert _val(f"_GEO_TYPES.has({json.dumps(t)})") is True
+
+
 # ── rect / rectangle (SVG <rect> has no JSXGraph equivalent — it's a polygon) ──
 def test_rect_two_opposite_corners_expand_to_four_polygon_corners():
     assert _val("_geoArgs('rect',[[9,-0.5],[10,0.5]],{})") == \

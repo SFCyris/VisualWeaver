@@ -227,8 +227,59 @@ def test_a_lost_gl_context_pauses_the_view_and_a_restore_repaints_it(probe):
     c = _scene(probe)
     if "pausedShown" not in c:
         pytest.skip("WEBGL_lose_context not available")
-    assert c["pausedShown"], "no 'paused' overlay after the context was lost"
-    assert c["pausedHidden"] and c["inkAfterRestore"] > 1500, c
+    assert c["pausedShown"] and c["pausedDisplayLost"] == "flex", "no 'paused' overlay PAINTED after the context was lost"
+    assert c["pausedHidden"] and c["pausedDisplayRestored"] == "none", c
+    assert c["inkAfterRestore"] > 1500, c
+
+
+def test_scene_paused_overlay_is_not_painted_over_a_live_scene(probe):
+    """1.13.0 shipped with `.scene-paused{display:flex}` beating the hidden
+    attribute: the overlay covered every live scene and took each drag and wheel.
+    Measure what is painted and what the pointer lands on, not the attribute."""
+    c = _scene(probe)
+    assert c["pausedDisplay0"] == "none", f"the paused overlay is painted over a live scene: display={c['pausedDisplay0']}"
+    assert c["hitIsCanvas"], "the element under the canvas centre is not the canvas — something is covering it"
+
+
+def test_a_real_mouse_drag_orbits_the_scene(probe):
+    """Playwright's mouse goes through hit-testing, unlike element.dispatchEvent."""
+    m = probe.get("scene_mouse") or {}
+    if "error" in m and "WebGL" in m["error"]:
+        pytest.skip(m["error"])
+    assert "error" not in m, m.get("error")
+    assert abs(m["theta1"] - m["theta0"]) > 0.05, f"a real drag did not orbit: {m}"
+    assert m["interacted"] and m["sliderMatches"], m
+
+
+def test_scene_control_strip_has_rotate_tilt_zoom_and_spin(probe):
+    c = _scene(probe)
+    assert c["strips"] == 1 and c["sliderLabels"] == ["Rotate", "Tilt", "Zoom"] and c["spinBtn"], c
+
+
+def test_scene_sliders_drive_the_camera_and_repaint(probe):
+    c = _scene(probe)
+    assert c["sliderSetsTheta"], "the Rotate slider did not set the azimuth"
+    assert c["zoomSliderZoomsIn"], "moving Zoom right did not bring the camera closer"
+    assert c["sliderInkChanged"], "the sliders moved the camera but the pixels did not change"
+
+
+def test_scene_sliders_follow_a_mouse_orbit(probe):
+    c = _scene(probe)
+    assert c["rotSliderMoved"] and c["sliderFollowsOrbit"], f"the Rotate slider did not follow the orbit: {c['rotSlider0']} -> {c.get('rotSliderMoved')}"
+
+
+def test_scene_spin_turns_until_a_manual_input(probe):
+    c = _scene(probe)
+    assert c["spun"] and c["spinPressed"] == "true", "Spin did not turn the scene"
+    assert c["spinStoppedOnPointer"], "a pointerdown did not stop the spin"
+    assert c["spinAgain"] and c["spinToggledOff"], "the Spin toggle did not restart/stop"
+
+
+def test_scene_strip_is_not_stacked_on_rerender_and_is_removed_on_teardown(probe):
+    c = _scene(probe)
+    assert c["applied"] and c["stripsAfterApply"] == 1, f"Apply stacked control strips: {c.get('stripsAfterApply')}"
+    assert c["spinBeforeTeardown"] and not c["spinAfterTeardown"], "teardown left the spin loop running"
+    assert c["stripAfterTeardown"] == 0, "teardown left the control strip behind"
 
 
 def test_scene_rejects_an_unknown_type_and_falls_back_on_bad_colours(probe):
