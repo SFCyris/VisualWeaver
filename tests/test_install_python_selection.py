@@ -53,7 +53,15 @@ def _run(tmp_path, bins: dict, *, env=None, os_name="Linux", stale_venv_minor=No
         'set -euo pipefail\nc_info(){ echo "INFO $*"; }; c_err(){ echo "ERR $*"; }; c_warn(){ echo "WARN $*"; }\n'
         f'OS="{os_name}"; REPO_DIR="{repo}"\n' + _block() +
         'echo "CHOSEN=${SYS_PY}"; echo "VENV_MINOR=$(grep -o \'echo [0-9]*\' "${VENV}/bin/python" | cut -d" " -f2)"\n')
-    e = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    # An ISOLATED PATH: only the fake interpreters plus the handful of coreutils
+    # the block needs. Including /usr/bin leaked the runner's real python3.12 on
+    # CI, so "only an unsupported Python" cases found a supported one and passed.
+    tools = tmp_path / "tools"; tools.mkdir(exist_ok=True)
+    for name in ("seq", "grep", "cut", "mkdir", "cp", "rm", "cat", "sh", "bash"):
+        real = shutil.which(name)
+        if real and not (tools / name).exists():
+            os.symlink(real, tools / name)
+    e = {"PATH": f"{bindir}:{tools}", "HOME": str(tmp_path)}
     e.update(env or {})
     r = subprocess.run(["bash", str(harness)], capture_output=True, text=True, env=e, timeout=60)
     return r.returncode, r.stdout + r.stderr, repo
