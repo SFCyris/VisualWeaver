@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg" alt="License: AGPL-3.0-or-later"></a>
   <a href="https://github.com/SFCyris/VisualWeaver/releases/latest"><img src="https://img.shields.io/github/v/release/SFCyris/VisualWeaver?include_prereleases&sort=semver" alt="Latest release"></a>
   <a href="https://github.com/SFCyris/VisualWeaver/pkgs/container/visualweaver"><img src="https://img.shields.io/badge/ghcr.io-visualweaver-2496ED?logo=docker&logoColor=white" alt="Docker image on GHCR"></a>
-  <img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue.svg" alt="Python 3.11 – 3.12">
 </p>
 
 <p align="center">
@@ -227,7 +227,7 @@ Open **http://localhost:8420**. Stop everything (app + its Redis) with `./stop.s
 
 `install.sh` vendors a private Redis 8 into `./.redis` and runs it on a dedicated loopback port (6389 by default), so it never touches or conflicts with any Redis you already run. On Linux, if you already have a Redis with the search module it is reused instead.
 
-**Requirements:** Python 3.11+, and on macOS Homebrew (for `openssl@3`) + Xcode Command Line Tools.
+**Requirements:** Python 3.11 or 3.12 (`install.sh` picks the newest supported one it finds, or the one in `PYTHON=`), and on macOS Homebrew (for `openssl@3`) + Xcode Command Line Tools.
 
 ---
 

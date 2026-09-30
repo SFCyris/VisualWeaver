@@ -52,7 +52,7 @@ VisualWeaver is a single-server, self-hosted application that lets you:
 
 ### Prerequisites
 
-- Python 3.11+ (macOS also needs Homebrew + Xcode Command Line Tools)
+- Python 3.11 or 3.12 — `install.sh` uses the newest supported interpreter it finds, or the one given in `PYTHON=` (macOS also needs Homebrew + Xcode Command Line Tools)
 - Redis 8 with the search/query engine — set up automatically by `install.sh` (or the `redis:8` service in Docker); no separate install needed
 - At least one LLM backend: Ollama locally, or an API key for any supported cloud provider
 

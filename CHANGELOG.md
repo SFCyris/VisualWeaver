@@ -5,6 +5,19 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.2] — 2026-09-29
+
+### Fixed
+- **A fresh Mac or Linux install no longer fails on a too-new Python.** A new
+  Homebrew or apt now installs Python 3.13 or 3.14, for which the pinned
+  PyMuPDF has no prebuilt wheel; the installer then tried to compile MuPDF from
+  source, which fails on current macOS SDKs. `install.sh` now picks the newest
+  supported interpreter it can find (3.11 or 3.12, including a Homebrew
+  `python@3.x` not yet on PATH), honours `PYTHON=` as an explicit choice, refuses
+  an unsupported one with the exact install command to run, and rebuilds a venv
+  left behind on an unsupported Python instead of reusing it. `pip` also refuses
+  Python 3.13+ up front.
+
 ## [1.13.1] — 2026-09-05
 
 ### Added

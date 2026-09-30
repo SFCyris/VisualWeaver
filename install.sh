@@ -14,6 +14,7 @@
 # vendored Redis lives in ./.redis (gitignored). Env knobs:
 #   VISUALWEAVER_DATA_DIR             override the data directory
 #   VISUALWEAVER_REDIS_PORT           force a specific Redis port (default 6389)
+#   PYTHON                            interpreter for the venv (default: newest supported python3.x found)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,9 +39,62 @@ mkdir -p "${DATA_DIR}" "${LOG_DIR}" "${REDIS_DIR}" "${REDIS_DATA}" "${REDIS_HOME
 # ── 1. Python virtual environment + dependencies ─────────────────────────────
 c_info ""
 c_info "── Python environment ──"
-command -v python3 >/dev/null 2>&1 || { c_err "python3 not found. Install Python 3.11+ first."; exit 1; }
+# The Python versions the pinned dependencies ship binary wheels for. PyMuPDF
+# 1.24.3 publishes wheels for CPython 3.8–3.12 only; on anything newer pip falls
+# back to compiling all of MuPDF from source, which fails on current macOS SDKs
+# (an old bundled zlib mis-detects the platform) and takes minutes to fail on
+# Linux. A fresh Homebrew/apt install now hands out 3.13 or 3.14, so pick the
+# interpreter here instead of trusting whatever `python3` is first on PATH.
+PY_MIN_MINOR=11
+PY_MAX_MINOR=12
+py_minor() { "$1" -c 'import sys; print(sys.version_info[1] if sys.version_info[0]==3 else 0)' 2>/dev/null || echo 0; }
+py_supported() { local m; m="$(py_minor "$1")"; [ "${m}" -ge "${PY_MIN_MINOR}" ] && [ "${m}" -le "${PY_MAX_MINOR}" ]; }
+py_install_hint() {
+  if [ "${OS}" = "Darwin" ]; then echo "brew install python@3.${PY_MAX_MINOR}";
+  else echo "sudo apt-get install -y python3.${PY_MAX_MINOR} python3.${PY_MAX_MINOR}-venv   (or your distro's equivalent)"; fi
+}
+SYS_PY=""
+if [ -n "${PYTHON:-}" ]; then
+  # An explicit choice is honoured but still checked, so a typo cannot start a
+  # source build.
+  command -v "${PYTHON}" >/dev/null 2>&1 || { c_err "PYTHON=${PYTHON} is not an executable."; exit 1; }
+  py_supported "${PYTHON}" || { c_err "PYTHON=${PYTHON} is Python 3.$(py_minor "${PYTHON}"); this release needs 3.${PY_MIN_MINOR}–3.${PY_MAX_MINOR}."; exit 1; }
+  SYS_PY="${PYTHON}"
+else
+  # Newest supported first; a Homebrew python@3.x lands in brew's prefix, which
+  # may not be on PATH yet on a brand-new machine.
+  candidates=()
+  for m in $(seq "${PY_MAX_MINOR}" -1 "${PY_MIN_MINOR}"); do
+    candidates+=("python3.${m}")
+    [ "${OS}" = "Darwin" ] && command -v brew >/dev/null 2>&1 && candidates+=("$(brew --prefix 2>/dev/null)/opt/python@3.${m}/bin/python3.${m}")
+  done
+  candidates+=("python3")
+  for c in "${candidates[@]}"; do
+    if command -v "${c}" >/dev/null 2>&1 && py_supported "${c}"; then SYS_PY="$(command -v "${c}")"; break; fi
+  done
+fi
+if [ -z "${SYS_PY}" ]; then
+  found="$(command -v python3 2>/dev/null || true)"
+  if [ -n "${found}" ]; then
+    c_err "Found ${found} (Python 3.$(py_minor "${found}")), but this release needs Python 3.${PY_MIN_MINOR}–3.${PY_MAX_MINOR}:"
+    c_err "its pinned PyMuPDF has no prebuilt wheel for newer Pythons and would try to compile MuPDF from source."
+  else
+    c_err "python3 not found."
+  fi
+  c_err "Install a supported version and re-run:   $(py_install_hint)"
+  c_err "Or point at one explicitly:              PYTHON=/path/to/python3.${PY_MAX_MINOR} ./install.sh"
+  exit 1
+fi
+c_info "Using $(command -v "${SYS_PY}") (Python 3.$(py_minor "${SYS_PY}"))"
 VENV="${REPO_DIR}/venv"
-[ -x "${VENV}/bin/python" ] || { c_info "Creating virtualenv at ${VENV}"; python3 -m venv "${VENV}"; }
+# A venv left behind by an earlier run on an unsupported Python (the source-build
+# failure) must not be reused: it has no PyMuPDF and its pip would repeat the
+# failure. Rebuild it on the interpreter chosen above.
+if [ -x "${VENV}/bin/python" ] && ! py_supported "${VENV}/bin/python"; then
+  c_warn "Existing venv runs Python 3.$(py_minor "${VENV}/bin/python") (unsupported) — recreating it on ${SYS_PY}."
+  rm -rf "${VENV}"
+fi
+[ -x "${VENV}/bin/python" ] || { c_info "Creating virtualenv at ${VENV}"; "${SYS_PY}" -m venv "${VENV}"; }
 c_info "Installing Python dependencies…"
 "${VENV}/bin/python" -m pip install --upgrade pip >/dev/null
 if [ -f "${REPO_DIR}/pyproject.toml" ]; then
