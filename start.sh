@@ -2,7 +2,8 @@
 # VisualWeaver — start the dedicated local Redis, then the app.
 #
 # Idempotent: if either is already running it is left alone. The app binds to
-# loopback (127.0.0.1) by default — there is no built-in auth, so do NOT
+# all interfaces (0.0.0.0) by default and warns so on every start — there is no
+# built-in auth, so on an untrusted network set VISUALWEAVER_HOST=127.0.0.1; do NOT
 # expose the port to a network without a reverse proxy / auth in front. Override
 # with VISUALWEAVER_HOST / VISUALWEAVER_PORT, or a bare port as the first argument.
 set -euo pipefail
@@ -159,6 +160,18 @@ c_info "  Redis:    127.0.0.1:${RPORT} (dedicated, AOF everysec)"
 c_info "  App log:  ${APP_LOG}"
 c_info "  Redis log:${REDIS_LOG}"
 c_info "  Stop:     ${REPO_DIR}/stop.sh"
-if [ "${APP_HOST}" != "127.0.0.1" ] && [ "${APP_HOST}" != "localhost" ]; then
-  c_warn "  NOTE: bound to ${APP_HOST} — the API has no built-in auth. Put a reverse proxy with auth in front before exposing it."
-fi
+# The guard for an unauthenticated service on all interfaces: say exactly which
+# address other devices can reach, and how to restrict it, every single start.
+case "${APP_HOST}" in
+  0.0.0.0|::|"")
+    c_warn "  NOTE: reachable from other devices on your network at ${APP_URLS[1]:-the LAN address above} — VisualWeaver has NO built-in auth."
+    c_warn "        On an untrusted network run it localhost-only:  VISUALWEAVER_HOST=127.0.0.1 ./start.sh"
+    c_warn "        (or put VISUALWEAVER_HOST=127.0.0.1 in .visualweaver.env to make that permanent)."
+    ;;
+  127.0.0.1|localhost)
+    c_info "  Only reachable from this machine (VISUALWEAVER_HOST=${APP_HOST}); unset it for LAN access."
+    ;;
+  *)
+    c_warn "  NOTE: bound to ${APP_HOST} — VisualWeaver has NO built-in auth; put a reverse proxy with auth in front before exposing it."
+    ;;
+esac

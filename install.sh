@@ -276,6 +276,39 @@ print(f"  config.json redis → 127.0.0.1:{port}")
 PYEOF
 c_ok "App config points at the dedicated Redis."
 
+# ── 6. Network exposure ──────────────────────────────────────────────────────
+# The web UI has no built-in auth, so where it listens is a decision the person
+# installing should make consciously, once. The answer is persisted in the
+# gitignored .visualweaver.env (a real VISUALWEAVER_HOST env var still wins).
+# A choice already recorded there is respected; a non-interactive run (no TTY,
+# CI, `./install.sh < /dev/null`) is not asked and keeps the shipped default.
+ENV_FILE="${REPO_DIR}/.visualweaver.env"
+if grep -qE '^[[:space:]]*VISUALWEAVER_HOST=' "${ENV_FILE}" 2>/dev/null; then
+  APP_HOST="$(sed -nE 's/^[[:space:]]*VISUALWEAVER_HOST=[\"]?([^\"[:space:]]+).*/\1/p' "${ENV_FILE}" | tail -1)"
+  c_info "Network exposure already set in .visualweaver.env: VISUALWEAVER_HOST=${APP_HOST} (edit that file to change it)."
+elif [ -t 0 ]; then
+  c_info ""
+  c_info "── Network exposure ──"
+  c_info "VisualWeaver has NO built-in authentication. Who should be able to open the web UI?"
+  c_info "  1) Only this machine          (http://127.0.0.1:${APP_PORT})"
+  c_info "  2) Any device on my network   (http://<this machine's LAN address>:${APP_PORT}) — trusted networks only"
+  _choice=""
+  read -r -p "Choose [1/2] (default 1): " _choice </dev/tty || _choice=""
+  case "${_choice}" in
+    2|2\)|lan|LAN|network) APP_HOST="0.0.0.0" ;;
+    *)                      APP_HOST="127.0.0.1" ;;
+  esac
+  {
+    echo "# VisualWeaver per-machine overrides (gitignored). Written by install.sh; edit freely."
+    echo "# 127.0.0.1 = only this machine; 0.0.0.0 = any device on the network (no built-in auth!)."
+    echo "VISUALWEAVER_HOST=${APP_HOST}"
+  } >> "${ENV_FILE}"
+  if [ "${APP_HOST}" = "0.0.0.0" ]; then c_warn "Web UI will be reachable from your network — start.sh prints the address and a reminder each start.";
+  else c_ok "Web UI restricted to this machine. To open it up later: set VISUALWEAVER_HOST=0.0.0.0 in .visualweaver.env."; fi
+else
+  c_info "No terminal — keeping the default network exposure (VISUALWEAVER_HOST=${APP_HOST}); set it in .visualweaver.env to change."
+fi
+
 c_info ""
 c_ok "══ Install complete ══"
 c_info "Start:    ${REPO_DIR}/start.sh        (web UI on http://${APP_HOST}:${APP_PORT})"

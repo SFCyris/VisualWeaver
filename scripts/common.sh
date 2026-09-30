@@ -68,7 +68,7 @@ rcli() {
 
 # ── Per-machine overrides (optional, gitignored) ───────────────────────────────
 # .visualweaver.env lets you set persistent overrides without editing tracked files or
-# re-typing env vars each run — e.g. VISUALWEAVER_HOST=0.0.0.0 to serve on the LAN.
+# re-typing env vars each run — e.g. VISUALWEAVER_HOST=127.0.0.1 to serve this machine only.
 # Real environment variables still win (only unset ones are filled from the file).
 if [ -f "${REPO_DIR}/.visualweaver.env" ]; then
   while IFS='=' read -r _k _v; do
@@ -82,9 +82,12 @@ fi
 # ── Ports ─────────────────────────────────────────────────────────────────────
 # App (web UI): default 8420, overridable via VISUALWEAVER_PORT.
 APP_PORT="${VISUALWEAVER_PORT:-8420}"
-# App bind host: loopback by default (there is no auth yet — do not expose the
-# port to a network without putting a reverse proxy / auth in front).
-APP_HOST="${VISUALWEAVER_HOST:-127.0.0.1}"
+# App bind host: ALL interfaces by default, so a fresh checkout is reachable from
+# other devices on the LAN (a phone, a second machine, a VM's host) without a
+# per-machine override. There is no built-in auth, so start.sh prints a warning
+# naming the LAN address every time; VISUALWEAVER_HOST=127.0.0.1 restricts it to
+# this machine only.
+APP_HOST="${VISUALWEAVER_HOST:-0.0.0.0}"
 
 # Dedicated Redis port for VisualWeaver's OWN instance. Default 6389 keeps clear
 # of the standard 6379 so it never collides with a system/other Redis. The

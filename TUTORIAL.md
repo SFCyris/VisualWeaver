@@ -104,7 +104,7 @@ This starts the dedicated Redis, then the app. Open **http://localhost:8420** in
 > **If the page doesn't load or the port is busy** (`Port 8420 is already in use`), start on another port: `./start.sh 9000`, then open `http://localhost:9000`. Check the app log path printed in the start banner for errors.
 > **Verify:** `curl -fsS http://localhost:8420/api/health` returns an `ok` status.
 
-The app binds to `127.0.0.1` (localhost) by default. There is no built-in authentication, so put a reverse proxy with auth in front before exposing it on a network (see `deploy/docker-compose.https.yml`).
+The app listens on all interfaces (`0.0.0.0`) by default, so other devices on your network can reach it — `start.sh` prints the LAN address. There is no built-in authentication: on an untrusted network start it with `VISUALWEAVER_HOST=127.0.0.1 ./start.sh`, and put a reverse proxy with auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
 
 ---
 

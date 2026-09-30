@@ -777,7 +777,7 @@ The card header shows:
 Create, edit, and delete named system prompts.
 
 #### 🔐 Security
-VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. The app binds to `127.0.0.1` by default; put a reverse proxy with HTTPS + auth in front before exposing it to a network (see `deploy/docker-compose.https.yml`).
+VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. `install.sh` asks whether the web UI is for this machine only or any device on the network and records the answer in `.visualweaver.env` (`VISUALWEAVER_HOST=127.0.0.1` or `0.0.0.0`; edit the file to change it), and put a reverse proxy with HTTPS + auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
 
 ### Group 5 — Diagnostics
 

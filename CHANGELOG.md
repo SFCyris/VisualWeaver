@@ -5,6 +5,22 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] — 2026-09-29
+
+### Changed
+- **The local runtime listens on all interfaces by default.** A fresh checkout is
+  reachable from other devices on the network — a phone, a second machine, a
+  VM's host — without a per-machine override, and `start.sh` prints the LAN
+  address on every start. Because there is no built-in authentication it also
+  prints how to restrict the app to the machine it runs on:
+  `VISUALWEAVER_HOST=127.0.0.1`, once per run or permanently in
+  `.visualweaver.env`.
+- **`install.sh` asks who may open the web UI** — only this machine, or any
+  device on the network — and records the answer in `.visualweaver.env`. Just
+  pressing Enter keeps it to this machine; a choice already recorded is kept,
+  and a run with no terminal is not asked. `.visualweaver.env.example` documents
+  the overrides.
+
 ## [1.13.2] — 2026-09-29
 
 ### Fixed
