@@ -7,13 +7,13 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 import logging
 import json
 import time
-from . import redis_store, state
+from . import appstore, state
 
 log = logging.getLogger(__name__)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SESSION PERSISTENCE (Redis-backed)
+# SESSION PERSISTENCE (the app store: Redis or MongoDB, see appstore)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _SESSION_PREFIX = "session:"
@@ -24,11 +24,11 @@ def _session_key(sid: str) -> str:
 
 
 def load_session(sid: str) -> list:
-    """Load a session's message list from Redis. Returns [] if not found or persistence disabled."""
+    """Load a session's message list from the app store. Returns [] if not found or persistence disabled."""
     if not state._config.get("sessions", {}).get("persist", True):
         return []
     try:
-        raw = redis_store.r().get(_session_key(sid))
+        raw = appstore.current().get(_session_key(sid))
         if raw:
             return json.loads(raw)
     except Exception:
@@ -126,34 +126,60 @@ def history_window(msgs: list, max_tokens: int = 3000, hard_cap: int = 20) -> li
 
 
 def save_session(sid: str, messages: list):
-    """Persist a session to Redis with the configured TTL."""
+    """Persist a session to the app store with the configured TTL."""
     if not state._config.get("sessions", {}).get("persist", True):
         return
     try:
         ttl = int(state._config.get("sessions", {}).get("ttl", 86400))
-        redis_store.r().setex(_session_key(sid), ttl, json.dumps(messages))
+        with appstore.gate.write():
+            appstore.current().set(_session_key(sid), json.dumps(messages), ttl if ttl > 0 else None)
     except Exception as e:
         log.warning(f"Session save failed for {sid}: {e}")
 
 
 def delete_session_from_redis(sid: str):
-    """Remove a session from Redis."""
+    """Remove a session from the app store."""
     try:
-        redis_store.r().delete(_session_key(sid))
+        with appstore.gate.write():
+            appstore.current().delete(_session_key(sid))
     except Exception:
         pass
 
 
+def session_summary(sid: str, msgs: list) -> dict:
+    """One sidebar row: the persisted title (set by the first answer) and the time of
+    the last turn, so a reloaded sidebar shows the same names in the same order."""
+    preview = ""
+    for m in reversed(msgs):
+        if m.get("role") == "assistant":
+            preview = m.get("content", "")[:60]
+            break
+    first_user = next((m for m in msgs if m.get("role") == "user"), None)
+    title = ((first_user or {}).get("meta") or {}).get("title") or None
+    updated = max([int((m.get("meta") or {}).get("ts") or 0) for m in msgs] or [0]) or None
+    return {"id": sid, "messages": len(msgs), "preview": preview, "title": title, "updated": updated}
+
+
+def set_title(sid: str, title: str) -> bool:
+    """Keep a conversation's title with the conversation (the first user turn's meta)."""
+    msgs = state._sessions.get(sid) or []
+    first_user = next((m for m in msgs if m.get("role") == "user"), None)
+    if first_user is None or not title:
+        return False
+    first_user.setdefault("meta", {})["title"] = title
+    return True
+
+
 def list_sessions_from_redis() -> list[dict]:
-    """Return session summaries from Redis, excluding sessions already in _sessions."""
+    """Return session summaries from the app store, excluding sessions already in _sessions."""
     result = []
     try:
-        client = redis_store.r()
-        # Collect keys first, then fetch all values in a single pipeline.
+        store = appstore.current()
+        # Collect keys first, then fetch all values in a single round trip.
         keys = []
         sids = []
-        for k in client.scan_iter(f"{_SESSION_PREFIX}*", count=200):
-            sid = k.decode().removeprefix(_SESSION_PREFIX)
+        for k in store.keys(_SESSION_PREFIX):
+            sid = k.removeprefix(_SESSION_PREFIX)
             if sid in state._sessions:
                 continue   # already handled by the in-memory dict
             keys.append(k)
@@ -162,21 +188,12 @@ def list_sessions_from_redis() -> list[dict]:
         if not keys:
             return result
 
-        pipe = client.pipeline(transaction=False)
-        for k in keys:
-            pipe.get(k)
-        values = pipe.execute()   # one round-trip for all GETs
+        values = store.mget(keys)   # one round-trip for all GETs
 
         for sid, raw in zip(sids, values):
             if not raw:
                 continue
-            msgs = json.loads(raw)
-            preview = ""
-            for m in reversed(msgs):
-                if m.get("role") == "assistant":
-                    preview = m.get("content", "")[:60]
-                    break
-            result.append({"id": sid, "messages": len(msgs), "preview": preview})
+            result.append(session_summary(sid, json.loads(raw)))
     except Exception:
         pass
     return result
@@ -188,7 +205,7 @@ def list_sessions_from_redis() -> list[dict]:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Per-turn usage lives in each turn's meta (above). This is the all-time counter
 # across every session, so the user can see what a provider/model has consumed
-# overall. One Redis hash, fields "<provider>:<model>:in|out|cached|cache_write".
+# overall. One hash in the app store, fields "<provider>:<model>:in|out|cached|cache_write".
 
 _USAGE_KEY = "usage:cumulative"
 
@@ -197,14 +214,13 @@ def record_usage(provider: str, model: str, usage: dict) -> None:
     """Add one turn's provider-reported counts to the all-time tally."""
     try:
         pfx = f"{provider}:{model}"
-        pipe = redis_store.r().pipeline(transaction=False)
-        pipe.hincrby(_USAGE_KEY, f"{pfx}:in",  int(usage.get("prompt", 0)))
-        pipe.hincrby(_USAGE_KEY, f"{pfx}:out", int(usage.get("completion", 0)))
+        inc = {f"{pfx}:in": int(usage.get("prompt", 0)), f"{pfx}:out": int(usage.get("completion", 0))}
         if usage.get("cached"):
-            pipe.hincrby(_USAGE_KEY, f"{pfx}:cached", int(usage["cached"]))
+            inc[f"{pfx}:cached"] = int(usage["cached"])
         if usage.get("cache_write"):   # Claude cache-creation tokens, billed ~1.25x input
-            pipe.hincrby(_USAGE_KEY, f"{pfx}:cache_write", int(usage["cache_write"]))
-        pipe.execute()
+            inc[f"{pfx}:cache_write"] = int(usage["cache_write"])
+        with appstore.gate.write():
+            appstore.current().hincrby(_USAGE_KEY, inc)
     except Exception as e:
         log.debug(f"usage tally skipped: {e}")
 
@@ -221,8 +237,7 @@ def usage_totals() -> dict:
     """
     out: dict = {}
     try:
-        for k, v in redis_store.r().hgetall(_USAGE_KEY).items():
-            k = k.decode() if isinstance(k, bytes) else k
+        for k, v in appstore.current().hgetall(_USAGE_KEY).items():
             pfx, _, kind = k.rpartition(":")
             out.setdefault(pfx, {})[kind] = int(v)
     except Exception:
@@ -234,6 +249,7 @@ def clear_usage() -> None:
     """Reset the all-time tally. Per-turn usage already stored in session
     history is untouched — this only zeroes the cumulative counter."""
     try:
-        redis_store.r().delete(_USAGE_KEY)
+        with appstore.gate.write():
+            appstore.current().delete(_USAGE_KEY)
     except Exception as e:
         log.debug(f"usage clear skipped: {e}")

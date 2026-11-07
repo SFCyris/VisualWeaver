@@ -19,7 +19,7 @@ import numpy as np
 import redis
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from . import appcore, config, constants, crawler, embeddings, ingest, rag, rag_admin, routes_instances
+from . import appcore, config, constants, crawler, embeddings, ingest, mongo_store, rag, rag_admin, routes_instances
 from . import state as _ns_state
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ async def api_ingest_files(instance: str, files: list[UploadFile] = File(...), e
                 413, f"{f.filename!r} is {len(blob) // (1024 * 1024)} MB; the limit is "
                      f"{config._MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
                      f"(raise VISUALWEAVER_MAX_UPLOAD_MB to change it)")
-        dest.write_bytes(blob)
+        await asyncio.to_thread(dest.write_bytes, blob)   # up to 100 MB: not on the loop
         result = await ingest.ingest_file(instance, dest, safe_name, rc)
         results.append(result)
         # Remove the uploaded file now that it has been indexed — the content
@@ -91,7 +91,7 @@ async def api_ingest_files_stream(instance: str, files: list[UploadFile] = File(
                 413, f"{f.filename!r} is {len(blob) // (1024 * 1024)} MB; the limit is "
                      f"{config._MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
                      f"(raise VISUALWEAVER_MAX_UPLOAD_MB to change it)")
-        dest.write_bytes(blob)
+        await asyncio.to_thread(dest.write_bytes, blob)   # up to 100 MB: not on the loop
         saved.append((dest, safe_name))
 
     # Register the job before the first event so /api/ingest/active can see it and
@@ -199,6 +199,9 @@ def api_optimize_rag(instance: str, endpoint: str | None = None):
     Returns: {removed, remaining, total_before}
     """
     rc = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        removed, remaining, total = mongo_store.optimize(rc, instance)
+        return {"removed": removed, "remaining": remaining, "total_before": total}
     prefix = rag.rag_prefix(instance)
 
     seen: dict[str, str] = {}   # hash → first key that owns it
@@ -301,7 +304,7 @@ async def api_ingest_text(instance: str, payload: dict, endpoint: str | None = N
 
     rc = rag_admin._rc_for(instance, endpoint)
     chunks = await asyncio.to_thread(ingest.ingest_text, instance, text, source, rc)
-    config.append_log({
+    await asyncio.to_thread(config.append_log, {
         "ts": datetime.now(timezone.utc).isoformat(),
         "instance": instance, "source": source, "chunks": chunks,
         "status": "ok" if chunks else "skipped",
@@ -386,7 +389,8 @@ async def api_ingest_url(instance: str, payload: dict, endpoint: str | None = No
     # /api/crawl/cancel unable to find either.
     url              = crawler._strip_fragment(payload.get("url", ""))
     try:
-        crawler.assert_public_url(url)          # SSRF guard on the seed URL
+        # SSRF guard on the seed URL. Resolving the host blocks: keep it off the loop.
+        await asyncio.to_thread(crawler.assert_public_url, url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"URL rejected: {e}")
     depth            = int(payload.get("depth", 0))
@@ -478,7 +482,8 @@ async def api_ingest_url_stream(
     url = crawler._strip_fragment(url)
 
     try:
-        crawler.assert_public_url(url)          # SSRF guard on the seed URL
+        # SSRF guard on the seed URL. Resolving the host blocks: keep it off the loop.
+        await asyncio.to_thread(crawler.assert_public_url, url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"URL rejected: {e}")
 
@@ -590,6 +595,13 @@ _EXPORT_BATCH  = 200          # hgetall commands per pipeline call
 _EXPORT_BUFSIZE = 256 * 1024  # bytes to accumulate before yielding an NDJSON chunk
 
 
+def _iter_instance_chunks(rc, instance: str):
+    """Export rows for one instance from whichever backend holds it."""
+    if mongo_store.is_mongo(rc):
+        return mongo_store.iter_chunks(rc, instance, embeddings.vector_field_for())
+    return _iter_chunks_pipelined(rc, rag.rag_prefix(instance))
+
+
 def _iter_chunks_pipelined(rc: redis.Redis, prefix: str):
     """
     Yield chunk dicts from Redis efficiently:
@@ -638,10 +650,8 @@ def api_export_rag(instance: str, endpoint: str | None = None):
     lets the data flow straight to the client, cutting export time by 50-80%.
     """
     rc     = rag_admin._rc_for(instance, endpoint)
-    prefix = rag.rag_prefix(instance)
-    chunks = list(_iter_chunks_pipelined(rc, prefix))
-    meta_raw = rc.get(f"rag_meta:{instance}")
-    meta     = json.loads(meta_raw) if meta_raw else {}
+    chunks = list(_iter_instance_chunks(rc, instance))
+    meta   = rag_admin.meta_get(rc, instance) or {}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         zf.writestr("meta.json",   json.dumps(meta))
@@ -665,18 +675,16 @@ def api_export_rag_stream(instance: str, endpoint: str | None = None):
     - output buffered to _EXPORT_BUFSIZE before yielding → fewer HTTP frames
     """
     rc     = rag_admin._rc_for(instance, endpoint)
-    prefix = rag.rag_prefix(instance)
 
     def generate():
-        meta_raw = rc.get(f"rag_meta:{instance}")
-        meta = json.loads(meta_raw) if meta_raw else {}
+        meta = rag_admin.meta_get(rc, instance) or {}
         yield json.dumps({"_t": "meta", **meta}) + "\n"
 
         count    = 0
         out_buf: list[str] = []
         out_size = 0
 
-        for chunk in _iter_chunks_pipelined(rc, prefix):
+        for chunk in _iter_instance_chunks(rc, instance):
             line = json.dumps({"_t": "chunk", **chunk}) + "\n"
             out_buf.append(line)
             out_size += len(line)
@@ -741,16 +749,22 @@ async def api_import_rag(instance: str, file: UploadFile = File(...), endpoint: 
     prefix = rag.rag_prefix(instance)
 
     def _do_import():
+        if mongo_store.is_mongo(rc):
+            rag.ensure_rag_index(instance, rc)   # fails before any metadata is written
         # The whole import — read existing meta, write meta, build the index, embed and
         # pipeline the chunks, sync the counter — is synchronous Redis/CPU work. Run it in
         # one thread so a large import never blocks the event loop (nor other sessions).
-        existing_meta_raw = rc.get(f"rag_meta:{instance}")
-        if existing_meta_raw:
-            existing_meta = json.loads(existing_meta_raw)
+        existing_meta = rag_admin.meta_get(rc, instance)
+        if existing_meta:
             meta["redis_endpoint"] = existing_meta.get("redis_endpoint", "default")
             meta.setdefault("color",   existing_meta.get("color",   "#6366f1"))
+            meta["color"] = rag_admin.safe_color(meta.get("color"))
             meta.setdefault("enabled", existing_meta.get("enabled", True))
-        rc.set(f"rag_meta:{instance}", json.dumps(meta))
+        else:
+            # A new instance lives where it is being imported to, not wherever the
+            # export says it came from (another server, or another kind of storage).
+            meta["redis_endpoint"] = endpoint or "default"
+        rag_admin.meta_set(rc, instance, meta)
 
         rag.ensure_rag_index(instance, rc)
         # An exported vector carries the width of whatever model was active when it was
@@ -767,6 +781,25 @@ async def api_import_rag(instance: str, file: UploadFile = File(...), endpoint: 
         except Exception:
             expect_bytes = 0        # cannot determine the width: import as-is rather than guess
         reembedded = 0
+        if mongo_store.is_mongo(rc):
+            rows = []
+            for ch in chunks_raw:
+                emb_b64   = ch.get("embedding_b64", "")
+                emb_bytes = base64.b64decode(emb_b64) if emb_b64 else b""
+                if emb_bytes and expect_bytes and len(emb_bytes) != expect_bytes:
+                    emb_bytes, reembedded = b"", reembedded + 1
+                vec = (np.frombuffer(emb_bytes, dtype=np.float32) if emb_bytes
+                       else embeddings.embed(ch["text"]).astype(np.float32))
+                try:
+                    rows.append({"id": int(ch["id"]), "text": ch["text"], "source": ch.get("source", ""),
+                                 "vector": vec})
+                except (ValueError, TypeError, KeyError):
+                    continue
+            mongo_store.import_rows(rc, instance, rows, vec_field, embeddings.embedding_id_for(), rag.doc_id_for)
+            if reembedded:
+                log.warning(f"import into '{instance}': re-embedded {reembedded} chunk(s) whose "
+                            f"stored vector did not match the active model's width")
+            return
         pipe = rc.pipeline(transaction=False)
         for ch in chunks_raw:
             emb_b64   = ch.get("embedding_b64", "")

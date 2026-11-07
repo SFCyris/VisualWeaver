@@ -6,9 +6,11 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
 import asyncio
+import copy
 import os
+import platform
 import socket
-from . import appcore, cache, config, constants, embeddings, rag, rag_admin, redis_store, state, ws
+from . import appcore, cache, config, constants, embeddings, mongo_store, pagetext, rag, rag_admin, redis_store, state, ws
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +33,108 @@ def _primary_lan_ip() -> str | None:
         s.close()
 
 
+_STORAGE_CHOICES = ("redis", "mongodb", "both")
+LOCAL_MONGODB = "local-mongodb"
+
+
+def _mongodb_from_env() -> dict | None:
+    """The built-in MongoDB connection from VISUALWEAVER_MONGODB_URI / _USERNAME /
+    _PASSWORD / _DATABASE, or None when no usable URI is set. Credentials inside the URI
+    are moved to username/password, as a connection saved in Settings has them."""
+    raw = os.environ.get("VISUALWEAVER_MONGODB_URI", "").strip()
+    if not raw:
+        return None
+    uri, u_user, u_pw = mongo_store.split_uri_credentials(mongo_store.server_uri(raw))
+    if not uri.startswith(("mongodb://", "mongodb+srv://")):
+        log.warning("  VISUALWEAVER_MONGODB_URI is not a MongoDB server or connection string — ignored")
+        return None
+    password = os.environ.get("VISUALWEAVER_MONGODB_PASSWORD", "") or u_pw
+    if mongo_store.is_password_placeholder(password):
+        log.warning("  VISUALWEAVER_MONGODB_URI still holds the <db_password> placeholder; set "
+                    "VISUALWEAVER_MONGODB_PASSWORD — ignored")
+        return None
+    database = os.environ.get("VISUALWEAVER_MONGODB_DATABASE", "").strip() or mongo_store.DEFAULT_DB
+    if not mongo_store.valid_database_name(database):
+        log.warning(f"  VISUALWEAVER_MONGODB_DATABASE={database!r} is not a valid database name "
+                    f"— using {mongo_store.DEFAULT_DB!r}")
+        database = mongo_store.DEFAULT_DB
+    state._mongodb_env_password = password
+    return {"type": "mongodb", "uri": uri,
+            "username": os.environ.get("VISUALWEAVER_MONGODB_USERNAME", "").strip() or u_user,
+            "password": password, "database": database, "builtin": True}
+
+
+def apply_ollama_env() -> None:
+    """VISUALWEAVER_OLLAMA_URL (e.g. http://host.docker.internal:11434): where Ollama is
+    when the app runs in a container, where "localhost" is the container itself. It
+    applies only while the Ollama setting is still the shipped default — an address
+    chosen in Settings always wins — and is never written to config.json."""
+    url = os.environ.get("VISUALWEAVER_OLLAMA_URL", "").strip()
+    if not url:
+        return
+    from urllib.parse import urlsplit
+    o = state._config.setdefault("ollama", {})
+    default = constants.DEFAULT_CONFIG["ollama"]
+    if (o.get("host"), int(o.get("port") or 0)) != (default["host"], default["port"]):
+        log.info(f"  Ollama:            env ignored — Settings chose {o.get('host')}:{o.get('port')}")
+        return
+    try:
+        p = urlsplit(url if "://" in url else f"http://{url}")
+        host, port = f"{p.scheme or 'http'}://{p.hostname}", int(p.port or default["port"])
+    except ValueError:
+        log.warning(f"  Ollama:            VISUALWEAVER_OLLAMA_URL={url!r} is not a URL — ignored")
+        return
+    o["host"], o["port"] = host, port
+    state._ollama_env_url = f"{host}:{port}"
+    log.info(f"  Ollama:            env ({host}:{port})")
+
+
+def apply_storage_env() -> None:
+    """VISUALWEAVER_STORAGE=redis|mongodb|both with VISUALWEAVER_MONGODB_* (the Docker
+    Compose deployment), applied to this run on top of config.json:
+
+    mongodb + URI → the built-in "default" connection is that MongoDB;
+    both + URI    → that MongoDB is the built-in connection "local-mongodb" (or, when
+                    the built-in store already is MongoDB, the built-in MongoDB itself);
+    otherwise     → nothing changes: config.json (written by the installer) describes
+                    the stores, and VISUALWEAVER_STORAGE alone only records the choice.
+
+    The built-in store is never switched to Redis from here — the data on "default"
+    would vanish from view. Nothing from the environment is written to config.json
+    (state._storage_env_overlay keeps what it replaced; config.save_config writes that).
+    """
+    choice = os.environ.get("VISUALWEAVER_STORAGE", "").strip().lower()
+    if not choice:
+        return
+    if choice not in _STORAGE_CHOICES:
+        log.warning(f"  VISUALWEAVER_STORAGE={choice!r} is not one of {', '.join(_STORAGE_CHOICES)} — ignored")
+        return
+    mongo = _mongodb_from_env() if choice in ("mongodb", "both") else None
+    if not isinstance(state._config.get("storage"), dict):
+        state._config["storage"] = {}
+    storage = state._config["storage"]
+    ov = state._storage_env_overlay
+    ov.clear()
+    if mongo and (choice == "mongodb" or storage.get("default_type") == "mongodb"):
+        ov["default_type"] = storage.get("default_type")
+        ov["mongodb"] = copy.deepcopy(state._config.get("mongodb"))
+        state._config["mongodb"] = {**(state._config.get("mongodb") or {}), **mongo}
+        storage["default_type"] = "mongodb"
+        log.info(f"  Storage:           env ({choice}) — built-in MongoDB at {mongo_store.display_host(mongo['uri'])}")
+    elif mongo:
+        eps = state._config.get("redis_endpoints") or []
+        before = next((e for e in eps if isinstance(e, dict) and e.get("name") == LOCAL_MONGODB), None)
+        ov["endpoint"] = (LOCAL_MONGODB, copy.deepcopy(before))
+        state._config["redis_endpoints"] = ([e for e in eps if e is not before]
+                                            + [{"name": LOCAL_MONGODB, **mongo}])
+        log.info(f"  Storage:           env ({choice}) — '{LOCAL_MONGODB}' at {mongo_store.display_host(mongo['uri'])}")
+    else:
+        if choice == "mongodb" and redis_store.default_type() != "mongodb":
+            log.warning("  VISUALWEAVER_STORAGE=mongodb, but VISUALWEAVER_MONGODB_URI is not set and "
+                        "config.json's built-in store is Redis — staying on it")
+        log.info(f"  Storage:           env ({choice}) — as config.json describes")
+
+
 @appcore.app.on_event("startup")
 async def startup():
     """
@@ -47,6 +151,10 @@ async def startup():
 
     log.info("=" * 60)
     log.info(f"VisualWeaver v{constants.__version__} — startup diagnostics")
+    log.info(f"  Python:   {platform.python_version()}")
+    from . import routes_storage   # late: the routes load after startup
+    log.info("  Libraries: " + ", ".join(f"{l['name']} {l['version'] or 'not installed'}"
+                                         for l in routes_storage.libraries()))
     log.info(f"  Config:   {constants.CONFIG_PATH} ({'found' if constants.CONFIG_PATH.exists() else 'NOT FOUND — using defaults'})")
     log.info(f"  Provider: {state._config.get('provider', 'ollama')}")
 
@@ -160,13 +268,23 @@ async def startup():
         state._config.setdefault("redis", {})["port"] = int(_redis_port_env)
         log.info(f"  REDIS port:        env ({_redis_port_env})")
 
+    apply_storage_env()
+    apply_ollama_env()
+
     rc = state._config.get("redis", {})
     log.info(f"  Ollama:   {state._config.get('ollama', {}).get('host')}:{state._config.get('ollama', {}).get('port')}")
-    log.info(f"  Redis:    {rc.get('host')}:{rc.get('port')}  db={rc.get('db', 0)}")
+    if redis_store.default_type() == "mongodb":
+        log.info(f"  Storage:  built-in MongoDB at "
+                 f"{mongo_store.display_host((state._config.get('mongodb') or {}).get('uri', ''))}")
+    else:
+        log.info(f"  Redis:    {rc.get('host')}:{rc.get('port')}  db={rc.get('db', 0)}")
+    _app = (state._config.get("storage") or {}).get("app") or "default"
+    if _app != "default":
+        log.info(f"  App data: connection '{_app}'")
 
     extra = state._config.get("redis_endpoints", [])
     if extra:
-        log.info(f"  Extra Redis endpoints: {[e.get('name') for e in extra]}")
+        log.info(f"  Extra storage connections: {[e.get('name') for e in extra]}")
     log.info("=" * 60)
 
     # ── All slow work runs in background so startup returns immediately ────
@@ -181,6 +299,13 @@ async def startup():
         # after a restart — had nothing to show.
         await asyncio.to_thread(rag_admin.load_rag_stats)
         log.info(f"  Endpoint health: { {k: ('OK' if v else 'OFFLINE') for k, v in state._endpoint_health.items()} }")
+        # What each connection runs, built-in first (short timeouts, probed in parallel).
+        try:
+            from . import routes_storage
+            for line in await asyncio.to_thread(routes_storage.component_log_lines):
+                log.info(f"  Storage {line}")
+        except Exception as e:
+            log.warning(f"  Storage components: could not be read ({e})")
 
         # 2. Warm up embedding model (5-15 s, CPU-bound)
         try:
@@ -235,3 +360,8 @@ async def startup():
     state._watch_task = asyncio.create_task(ws._watch_folder_loop())
     log.info("  Watched-folder scanner: started")
 
+
+@appcore.app.on_event("shutdown")
+async def on_shutdown():
+    """Stop the page-extraction worker processes (pagetext) with the server."""
+    await asyncio.to_thread(pagetext.shutdown)

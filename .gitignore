@@ -64,6 +64,8 @@ _backup_pre_restructure_*/
 # empty template (config.example.json) is tracked.
 config.json
 .visualweaver.env
+.visualweaver.env.*
+!.visualweaver.env.example
 *.env
 !.env.example
 

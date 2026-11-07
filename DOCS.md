@@ -15,7 +15,7 @@
 7. [Ingesting Content](#ingesting-content)
 8. [Multi-RAG Parallel Queries](#multi-rag-parallel-queries)
 9. [Semantic Cache](#semantic-cache)
-10. [Multiple Redis Endpoints](#multiple-redis-endpoints)
+10. [Storage Connections](#storage-connections)
 11. [Settings Reference](#settings-reference)
 12. [Keyboard Shortcuts](#keyboard-shortcuts)
 13. [Keeping an answer](#keeping-an-answer)
@@ -24,8 +24,9 @@
 16. [Architecture](#architecture)
 17. [Configuration File](#configuration-file)
 18. [Backup and Restore](#backup-and-restore)
-19. [Optional Dependencies](#optional-dependencies)
-20. [Acknowledgments & License](#acknowledgments--license)
+19. [Running and Maintenance](#running-and-maintenance)
+20. [Optional Dependencies](#optional-dependencies)
+21. [Acknowledgments & License](#acknowledgments--license)
 
 ---
 
@@ -64,15 +65,15 @@ VisualWeaver is a single-server, self-hosted application that lets you:
 # → Open http://localhost:8420
 ```
 
-Or with containers — pull the prebuilt multi-arch app image (from GitHub's Container Registry) plus Redis, then start:
+Or with containers — one command chooses the storage (Redis, MongoDB or both), pulls the prebuilt multi-arch app image and the stores, starts them, waits until they are ready and prints the address:
 
 ```bash
-docker compose pull      # ghcr.io/sfcyris/visualweaver:latest + redis:8
-docker compose up -d     # → http://localhost:8420
-docker compose stop      # stop later (docker compose down to remove containers; data volume persists)
+./docker.sh up           # asks: redis | mongodb | both  (or ./docker.sh up mongodb)
+./docker.sh status       # address, versions
+./docker.sh stop         # stop later; everything is kept
 ```
 
-See the README for details.
+Plain Compose works too: `COMPOSE_PROFILES=mongodb docker compose up -d` (unset = Redis, `mongodb`, `both`). See the README's Docker section for every command.
 
 On first launch a `config.json` is created (with defaults) in the per-platform data directory — `~/Library/Application Support/VisualWeaver` on macOS, `~/.local/share/visualweaver` on Linux — not in the repo. Configure Redis and your LLM provider via **Settings** before chatting.
 
@@ -139,7 +140,7 @@ Click the 📎 button or drag an image directly onto the input box. Images are s
 
 ### Voice input
 
-Click the 🎤 microphone button to toggle speech-to-text. Transcribed text is inserted into the input field.
+Click the 🎤 microphone button to toggle speech-to-text. Transcribed text is added to the input field in the browser's language. Voice input uses the browser's own speech recognition, and some browsers send the audio to their vendor's online service to transcribe it, as the 🎤 tooltip says.
 
 ### Token count
 
@@ -234,7 +235,7 @@ Notes:
 - **`scene` navigation:** drag to rotate, wheel to zoom, shift-drag to pan; **⟲ Reset view** returns to the starting camera and **⬇ PNG** saves the current view. Under the canvas, **Rotate**, **Tilt** and **Zoom** sliders show the current view and drive it, and **↻ Spin** turns the scene continuously until you touch it.
 - **Lazy loading:** the heavier renderers — Chart.js, Mermaid, Viz.js, JSXGraph, Leaflet, Plotly, SmilesDrawer, 3Dmol.js, three.js and highlight.js — are fetched only the first time a block of that type appears, so they cost nothing at page load. Markdown, sanitising, math and music (marked, DOMPurify, KaTeX, math.js, abcjs) load with the page because they are needed for ordinary answers.
 - **Maximize and save as image:** every visual card (chart, diagram, plot, map, geometry, molecule, 3D molecule, 3-D scene) has an ⛶ **Maximize** button that opens it full-viewport, and most also have a ⬇ **PNG** button. Not offered on `map` (no rasteriser wired up) or the plain-data lanes (`table`, `diff`, `regex`, `calc`, `solve`, `stats`, `truth`) — those aren't rasterised images.
-- **Third-party requests:** all renderer libraries are served from a public CDN (cdnjs, plus jsDelivr for SmilesDrawer), so rendering is not fully offline. In addition, ` ```map ` fetches map tiles from `tile.openstreetmap.org` at view time — the only lane that sends *content-derived* data (the requested coordinates) to a third party. For an air-gapped deployment, vendor the libraries and serve them locally.
+- **Third-party requests:** all renderer libraries are served from a public CDN (cdnjs, plus jsDelivr for SmilesDrawer, Viz.js and the Noto Music font that draws music notation), so rendering is not fully offline. Without the font, diagrams show common symbols (♩ ♪ ♬ ○) in place of notation it would draw. In addition, ` ```map ` fetches map tiles from `tile.openstreetmap.org` at view time — the only lane that sends *content-derived* data (the requested coordinates) to a third party. For an air-gapped deployment, vendor the libraries and serve them locally.
 - **Safety:** SVG and diagram output is sanitised (DOMPurify) before insertion, and ` ```geometry ` accepts data only — never function or code strings.
 
 ### Rendering examples
@@ -353,7 +354,7 @@ Click **⌖ only this** on any chunk in the inspector — or the ⌖ button in t
 
 ### When nothing matches
 
-If retrieval runs and finds nothing above the similarity threshold, the answer is marked **📭 No KB match** and the model states plainly that it is answering from general knowledge rather than your documents. Click the badge to open the RAG threshold setting.
+If retrieval runs and finds nothing above the similarity threshold, the answer is marked **📭 No KB match** and the model states plainly that it is answering from general knowledge rather than your documents. When the knowledge base searched holds no documents at all, the badge says so instead — **📭 “name” is empty**. Click the badge to open Settings → RAG.
 
 <p align="center">
   <img src="screenshots/rendering/no-kb-match.png" alt="An answer marked with a No KB match badge" width="88%">
@@ -396,7 +397,7 @@ Sessions are listed in the left sidebar. Click any session to switch to it, or t
 
 The foot of the sidebar holds the actions that apply to the conversation you are in — **Export Chat** as `.md` or `.txt`, and **🗑 Clear Chat**, which empties the current conversation after a confirmation and leaves every other one alone.
 
-Conversations are **persisted in Redis and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically. The sidebar lists conversations started in *this* browser; because VisualWeaver has no user accounts, it deliberately does not list sessions created elsewhere.
+Conversations are **persisted in the app-data store (see [Storage Connections](#storage-connections)) and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically. The sidebar lists conversations started in *this* browser; because VisualWeaver has no user accounts, it deliberately does not list sessions created elsewhere.
 
 Each message records the provider and model that produced it. Sessions are automatically titled from the first message.
 
@@ -412,7 +413,7 @@ Each message records the provider and model that produced it. Sessions are autom
 
 1. Open **Settings → RAG**
 2. Click **＋ New Instance**
-3. Enter a name (letters, numbers, hyphens), pick a colour, and optionally select a Redis endpoint
+3. Enter a name (letters, numbers, hyphens), pick a colour, and choose **Storage** — the built-in Redis, or a Redis or MongoDB connection added under **Settings → Storage**
 4. Click **Create**
 
 ### Instance controls
@@ -693,35 +694,64 @@ deliberately bypassed.
 
 Every cached message has two action buttons:
 
-- **🗑 Uncache** — Removes just that one cache entry from Redis. Future queries that would have matched it will go to the LLM instead.
+- **🗑 Uncache** — Removes just that one cache entry. Future queries that would have matched it will go to the LLM instead.
 - **↺ Re-run fresh** — Bypasses the cache for this query only, re-generates a fresh response, and the new answer automatically updates the cache.
 
 Clear the entire cache in **Settings → Cache → 🗑 Clear Cache**.
 
-> **Note:** The semantic cache requires Redis Stack (RediSearch module). If your Redis instance does not have the Search module, the cache is silently disabled and a single warning is logged on startup.
+### Where the cache is stored
+
+The cache is kept on the same storage connection as the app's own data — Redis or MongoDB — and behaves the same on both: the same similarity threshold, TTL, matching rules and analytics.
+
+- **Redis** needs the Search module (Redis 8, Redis Stack or Redis Enterprise). Without it the cache is disabled and a warning is logged.
+- **MongoDB** needs vector search (MongoDB Atlas, or MongoDB 8.3+ with the search process, such as the built-in MongoDB). The cache uses the collection `vw_cache` and one search index, `vw_cache_vector`, in the connection's database. On a connection that also holds RAG instances that makes three search indexes, the limit of Atlas's free tier; where no further search index can be created, the cache is disabled and a warning is logged. On a new database the index needs a moment to build (about a second on the built-in MongoDB); until then questions are answered live and new answers are stored. A new answer can be matched within about a second of being stored.
+
+Each connection keeps its own cache entries. When the app's data moves to another connection, the cache uses the entries stored there — none, the first time — and the entries on the previous connection stay where they are.
 
 ---
 
-## Multiple Redis Endpoints
+## Storage Connections
 
-Each RAG instance can be stored on a different Redis server. This allows horizontal scaling across Redis Enterprise databases.
+A RAG instance is stored on the built-in store unless it is assigned to another **storage connection**: a further Redis server, or a MongoDB database — self-hosted or MongoDB Atlas.
 
-### Adding an endpoint
+The built-in store is the connection named `default`: the built-in Redis, or the built-in MongoDB on an installation that chose MongoDB (`storage.default_type` in `config.json`). When both are installed, the second one is the built-in connection `local-mongodb` (or `local-redis`). Built-in connections cannot be removed.
 
-1. **Settings → Redis → Additional Redis Endpoints**
-2. Click **＋ Add Endpoint**
-3. Fill in name, host, port, password, database index, and SSL toggle
-4. Click **Add**
+### Where the app keeps its own data
 
-### Assigning an instance to an endpoint
+Conversations, the token-usage tally, retrieval stats, watched-folder state and the semantic cache live on one connection with vector search — the built-in store unless another is chosen (`storage.app`, set with `POST /api/storage/app`). Moving to another connection copies conversations (each keeps its remaining lifetime; one already on the new store is replaced), and the usage tally, retrieval stats and watched-folder state become exactly those of the previous store. The previous store keeps its copy, and the semantic cache starts empty on the new one. Answers finishing during the move wait for it and are saved on the new store. A connection that cannot be reached, or has no vector search, cannot be chosen; the connection holding the app data cannot be removed or change type. When the previous store cannot be reached any more, the move can be made without copying.
 
-When creating a new RAG instance, the **Redis Endpoint** dropdown lists all configured endpoints.
+### Adding a connection
+
+1. **Settings → Storage → Connections for RAG instances**
+2. Click **＋ Add connection** and choose **Redis** or **MongoDB**
+3. Redis: name, host, port, password, database index and TLS. MongoDB: name, server, username, password and database. The server is the Atlas cluster address (`cluster0.xxxxx.mongodb.net`) or `host:27017`, and the connection string is built from it; a whole connection string works too. The Atlas string from **Connect → Drivers** (`mongodb+srv://user:<db_password>@cluster0…`) can be pasted as it is: the username and password move to their fields, and the placeholder leaves the cursor in **Password**
+4. **🔌 Test** checks the values before saving; **Add connection** saves them
+
+MongoDB's search process stops building indexes when the disk holding them is over 85 % full, resumes below 80 %, and stops updating existing ones above 90 % — searches then miss new documents without an error. For the built-in MongoDB that disk is the container runtime's (the Docker / Colima VM disk on macOS); `./start.sh`, `./install.sh` and `./docker.sh` warn from 80 %.
+
+A connection must be able to search vectors to hold an instance:
+
+| Kind | Requirement |
+|---|---|
+| Redis | The Search module — Redis 8, Redis Stack or Redis Enterprise |
+| MongoDB | MongoDB Atlas, or MongoDB 8.3+ with the search process (`mongot`), such as the built-in MongoDB the installer sets up |
+
+A connection without vector search is shown as **No vector search** and cannot be chosen for an instance.
+
+### Assigning an instance
+
+When creating a new RAG instance, the **Storage** dropdown lists the built-in store and every connection, with its kind and address.
+
+### MongoDB layout
+
+All instances on one MongoDB connection share these collections in its database: `vw_chunks` (chunks with their embeddings), `vw_meta` (instance metadata), `vw_hashes` (deduplication), `vw_urls` (crawled pages) and `vw_counters` (chunk ids), plus two search indexes on `vw_chunks`: `vw_vector` (vector search) and `vw_text` (keyword search). A connection holding the app data also has `vw_kv` (conversations and other values, with their expiry) and `vw_hash` (the usage tally and watched-folder state). Retrieval is hybrid on MongoDB as on Redis — a vector leg and a keyword leg fused with Reciprocal Rank Fusion — and scores use the same cosine scale, so the similarity threshold means the same on either. Search indexes build in the background: until they are ready, searches on a new connection return nothing, and freshly ingested chunks become searchable once the server has indexed them. Changing the embedding model rebuilds the vector index for the new model; chunks embedded with the previous model are searchable again after re-ingesting.
 
 ### How routing works
 
-- `rc_for_instance(name)` searches **all configured endpoints** for the instance's metadata key (`rag_meta:{name}`)
-- Queries, ingestion, exports, and deduplication are automatically routed to the correct server
-- Parallel 🔀 mode fans out to multiple servers concurrently using `asyncio.gather`
+- An instance's metadata records its connection; `rc_for_instance(name)` looks it up on the built-in connection first, then on each other connection
+- Queries, ingestion, exports, document deletes and deduplication go to the connection that holds the instance
+- Exports are the same format on every kind of storage, so an export from one imports into another
+- Parallel 🔀 mode fans out to every instance's storage concurrently using `asyncio.gather`
 
 ---
 
@@ -734,8 +764,8 @@ Settings are organised into tabbed groups. See [SETTINGS.md](SETTINGS.md) for a 
 #### 💡 Status
 Live health check for all connected services. Shows Redis version, Ollama availability, and API key validity. Local checks (Redis, Ollama) run every 30 seconds; cloud provider key checks run every 5 minutes.
 
-#### 🗄 Redis
-Configure the primary Redis connection (host, port, db, password, SSL). Manage additional named endpoints. Memory usage monitor.
+#### 🗄 Storage
+Shows the built-in Redis (host, port, db, password, SSL — set up by the installer and read-only here) and its memory monitor, and manages the connections RAG instances can be stored on — further Redis servers and MongoDB databases.
 
 ### Group 2 — Knowledge
 
@@ -777,7 +807,7 @@ The card header shows:
 Create, edit, and delete named system prompts.
 
 #### 🔐 Security
-VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. `install.sh` asks whether the web UI is for this machine only or any device on the network and records the answer in `.visualweaver.env` (`VISUALWEAVER_HOST=127.0.0.1` or `0.0.0.0`; edit the file to change it), and put a reverse proxy with HTTPS + auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
+VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. `install.sh` asks whether the web UI is for this machine only or any device on the network and records the answer in `.visualweaver.env` (`VISUALWEAVER_HOST=127.0.0.1` or `0.0.0.0`); change it later with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with HTTPS + auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`). Because there is no login, the app refuses requests that another website makes from your browser (another site's page cannot use the chat or change settings), and it answers browsers only for host names an outsider cannot own — IP addresses, `localhost`, single-word intranet names, names ending in `.local`, `.lan`, `.internal` or `.home.arpa`, and this machine's own name. To reach it under any other name, such as a reverse proxy's domain, list that name in `VISUALWEAVER_ALLOWED_HOSTS` (comma-separated; `*.example.com` matches subdomains); `deploy/docker-compose.https.yml` sets it next to the Caddy domain.
 
 ### Group 5 — Diagnostics
 
@@ -791,10 +821,10 @@ Every message raised this session (see [Notifications](#notifications)), then th
 
 The panel mixes two kinds of control, and says which is which:
 
-- **Staged until you press Save Settings** — API keys, model choices, RAG and cache tuning, prompt templates, crawl defaults, and the selected provider
-- **Applied as you change them** — RAG instances and Redis endpoints. The sections that behave this way say so in place
+- **Staged until you press Save Settings** — API keys, RAG and cache tuning, web sources, watched folders, prompt templates, crawl defaults, a **Reset Defaults**, and the provider saved as the default
+- **Applied as you change them** — RAG instances and storage connections. The sections that behave this way say so in place
 
-Editing a staged control marks the panel **Unsaved changes**, and closing it then — with Cancel, Escape or a click outside — asks before discarding. Switching provider counts as an edit: it takes effect in the browser straight away but is only remembered once you save.
+Editing a staged control marks the panel **Unsaved changes**, and closing it then — with Cancel, ✕, Escape or a click outside — asks, and **Discard changes** puts every staged edit back. A provider or model you switch to stays selected in this browser either way; saving also makes it the default for other browsers.
 
 <p align="center">
   <img src="screenshots/features/unsaved-settings.png" alt="A dialog asking whether to discard unsaved settings, explaining which changes are staged and which were already applied" width="62%">
@@ -851,10 +881,10 @@ Open **Settings → Analytics** for live performance statistics.
 
 ### Session-level metrics
 
-- **Total Queries** — messages sent this session
-- **Cache Hits** — how many were served from the semantic cache
-- **Hit Rate** — cache hits / total queries
-- **Avg Latency** — mean end-to-end response time
+- **Queries this session** — messages sent from this browser tab since the page was loaded
+- **Cache hits this session** — how many of those were served from the semantic cache
+- **Hit rate this session** — cache hits / queries
+- **Avg latency this session** — mean end-to-end response time
 - **Latency Distribution** — histogram across five buckets: <200ms, 200–500ms, 500ms–1s, 1–3s, >3s
 
 ### RAG Performance — per instance
@@ -934,8 +964,8 @@ All endpoints are served at `http://localhost:8420`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | App status: `{status, app, version, license, source, provider, services: {...}}`. `status` is `"degraded"` only if `config.json` failed to parse — Redis reachability is checked separately below |
-| `GET` | `/api/status/redis` | Ping primary Redis |
-| `GET` | `/api/status/redis/{endpoint}` | Ping named endpoint |
+| `GET` | `/api/status/redis` | Ping the built-in connection and refresh every connection's health: `{ok, type, version, search_available, endpoint_health}` (`type` is `redis` or `mongodb`) |
+| `GET` | `/api/status/redis/{endpoint}` | Ping a named connection (`default` is the built-in one) |
 | `GET` | `/api/status/ollama` | Test Ollama server |
 | `GET` `POST` | `/api/status/claude` | Verify the Claude API key. `GET` checks the configured key; `POST {"key": "..."}` tests an unsaved one — the key travels in the body so it never reaches an access log or browser history |
 | `GET` `POST` | `/api/status/openai` | Verify the OpenAI API key. `GET` checks the configured key; `POST {"key": "..."}` tests an unsaved one — the key travels in the body so it never reaches an access log or browser history |
@@ -963,26 +993,34 @@ set up from one that is set up and failing.
 | `GET` | `/api/gemini/models` | List Gemini models |
 | `GET` | `/api/embedding/models` | List the embedding-model registry: `{models: [{id, field, active, ...}], active_id, default_id}`. Distinct from `/api/rag/{instance}/embedding-models` below, which shows models actually in use by one instance's chunks |
 
-### Redis Endpoints
+### Storage Connections
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/redis/endpoints` | List all endpoints |
-| `POST` | `/api/redis/endpoints` | Add endpoint |
-| `DELETE` | `/api/redis/endpoints/{name}` | Remove endpoint |
-| `POST` | `/api/redis/test` | Ad-hoc connectivity test for a host/port/password not yet saved as an endpoint — same response shape as the test below, but doesn't touch config |
-| `POST` | `/api/redis/endpoints/{name}/test` | Test connectivity of a saved endpoint |
-| `GET` | `/api/redis/endpoints/{name}/discover` | Scan a saved endpoint's keyspace for existing RAG instances (`rag:*`/`rag_meta:*` keys) not yet registered locally |
+| `GET` | `/api/redis/endpoints` | List the built-in connection (`default`, Redis or MongoDB) and every other connection, each with `type` (`redis` or `mongodb`) and `builtin`, plus `host` for MongoDB; passwords redacted |
+| `POST` | `/api/redis/endpoints` | Add or replace a connection — `{name, type:"redis", host, port, db, password, ssl}` or `{name, type:"mongodb", uri, database, username, password}`. A built-in connection keeps its type |
+| `DELETE` | `/api/redis/endpoints/{name}` | Remove a connection. `400` for a built-in connection and for the connection holding the app data |
+| `POST` | `/api/redis/test` | Test values not yet saved (either body shape above) — returns `{ok, version, search_available, error}` without touching config |
+| `POST` | `/api/redis/endpoints/{name}/test` | Test a saved connection |
+| `GET` | `/api/redis/endpoints/{name}/discover` | List RAG instances already stored on a connection that are not yet registered |
 | `POST` | `/api/redis/endpoints/{name}/register` | Register discovered instances found by `discover` — body `{instances: [...]}` |
-| `GET` | `/api/redis/memory` | Memory usage stats |
-| `GET` | `/api/redis/all-stats` | Full per-server stats (memory, clients, keyspace, cluster, replication, RAG instances) for the primary Redis and every configured endpoint — powers the Analytics panel |
+| `GET` | `/api/redis/memory` | Memory usage of the built-in connection; for a built-in MongoDB, `{type:"mongodb", used, used_human, data, data_human}` (storage and data size) |
+| `GET` | `/api/redis/all-stats` | Per-connection stats for the Analytics panel — memory, clients, keyspace, cluster and replication for Redis; size and object count for MongoDB; and each connection's RAG instances |
+
+### Storage
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/storage` | `{app, default_type, connections: [{name, type, builtin, label, host, version, ok, vector_search, is_app, instances}]}` — every connection: the built-in `default`, the other built-in ones, then the added ones. `label` is `Built-in Redis` / `Built-in MongoDB` for built-in connections. `ok` comes from the last health check (a connection not checked yet is checked on the spot); `vector_search` and `version` are `null` when the connection cannot be reached; `instances` counts the RAG instances it holds |
+| `POST` | `/api/storage/app` | Keep the app data on another connection — `{connection}`, optionally `"copy": false` to switch without copying (for a previous store that is gone). Returns `{ok, app, copied: {conversations, usage, stats, watch}}`; `copied` is `null` when the app data was already there or nothing was copied. `400` with a `detail` for an unknown connection, one that cannot be reached, one without vector search, or a copy that failed (nothing is switched then) |
+| `GET` | `/api/components` | What this installation runs: `{app: {name, version, python}, storage: [{connection, label, type, builtin, ok, product, version, search, error?}], libraries: [{name, version}], runtime?: {containers}}`. `search` names the search engine and its version where known (`Redis Query Engine 8.8.0`, `MongoDB Search 1.78.0`, `Atlas Vector Search`), `available`, or `not available`; `runtime` appears when a built-in MongoDB exists. Results are reused for a minute |
 
 ### RAG Instances
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/rag/instances` | List all instances across all endpoints |
-| `POST` | `/api/rag/instances` | Create instance (`{name, color, redis_endpoint}`) |
+| `POST` | `/api/rag/instances` | Create instance (`{name, color, endpoint}` — `endpoint` names the storage connection, default `default`; the older key `redis_endpoint` is also accepted). Names are unique across connections |
 | `DELETE` | `/api/rag/instances/{instance}` | Delete instance and all chunks |
 | `POST` | `/api/rag/{instance}/toggle` | Enable / disable |
 | `POST` | `/api/rag/{instance}/reset` | Clear chunks, keep instance |
@@ -1251,6 +1289,7 @@ The container also needs GPU access (`--gpus all`, or a `deploy.resources` reser
 
 ```jsonc
 {
+  "storage": { "default_type": "redis", "app": "default" },
   "redis": {
     "host": "localhost",
     "port": 6379,
@@ -1325,56 +1364,81 @@ These keys have **no Settings-UI control** — edit `config.json` directly and r
 | `history_max_tokens` | `3000` | Approximate token budget for the conversation history resent to the model each turn. A 20-message hard cap always applies; `0` disables the token cap. |
 | `reranker` | `{ "enabled": false, "model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "top_n": 5 }` | Optional cross-encoder reranking: when enabled, retrieval widens to `rag.rerank_candidates`, the cross-encoder re-scores, then results are trimmed to `top_k`. |
 | `hyde` | `{ "enabled": false }` | HyDE (Hypothetical Document Embeddings): the model drafts a hypothetical answer and search uses *its* embedding, improving recall for sparse or keyword-poor queries. Costs one extra LLM call per query. |
-| `sessions` | `{ "persist": true, "ttl": 86400 }` | Whether conversations persist to Redis, and their TTL in seconds. |
+| `sessions` | `{ "persist": true, "ttl": 86400 }` | Whether conversations persist to the app-data store, and their TTL in seconds. |
+| `storage` | `{ "default_type": "redis", "app": "default" }` | `default_type`: whether the built-in `default` connection is the built-in Redis (`redis` section) or the built-in MongoDB (`mongodb` section: `uri`, `username`, `password`, `database`). `app`: the connection holding the app data and semantic cache. Written by the installer and by `POST /api/storage/app`; a settings save or config import leaves this section, `mongodb` and the built-in connections as they are. |
 | `recrawl` | `{ "enabled": false, "interval_minutes": 60 }` | Scheduled automatic re-crawl of registered web sources, every `interval_minutes`. |
 | `scheduled_sources` | `[]` | The web sources registered for scheduled re-crawl. |
 | `crawl` | `{ "concurrency": 10, "js_render": false, "js_concurrency": 3, "smart_mode": true, "min_words": 100 }` | Web-crawler tuning — see [SETTINGS.md → Web Crawler Settings](SETTINGS.md#web-crawler-settings). |
 | `rag.rerank_candidates` | `40` | How many candidates retrieval fetches for the reranker to choose from (only relevant when reranking is on). |
 
+### Storage from the environment
+
+For a container deployment the storage can be set without editing `config.json`:
+
+| Variable | Effect |
+|---|---|
+| `VISUALWEAVER_STORAGE` | `mongodb` — the built-in connection is the MongoDB below; `both` — the MongoDB below is the built-in connection `local-mongodb` (or, when the built-in store already is MongoDB, that built-in MongoDB); `redis` — the built-in Redis (`VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT`). Without `VISUALWEAVER_MONGODB_URI` it changes nothing: `config.json` describes the stores |
+| `VISUALWEAVER_MONGODB_URI` | The MongoDB server or connection string. A username and password inside it are moved to their own fields |
+| `VISUALWEAVER_MONGODB_USERNAME`, `VISUALWEAVER_MONGODB_PASSWORD` | The MongoDB user (override the ones in the URI). The password is never written to `config.json` |
+| `VISUALWEAVER_MONGODB_DATABASE` | The database (default `visualweaver`) |
+
+These apply to the run only: a settings save keeps `config.json`'s own storage values.
+
 ---
 
 ## Backup and Restore
 
-Two things hold state, and they are separate:
+What holds state depends on the storage you run:
 
-| What | Where | Contains |
-|---|---|---|
-| Redis | the `visualweaver-redis` volume (`/data` in that container) | every chunk, vector and index; sessions; the semantic cache |
-| App data | the `visualweaver-data` volume, or `$VISUALWEAVER_DATA_DIR` | `config.json`, uploads, ingestion logs, feedback |
+| What | Docker | Local install | Contains |
+|---|---|---|---|
+| App data | the app container's `/data` volume | `$VISUALWEAVER_DATA_DIR` | `config.json`, uploads, ingestion logs, feedback |
+| Redis | the `redis` container's `/data` volume | the dedicated Redis's data dir | chunks, vectors and indexes; conversations; the answer cache |
+| MongoDB | the `mongodb` container's `/data/db` volume (+ its generated passwords) | the built-in MongoDB's `…_db` volume | the same, for what is stored on MongoDB |
 
-A backup needs both. Restoring only Redis leaves the app without API keys or
-endpoints; restoring only the app data leaves it with no documents.
+A backup needs all of them. Restoring only a store leaves the app without API keys or
+connections; restoring only the app data leaves it with no documents. MongoDB's
+search indexes are not part of a backup: they are rebuilt from the database.
 
 ### Docker
 
-Redis writes an append-only file, so snapshot it after asking for a rewrite:
-
 ```bash
-docker compose exec redis redis-cli BGREWRITEAOF
-docker run --rm -v visualweaver-redis:/src -v "$PWD":/out alpine \
-  tar czf /out/redis-backup.tgz -C /src .
-docker run --rm -v visualweaver-data:/src -v "$PWD":/out alpine \
-  tar czf /out/appdata-backup.tgz -C /src .
+./docker.sh backup                      # → ./visualweaver-backup-<date>/ (app, redis, mongodb, …)
+./docker.sh restore ./visualweaver-backup-20261106-1500
 ```
 
-Restore into a stopped stack:
-
-```bash
-docker compose down
-docker run --rm -v visualweaver-redis:/dst -v "$PWD":/in alpine \
-  sh -c "rm -rf /dst/* && tar xzf /in/redis-backup.tgz -C /dst"
-docker run --rm -v visualweaver-data:/dst -v "$PWD":/in alpine \
-  sh -c "rm -rf /dst/* && tar xzf /in/appdata-backup.tgz -C /dst"
-docker compose up -d
-```
+`backup` stops the containers for a few seconds so the copy is consistent, saves each
+volume through its container (so the compose project's volume names do not matter),
+and starts them again. `restore` replaces the data, clears MongoDB's search indexes so
+they are rebuilt, and starts everything; on a new machine it also restores the `.env`
+with the storage choice.
 
 ### Local install
 
+Stop VisualWeaver first so every store is written out (`./stop.sh` shuts Redis down
+with a save and stops the built-in MongoDB cleanly), then copy:
+
 ```bash
-redis-cli -p 6390 BGREWRITEAOF
-tar czf redis-backup.tgz -C /path/to/redis/dir .
-tar czf appdata-backup.tgz -C "$VISUALWEAVER_DATA_DIR" .
+./stop.sh
+DATA="$HOME/Library/Application Support/VisualWeaver"     # Linux: ~/.local/share/visualweaver
+tar czf appdata-backup.tgz -C "$DATA" .                    # config, uploads, logs — and redis/data,
+                                                           # and mongodb/state.json (MongoDB's passwords)
+docker run --rm -v visualweaver-mongodb_db:/src:ro alpine \
+  tar czf - -C /src . > mongodb-backup.tgz                  # only if MongoDB is installed
+./start.sh
 ```
+
+The built-in Redis keeps its data in `redis/data` inside the data folder, so the first
+archive already holds it. The built-in MongoDB keeps its database in the Docker volume
+`visualweaver-mongodb_db` (`docker volume ls | grep visualweaver-mongodb` lists it; a data
+folder other than the default one adds a short suffix to the name). Its search indexes
+(`…_search`) are not needed: they are rebuilt from the database.
+
+To restore, stop VisualWeaver, unpack `appdata-backup.tgz` into the data folder, unpack
+`mongodb-backup.tgz` into the volume (`docker run --rm -i -v visualweaver-mongodb_db:/dst
+alpine sh -c "find /dst -mindepth 1 -delete && tar xzf - -C /dst" < mongodb-backup.tgz`),
+remove the search volume so it is rebuilt (`docker volume rm visualweaver-mongodb_search`
+while MongoDB is stopped), and run `./start.sh`.
 
 ### Verifying a restore
 
@@ -1389,6 +1453,122 @@ Chunks are stored with the vector produced by the embedding model configured at
 ingest time. Restoring a backup onto an install with a different embedding model
 leaves the vectors intact but unsearchable by the new model; VisualWeaver logs a
 warning when it detects this. Re-ingest after changing models.
+
+## Running and Maintenance
+
+### Everyday commands
+
+| | Local install | Docker |
+|---|---|---|
+| Start | `./start.sh` (or `./start.sh 9000` for another port) | `./docker.sh up` |
+| Stop (data kept) | `./stop.sh` | `./docker.sh stop` |
+| Restart | `./restart.sh` | `./docker.sh up` |
+| What runs, versions | the start banner; **Settings → About** | `./docker.sh status`; **Settings → About** |
+| Who can open it | `./changeAccess.sh local` / `lan`, then restart | `VISUALWEAVER_WEB_BIND=127.0.0.1` in `.env` (this machine only), then `./docker.sh up` |
+| Back up | see [Backup and Restore](#backup-and-restore) | `./docker.sh backup` / `restore` |
+
+`./start.sh` starts whatever `./install.sh` set up — the dedicated Redis, the built-in
+MongoDB, or both — then the app, and prints the address and the versions in use.
+`./stop.sh` stops the app first, then shuts Redis down with a save and stops MongoDB's
+containers cleanly. Nothing is deleted by either.
+
+After a reboot, nothing starts on its own except the built-in MongoDB's containers, and
+only if the container runtime starts automatically and MongoDB was running when the
+machine went down (`./stop.sh` leaves them stopped). Run `./start.sh` to bring
+everything up.
+
+### Ports
+
+| Port (default) | What | Reachable from |
+|---|---|---|
+| 8420 | the web UI | this machine, or the network after `./changeAccess.sh lan` |
+| 6389 | the dedicated Redis | this machine only |
+| 27019 | the built-in MongoDB | this machine only (its search process is not published) |
+
+`./install.sh` checks each port before using it: a port held by another program is
+reported with the program's name and the next free one is used and recorded
+(`VISUALWEAVER_PORT` in `.visualweaver.env`, `redis.conf`, MongoDB's `state.json`). On
+every start, `./start.sh` checks the MongoDB port again: if another program has taken it,
+MongoDB moves to the next free port and the app's connection follows. In Docker only the
+web UI is published, and `./docker.sh up` moves it the same way.
+
+### Logs
+
+| Log | Where |
+|---|---|
+| The app | `<data folder>/log/visualweaver.log` (path printed by `./start.sh`) |
+| The dedicated Redis | `<data folder>/redis/redis.log` |
+| The built-in MongoDB | `venv/bin/python -m visualweaver.local_mongo logs` |
+| Python dependencies (install) | `<data folder>/log/pip-install.log` |
+| Docker | `./docker.sh logs [visualweaver|redis|mongodb|mongodb-search]` |
+
+The data folder is `~/Library/Application Support/VisualWeaver` on macOS and
+`~/.local/share/visualweaver` on Linux (`VISUALWEAVER_DATA_DIR` overrides it).
+
+### The built-in MongoDB
+
+`./install.sh` generates its passwords on first install and keeps them in
+`<data folder>/mongodb/state.json` (readable by your user only). Three users sign in
+against the `admin` database: `visualweaver` (the app — read/write on the `visualweaver`
+database), `vwadmin` (administrator) and `mongotUser` (MongoDB's search process). To
+connect with MongoDB Compass or `mongosh`, print an administrator connection string:
+
+```bash
+python3 -c "import json,os; s=json.load(open(os.path.expanduser('~/Library/Application Support/VisualWeaver/mongodb/state.json'))); print(f\"mongodb://vwadmin:{s['admin_password']}@127.0.0.1:{s['port']}/?authSource=admin&directConnection=true\")"
+```
+
+Do not change these passwords in MongoDB: the app and the search process read them from
+`state.json`. `venv/bin/python -m visualweaver.local_mongo status` prints its state as
+JSON (port, versions, whether search is ready, disk use).
+
+**Disk space.** MongoDB's search process stops building indexes when the disk holding
+them is over 85 % full, resumes below 80 %, and stops updating existing ones above 90 % —
+searches then miss new documents without an error. That disk is the container runtime's
+(on macOS, the Colima / Docker Desktop VM disk, which images fill up). `./start.sh`,
+`./install.sh` and `./docker.sh` warn from 80 %; free space with `docker image prune` /
+`docker builder prune`, or give the VM a larger disk.
+
+### Where app data lives
+
+Conversations, the usage tally, retrieval stats and the answer cache are kept on one
+storage connection — the built-in Redis or MongoDB, or one you added. Move them under
+**Settings → Storage → App data & answer cache** (see [Storage Connections](#storage-connections)).
+RAG instances stay where they were created; move one by exporting it and importing it on
+another connection.
+
+### Upgrading
+
+```bash
+git pull
+./install.sh      # updates the Python packages; keeps your storage, ports and data
+./restart.sh
+```
+
+With Docker: `docker compose pull && ./docker.sh up` (or `./docker.sh up --build` to build
+from the checkout). The MongoDB images are pinned by VisualWeaver and change only with it.
+
+### Adding or removing a store
+
+Run `./install.sh` again and answer **y** to add the store you do not have yet (or set
+`VISUALWEAVER_STORAGE=both`); the existing one and its data stay. VisualWeaver never
+removes a store. To remove the built-in MongoDB from an install that also has Redis:
+move the app data to the built-in Redis and export or delete the instances stored on
+MongoDB, stop VisualWeaver, run `venv/bin/python -m visualweaver.local_mongo down`, delete
+the volumes (`docker volume rm visualweaver-mongodb_db visualweaver-mongodb_search`) and the
+`mongodb` folder in the data folder, remove the `local-mongodb` entry from `config.json`,
+set `VISUALWEAVER_STORAGE=redis` in `.visualweaver.env`, and start again.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `./start.sh`: *The built-in MongoDB did not start* — "… is installed but not running" | The container runtime is stopped: start it as the message says (e.g. `colima start`), then `./start.sh`. |
+| "… did not answer within 80 s — it is busy or stuck" | The container runtime is overloaded: wait and run `./start.sh` again; if it keeps happening, restart the runtime. |
+| A new knowledge base on MongoDB finds nothing for a while | Its search index is still being built (seconds); if it stays that way, check the disk-space warning above. |
+| Redis shows **search ?** or the Status tab says search is unavailable | Redis is still loading its data after a start (wait), or the search module did not load: run `./install.sh` again. |
+| A browser shows *VisualWeaver does not answer browsers that reach it as '…'* | You opened it under a host name it does not know (for example a reverse proxy's domain): add that name to `VISUALWEAVER_ALLOWED_HOSTS` and restart (see [Settings Reference](#settings-reference) → Security). |
+| The log says *Refused a cross-site request* | A page on another site tried to use the API — expected. If it was VisualWeaver's own page behind a proxy that rewrites the Host header, forward the Host header or list the page's origin in `VISUALWEAVER_CORS_ORIGINS`. |
+| In Docker, Ollama is not found | Ollama must listen on this machine (`ollama serve`); the container reaches it as `host.docker.internal`. For another machine set `VISUALWEAVER_OLLAMA_URL` in `.env`. |
 
 ## Optional Dependencies
 

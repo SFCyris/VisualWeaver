@@ -18,21 +18,35 @@ log = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class ConnManager:
-    """Tracks active WebSocket connections by session ID."""
+    """Tracks active WebSocket connections by session ID.
+
+    A session can have several at once — the same conversation open in two tabs — so
+    each id maps to a list of sockets, and a socket that closes removes only itself.
+    Keeping one socket per id let the first tab to close unregister the other.
+    """
 
     def __init__(self):
-        self.active: dict[str, WebSocket] = {}
+        self.active: dict[str, list[WebSocket]] = {}
 
     async def connect(self, ws: WebSocket, sid: str):
         await ws.accept()
-        self.active[sid] = ws
+        self.active.setdefault(sid, []).append(ws)
 
-    def disconnect(self, sid: str):
-        self.active.pop(sid, None)
+    def disconnect(self, sid: str, ws: WebSocket | None = None):
+        """Forget one socket of the session (every one of them when ``ws`` is None)."""
+        if ws is None:
+            self.active.pop(sid, None)
+            return
+        socks = self.active.get(sid)
+        if not socks:
+            return
+        # By identity: a socket is only ever equal to itself.
+        socks[:] = [s for s in socks if s is not ws]
+        if not socks:
+            self.active.pop(sid, None)
 
     async def send(self, sid: str, data: dict):
-        ws = self.active.get(sid)
-        if ws:
+        for ws in list(self.active.get(sid, ())):
             await ws.send_json(data)
 
 
@@ -72,7 +86,7 @@ async def _recrawl_loop():
             except Exception as e:
                 log.warning(f"Recrawl failed for {url}: {e}")
         if changed:
-            config.save_config(state._config)
+            await config.save_config_async(state._config)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,25 +119,36 @@ def _watch_candidates(root, accept: set):
 
 
 def _watch_seen_sync(instance: str, entries: list, root) -> tuple[dict, list]:
-    """One Redis round-trip per scan (worker thread): the previous signatures for
+    """One app-store round-trip per scan (worker thread): the previous signatures for
     this instance, plus pruning of fields whose file no longer exists under this
     root — the hash would otherwise grow forever as files come and go. (Only the
     signature bookkeeping is pruned; the chunks stay indexed by design.)"""
-    from . import redis_store
-    rc = redis_store.r()
+    from . import appstore
+    with appstore.gate.write():   # the pruning below writes
+        return _watch_seen_prune(appstore.current(), instance, entries, root)
+
+
+def _watch_seen_prune(store, instance: str, entries: list, root) -> tuple[dict, list]:
     seen = {}
     stale = []
     current = {f"{instance}\x00{p}" for p, _ in entries}
-    prefix = f"{instance}\x00{root}"
-    for k, v in rc.hgetall(_WATCH_SEEN_KEY).items():
-        k = k.decode() if isinstance(k, bytes) else k
-        v = v.decode() if isinstance(v, bytes) else v
+    # Under this root on a path boundary: a bare prefix test made a scan of …/docs
+    # prune every signature under the sibling folder …/docs2, which then re-ingested.
+    base = str(root).rstrip("/\\")
+    under = (f"{instance}\x00{base}/", f"{instance}\x00{base}\\")
+    for k, v in store.hgetall(_WATCH_SEEN_KEY).items():
         seen[k] = v
-        if k.startswith(prefix) and k not in current:
+        if k.startswith(under) and k not in current:
             stale.append(k)
     if stale:
-        rc.hdel(_WATCH_SEEN_KEY, *stale)
+        store.hdel(_WATCH_SEEN_KEY, *stale)
     return seen, stale
+
+
+def _watch_seen_set(key: str, sig: str) -> None:
+    from . import appstore
+    with appstore.gate.write():
+        appstore.current().hset(_WATCH_SEEN_KEY, {key: sig})
 
 
 async def _watch_folder_loop():
@@ -138,7 +163,7 @@ async def _watch_folder_loop():
     malformed value must skip a pass, not kill the scanner for the process's life."""
     global _watch_last_scan
     from pathlib import Path
-    from . import ingest, redis_store, routes_sources   # late: routes load after ws
+    from . import ingest, routes_sources   # late: routes load after ws
     while True:
         await asyncio.sleep(60)
         try:
@@ -163,7 +188,8 @@ async def _watch_folder_loop():
                         _watch_candidates, root, ingest._CHAT_FILE_ACCEPT)
                     seen, _ = await asyncio.to_thread(
                         _watch_seen_sync, instance, entries, root)
-                    rc = rag_admin._rc_for(instance, endpoint)
+                    # Off the loop: resolving can probe a MongoDB connection.
+                    rc = await asyncio.to_thread(rag_admin._rc_for, instance, endpoint)
                     for f, sig in entries:
                         try:
                             key = f"{instance}\x00{f}"
@@ -180,8 +206,7 @@ async def _watch_folder_loop():
                                     pass
                             result = await ingest.ingest_file(instance, f, source, rc)
                             if result.get("status") == "ok":
-                                await asyncio.to_thread(
-                                    lambda: redis_store.r().hset(_WATCH_SEEN_KEY, key, sig))
+                                await asyncio.to_thread(_watch_seen_set, key, sig)
                                 log.info(f"Watch: ingested {source} → '{instance}' "
                                          f"({result.get('chunks', 0)} chunks)")
                             else:

@@ -220,6 +220,13 @@ Rules: X: (tune number), K: (key) are required; M: (metre) and L: (default note 
 VISUAL_SECTION_MARKER = "=== VISUAL BLOCKS"
 
 DEFAULT_CONFIG: dict = {
+    # ── Storage ───────────────────────────────────────────────────────────────
+    # default_type: what the built-in "default" connection is — "redis" (the
+    # "redis" section below) or "mongodb" (a "mongodb" section: type, uri,
+    # username, password, database, builtin). app: the connection that holds the
+    # app's own data (conversations, usage, retrieval stats) and the answer cache.
+    "storage": {"default_type": "redis", "app": "default"},
+
     # ── Primary Redis connection (the default endpoint) ───────────────────────
     "redis": {
         "host": "localhost", "port": 6379, "db": 0,

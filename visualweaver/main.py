@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 from visualweaver import __version__
 from . import (
-    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, startup as _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_frontend,
+    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, startup as _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend,
 )
 from .appcore import app
 
@@ -39,7 +39,7 @@ from fastapi.staticfiles import StaticFiles
 # public function (see above) is aliased _mod_<name> so the bare name resolves to
 # the function, not the module.
 _MODULES = [
-    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_frontend,
+    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend,
 ]
 
 

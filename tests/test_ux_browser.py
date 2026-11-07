@@ -924,7 +924,10 @@ def test_the_top_bar_is_one_row_at_every_width(ux):
     bars = ux["topbar_single_row"]
     for w, m in bars.items():
         assert m["rows"] == 3, f"{w}px: top bar has {m['rows']} direct children, expected 3"
-        assert m["h"] <= 60, f"{w}px: top bar is {m['h']}px — it has wrapped to a second line"
+        # A phone (≤480px) has two fixed rows: in one, the session title was 2px wide and
+        # ⚙️ ran off the edge. Two rows, not more, however long the title gets.
+        limit = 60 if int(w) > 480 else 100
+        assert m["h"] <= limit, f"{w}px: top bar is {m['h']}px — it has wrapped to another line"
 
 
 def test_the_top_bar_never_overflows_its_own_width(ux):
@@ -936,7 +939,7 @@ def test_the_top_bar_never_overflows_its_own_width(ux):
 
 def test_the_top_bar_height_does_not_change_with_use(ux):
     """A long session title and a seven-digit token count used to add a whole row."""
-    heights = {m["h"] for m in ux["topbar_single_row"].values()}
+    heights = {m["h"] for w, m in ux["topbar_single_row"].items() if int(w) > 480}
     assert len(heights) == 1, f"height varies by width: {heights}"
 
 

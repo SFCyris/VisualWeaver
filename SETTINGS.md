@@ -7,7 +7,7 @@ This document explains the main settings in the application: what each controls,
 ## Table of Contents
 
 1. [How this panel saves](#how-this-panel-saves)
-2. [Redis Connection](#redis-connection)
+2. [Storage](#storage)
 3. [RAG Settings](#rag-settings)
 4. [Semantic Cache Settings](#semantic-cache-settings)
 5. [Provider Settings](#provider-settings)
@@ -18,6 +18,7 @@ This document explains the main settings in the application: what each controls,
 10. [Token Usage](#token-usage)
 11. [Prompt Templates & Base Instruction](#prompt-templates--base-instruction)
 12. [Security Settings](#security-settings)
+13. [About — components & versions](#about--components--versions)
 
 ---
 
@@ -26,15 +27,37 @@ This document explains the main settings in the application: what each controls,
 Two kinds of control live here:
 
 - **Staged until you press 💾 Save Settings** — everything on this page unless noted below, plus the selected provider.
-- **Applied the moment you change them** — RAG instances (create, delete, enable, reset) and Redis endpoints. Those sections say so in place.
+- **Applied the moment you change them** — RAG instances (create, delete, enable, reset) and storage connections. Those sections say so in place.
 
-Editing a staged control marks the panel **Unsaved changes**; closing it with Cancel, Escape or a click outside then asks before discarding. Switching provider takes effect in the browser immediately but is only remembered once you save.
+Editing a staged control — including adding or removing a web source, a watched folder or a prompt template, and **Reset Defaults** — marks the panel **Unsaved changes**; closing it with Cancel, ✕, Escape or a click outside then asks, and **Discard changes** puts all of it back as it was. A provider or model you switch to stays selected in this browser either way; saving also makes it the default for other browsers. Save and Cancel are hidden on the read-only tabs (Status, Analytics, Logs, About) unless something elsewhere is unsaved.
+
+**Reset Defaults** (General) returns every setting to its shipped default and lists what it clears — saved web sources, watched folders, API keys stored in `config.json` (keys from environment variables are kept) and the access password. It keeps the built-in storage and where app data is kept, the other storage connections, the embedding model, the Base Instruction and the prompt templates. Nothing is written until you click **Save Settings**.
 
 ---
 
-## Redis Connection
+## Storage
 
-Found in **Settings → Redis**.
+Found in **Settings → Storage**.
+
+### Built-in storage
+What the installer set up: **Built-in Redis**, **Built-in MongoDB**, or both. Each is listed with its address, whether it can search vectors (**✓ Vector search**, **⚠ No vector search** or **✗ Can't connect**), the server and search versions (for example `Redis 8.8.1 · Query Engine 8.8.1` or `MongoDB 9.0.4 · Search 1.78.0`) and how many RAG instances it holds. Built-in storage cannot be removed from the panel. The host and port fields below apply to the built-in Redis and are shown only when the installer set up Redis first.
+
+### App data & answer cache
+Where conversations, the token-usage tally, retrieval stats, the record of files already read from watched folders, and the semantic (answer) cache are kept. Every built-in or added storage is listed; storage without vector search, that cannot be reached, or that has not been checked yet (press **Test** on its card) is listed but cannot be chosen, with the reason in brackets. When the storage holding app data cannot be reached, the Status and Cache tabs say so, and so does a line above the chat with a link to Status. The default is the built-in Redis on a Redis or Redis + MongoDB install, and the built-in MongoDB on a MongoDB install.
+
+Choose another storage and press **Move app data**. After you confirm:
+- conversations (with the time they have left before they expire), the usage tally, retrieval stats and the watched-folder record are copied to the new storage; values already there under the same names are replaced,
+- the answer cache starts empty on the new storage and fills again as questions are asked,
+- the previous storage keeps its copy; nothing is deleted there,
+- RAG instances stay where they are.
+
+A message then says what was copied. If the move is refused (the storage cannot be reached or has no vector search), the reason is shown and nothing changes. If the storage holding the app data now cannot be read — it is gone or down, so nothing can be copied from it — the dialog offers **Switch without copying**: the new storage starts with no conversations, usage tally, retrieval stats or watched-folder record and an empty answer cache, and the previous storage keeps what it had.
+
+The connection holding the app data has no working **✕** (remove) on its card — its tooltip says to move the app data first. Removing a connection that cannot be reached says that its instances cannot be listed, rather than that it holds none. **Settings → RAG → New Instance** preselects the storage that holds app data.
+
+### Built-in Redis
+
+The built-in Redis is set up by the installer and kept as installed: its host, port, database, password and TLS setting are shown read-only, and Save Settings does not change them. To keep data on another Redis, add it under **Connections for RAG instances** and move the app data to it. The fields below describe these values — and the same fields of an added Redis connection.
 
 ### Host
 - **Default:** `localhost`
@@ -49,21 +72,26 @@ Found in **Settings → Redis**.
 ### Database Index
 - **Default:** `0`
 - **What it does:** Redis supports multiple logical databases (0–15) within a single server. Each has its own keyspace.
-- **When to change:** Use a non-zero index to isolate this app from other software sharing the same Redis instance.
+- **For an added connection:** a non-zero index isolates it from other software sharing the same Redis server.
 - **Notes:** Redis Enterprise does not support multiple databases per endpoint — leave this at `0`.
 
 ### Password
 - **Default:** (empty)
 - **What it does:** The `AUTH` password for the Redis server. VisualWeaver's bundled local instance runs on loopback with no password.
-- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the Redis **host and port** can be overridden from the environment — `VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT` (used by the Docker image).
+- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the storage can be overridden from the environment (used by the Docker image): the Redis **host and port** — `VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT` — and the built-in storage — `VISUALWEAVER_STORAGE` (`redis`, `mongodb` or `both`) with `VISUALWEAVER_MONGODB_URI`, `VISUALWEAVER_MONGODB_USERNAME`, `VISUALWEAVER_MONGODB_PASSWORD` and `VISUALWEAVER_MONGODB_DATABASE`. Values from the environment apply to that run and are not written to `config.json`. Two more apply to every run: `VISUALWEAVER_OLLAMA_URL` (where Ollama is, e.g. `http://host.docker.internal:11434` in a container; used while the Ollama setting is still the default) and `VISUALWEAVER_ALLOWED_HOSTS` (host names browsers may use, see the Security section of DOCS.md).
 
 ### SSL / TLS
 - **Default:** Off
 - **What it does:** Wraps the connection in TLS. Required for Redis Enterprise Cloud and most managed Redis services.
 - **Notes:** When TLS is on, the server certificate **is** verified (redis-py's default), so a self-signed or untrusted certificate is rejected unless it chains to a trusted CA. Mutual TLS is not configurable from the UI.
 
-### Additional Endpoints
-Multiple Redis servers can be registered under custom names. Each RAG instance can then be assigned to a specific endpoint, allowing horizontal scaling across different Redis servers.
+### Connections for RAG instances
+Further places to store RAG instances, each under a name of your choice. When you create an instance, **Storage** picks one of them or the built-in storage. Two kinds are supported:
+
+- **Redis** — host, port, database index, password and TLS, as above. The server needs the Search module (Redis 8, Redis Stack or Redis Enterprise).
+- **MongoDB** — server, username, password and database name (default `visualweaver`). The server is the Atlas cluster address (`cluster0.xxxxx.mongodb.net`, the part after `@` in the string under **Connect → Drivers**) or a self-hosted `host:27017`; the connection string is built from it (`mongodb+srv://` for an Atlas cluster, `mongodb://` otherwise) and shown under the field. A whole connection string can be entered instead. The server needs vector search: **MongoDB Atlas**, or a self-managed MongoDB with the search process (mongot), such as the built-in MongoDB the installer sets up. A pasted connection string can include credentials: the username and password in it move to their own fields, and the password is stored as a secret. If the string still holds the `<db_password>` placeholder, the Password field is focused to type it in. A failed check names the cause: a wrong login, a cluster address that does not resolve, or a cluster that does not answer (in Atlas, Network Access must allow this machine's IP address).
+
+Each connection shows whether it is reachable and whether it can search vectors, and the server and search versions once they are known; one that cannot search vectors is listed as **No vector search** and cannot be chosen for an instance. **Test** checks the values in the form before anything is saved. On a MongoDB database, VisualWeaver creates the collections `vw_chunks`, `vw_meta`, `vw_hashes`, `vw_urls` and `vw_counters`, plus two search indexes on `vw_chunks` (`vw_vector`, `vw_text`) that every instance on the connection shares.
 
 ---
 
@@ -101,7 +129,7 @@ Found in **Settings → RAG**.
 ### Top-K
 - **Default:** `5`
 - **Range:** 1 – 20
-- **What it does:** The maximum number of chunks retrieved from Redis and injected into the LLM prompt for each query.
+- **What it does:** The maximum number of chunks retrieved from the instance's storage and injected into the LLM prompt for each query.
 - **Lower values (1–3):**
   - Shorter prompts → faster LLM responses, lower cost for API providers
   - Riskier: if the most relevant chunk is not in the top-1/3, the answer may be incomplete
@@ -115,7 +143,7 @@ Found in **Settings → RAG**.
 ### Similarity Threshold
 - **Default:** `0.35`
 - **Range:** 0.0 – 1.0
-- **What it does:** The minimum cosine similarity score a chunk must achieve to be sent to the LLM. Chunks below this score are retrieved from Redis but discarded before prompt assembly. Chunks that matched the keyword (BM25) half of hybrid search are exempt — they were selected lexically, so a cosine bar is the wrong gate for them.
+- **What it does:** The minimum cosine similarity score a chunk must achieve to be sent to the LLM. Chunks below this score are retrieved from storage but discarded before prompt assembly. Chunks that matched the keyword (BM25) half of hybrid search are exempt — they were selected lexically, so a cosine bar is the wrong gate for them.
 - **Cosine similarity scale — calibrate to your model.** The absolute numbers are much lower than intuition suggests. Measured with the default `intfloat/multilingual-e5-small` over a real documentation corpus, genuinely relevant question↔passage pairs score **0.35 – 0.75**, with a typical best match around **0.60**. Scores above 0.85 essentially mean near-duplicate text.
   - `0.75+` — near-duplicate; almost nothing clears this in practice
   - `0.50 – 0.70` — a normal good match
@@ -195,7 +223,7 @@ Found in **Settings → Cache**.
 ### TTL (Time to Live)
 - **Default:** `3600` seconds (1 hour)
 - **Range:** 60 – 86400+ seconds
-- **What it does:** After this many seconds, a cache entry expires and is automatically deleted from Redis. Subsequent identical queries go to the LLM.
+- **What it does:** After this many seconds, a cache entry expires and is automatically deleted from the storage that holds the answer cache. Subsequent identical queries go to the LLM.
 - **Short TTL (e.g. 300s):**
   - Cache entries expire quickly
   - Good for frequently changing data (news, live metrics)
@@ -204,7 +232,7 @@ Found in **Settings → Cache**.
   - Entries persist longer — higher hit rate over time
   - Risk: stale answers if your underlying data changes
   - Good for stable reference documentation
-- **TTL = 0:** Entries never expire (until cleared manually or Redis evicts them under memory pressure). Use only for truly static knowledge bases.
+- **TTL = 0:** Entries never expire (until cleared manually, or — when the cache is on Redis — evicted under memory pressure). Use only for truly static knowledge bases.
 
 ---
 
@@ -509,4 +537,16 @@ Found in **Settings → Security**.
 
 VisualWeaver has **no built-in authentication**. The Settings → Security "password" field is stored in `config.json` (as plaintext, in the platform data directory) but is **not currently enforced** — access is not gated on it.
 
-By default the app binds to `127.0.0.1` (localhost only). Before exposing it on a LAN, VPN, or the internet, put it behind a **reverse proxy (nginx, Caddy) with HTTPS and authentication** — see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS starting point, and add an auth layer there before exposing sensitive data.
+Where the app listens is chosen when you run `install.sh` — this machine only (`127.0.0.1`, the default answer) or any device on your network (`0.0.0.0`) — and recorded in `.visualweaver.env`; change it with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart. With no recorded choice (an install run without a terminal) `start.sh` listens on all interfaces (`0.0.0.0`), as does the Docker Compose setup. Before exposing it on a LAN, VPN, or the internet, put it behind a **reverse proxy (nginx, Caddy) with HTTPS and authentication** — see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS starting point, and add an auth layer there before exposing sensitive data.
+
+---
+
+## About — components & versions
+
+Found in **Settings → About**, and through **🧩 Components** under the welcome card. Lists what this instance runs:
+
+- **Application** — the VisualWeaver version, the Python version and, when one is in use, the container runtime.
+- **Storage** — every built-in and added storage: product and version, its search component and version, and whether it is reachable. One that cannot be reached shows the error.
+- **Libraries** — the client libraries VisualWeaver uses to talk to the storage.
+
+**📋 Copy** puts a plain-text list of the same versions on the clipboard, followed by the browser's user-agent string, ready to paste into a bug report. It names connections; in error messages, host addresses are replaced with `<host>` and the name after `user` with `<user>`. **⟳ Refresh** asks again; versions checked less than a minute earlier are reused.

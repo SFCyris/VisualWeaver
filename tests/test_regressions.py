@@ -386,7 +386,8 @@ def test_keyword_only_hits_get_a_real_score(app_module):
     m = app_module
     assert 0 < m._LEXICAL_FLOOR_RATIO < 1
 
-    src = _pysrc(m.search_rag)
+    # The gate lives in _fuse_and_gate, shared by the Redis and MongoDB search paths.
+    src = _pysrc(m._fuse_and_gate)
     assert "lex_floor = threshold * _LEXICAL_FLOOR_RATIO" in src, \
         "the lexical floor is no longer derived from the cosine threshold"
     start = src.index("lex_floor = threshold *")
@@ -1359,6 +1360,21 @@ CDN_MANIFEST = frozenset([
 ])
 
 
+# Webfonts index.html declares (``url(…)`` in an @font-face), pinned like the scripts.
+FONT_MANIFEST = frozenset([
+    "https://cdn.jsdelivr.net/npm/@fontsource/noto-music@5.3.0/files/noto-music-music-400-normal.woff2",
+])
+
+
+def _font_urls(html: str) -> set:
+    return set(re.findall(r"url\((https?://[^)'\"]+\.woff2?)\)", html))
+
+
+def test_webfont_urls_are_the_pinned_ones(app_module):
+    found = _font_urls(_index_html(app_module))
+    assert found == set(FONT_MANIFEST), f"font URLs changed: {sorted(found)}"
+
+
 def _cdn_asset_urls(html: str) -> set[str]:
     """Every external .js/.css index.html pulls, however the URL is spelled."""
     cdn = re.search(r"const CDN\s*=\s*'([^']+)'", html).group(1)
@@ -1434,7 +1450,7 @@ def test_manifest_urls_are_live(app_module):
         pytest.skip("set VISUALWEAVER_TEST_NETWORK=1 to HEAD the CDN manifest")
     bad = []
     unreachable = []
-    for url in sorted(CDN_MANIFEST):
+    for url in sorted(CDN_MANIFEST | FONT_MANIFEST):
         req = urllib.request.Request(url, method="HEAD",
                                      headers={"User-Agent": "visualweaver-tests/1"})
         try:
@@ -1599,6 +1615,8 @@ def _index_resource_requirements(html: str) -> set:
     m = re.search(r"_ABC_SOUNDFONT\s*=\s*'(https?://[^']+)'", html)
     if m:
         reqs.add((urlparse(m.group(1)).netloc, "connect-src"))
+    for url in _font_urls(html):
+        reqs.add((urlparse(url).netloc, "font-src"))
     return reqs
 
 
@@ -1615,6 +1633,7 @@ def test_every_cdn_host_in_index_is_allowed_by_csp(app_module):
     # Guard the extractor: an empty derivation would make the check vacuous.
     assert ("cdn.jsdelivr.net", "script-src") in reqs, "asset extractor missed jsDelivr"
     assert ("paulrosen.github.io", "connect-src") in reqs, "soundfont host not derived"
+    assert ("cdn.jsdelivr.net", "font-src") in reqs, "webfont host not derived"
     directives = _csp_directives(app_module)
     blocked = sorted(f"{host} (needs {d})" for host, d in reqs
                      if not _csp_permits(directives, d, host))

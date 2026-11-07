@@ -5,6 +5,346 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] — 2026-11-06
+
+### Added
+- **`./changeAccess.sh local|lan`** switches who can open the web UI — this
+  machine only, or any device on the network — without editing
+  `.visualweaver.env` by hand. It keeps the file's other settings, warns when
+  opening the app to the network (there is no built-in login), flags an exported
+  `VISUALWEAVER_HOST` that would override the choice, and says when a restart is
+  needed. Run without an option it shows the current setting; `-h` lists the
+  options.
+- **Music notation in diagrams and chat.** Note symbols such as 𝅗𝅥 (half note)
+  and 𝅘𝅥𝅮 (eighth note) have no glyph in the fonts macOS ships and drew as empty
+  boxes. They now render with the Noto Music webfont, fetched only when a page
+  contains one (an installed copy is used first); when it cannot load, a diagram
+  shows the common symbols instead (♩ ♪ ♬, and ○ for half and whole notes), as
+  does a diagram saved as PNG.
+
+- **RAG instances can be stored in MongoDB.** Under **Settings → Storage** (the
+  former Redis tab), a connection can now be a MongoDB database as well as a
+  Redis server — self-hosted, or MongoDB Atlas.
+  Choose it as the **Storage** of a new instance and everything works as on
+  Redis: hybrid vector and keyword retrieval with the same scoring, document
+  lists and deletes, deduplication, crawling, watched folders, and exports that
+  import into either kind of storage. The server needs vector search (Atlas, or
+  MongoDB 8.3+ with `mongot`); one without it is shown as such and cannot be
+  chosen. Adding a connection starts by picking Redis or MongoDB, shows only
+  that kind's fields, and can be tested before saving. A MongoDB connection
+  takes the server (the Atlas cluster address, or `host:27017`), username and
+  password, and builds the connection string from them. A whole string, such as
+  the one Atlas shows, can be pasted instead: its username and password move to their own fields,
+  and the `<db_password>` placeholder is asked for rather than saved. A failed
+  test says whether the login, the cluster address or Network Access is the
+  cause. Instance names are unique across connections: creating one with a name
+  that already exists on another connection is refused.
+- **Choose the storage at install time: Redis, MongoDB, or both.**
+  `./install.sh` asks once — *Redis 8 with search* (the default, as before),
+  *MongoDB 9.0 with vector search*, or *Both* — and records the answer in
+  `.visualweaver.env` (`VISUALWEAVER_STORAGE=redis|mongodb|both` answers it
+  without asking). MongoDB runs as MongoDB's official Community server and
+  search images, pinned by digest, in the container runtime already on the
+  machine (Colima, Podman, Rancher Desktop, OrbStack or Docker); the installer
+  never installs a runtime, explains the options when none is running, and
+  offers Redis instead. Before anything is downloaded it shows MongoDB's licence
+  (SSPL v1, link) and asks for an explicit yes
+  (`VISUALWEAVER_ACCEPT_MONGODB_LICENSE=1` for unattended installs). MongoDB
+  listens on 127.0.0.1 only, its search process is not published, and its
+  passwords are generated per machine. A MongoDB-only install does not download
+  or install Redis. Re-running `./install.sh` keeps what is installed and can
+  add the other store; nothing is ever removed.
+- **MongoDB as the built-in store.** An installation can run on MongoDB alone,
+  with no Redis: the built-in `default` connection is then the built-in MongoDB,
+  and RAG instances, conversations, usage and stats, the answer cache, the
+  status checks, the per-connection stats and exports all work on it. For
+  containers, `VISUALWEAVER_STORAGE=redis|mongodb|both` with
+  `VISUALWEAVER_MONGODB_URI`, `_USERNAME`, `_PASSWORD` and `_DATABASE` choose
+  the storage for the run without editing `config.json`, and nothing from them
+  is written to it.
+- **Ports are checked during install.** The web UI, Redis and MongoDB ports are
+  each checked; one held by another program is reported with what holds it and
+  moved to the next free port, which is recorded (`VISUALWEAVER_PORT` in
+  `.visualweaver.env`, `redis.conf`, the MongoDB state). Ports already recorded
+  are kept while they are free or held by VisualWeaver itself. `./start.sh`
+  checks the built-in MongoDB's port again on every start: if another program
+  has taken it since, MongoDB moves to the next free port and the app's
+  connection follows.
+- **The install ends with a "ready to use" check.** A table with ✓/✗, address
+  and version for the Python environment, each installed store (Redis with its
+  search module, MongoDB with vector search, the container runtime) and the web
+  UI port; any ✗ ends the install with an error and the fix. The stores are left
+  running.
+- **`./start.sh` prints the versions in use** — VisualWeaver, Python, Redis and
+  its search module, MongoDB and MongoDB Search, and the container runtime — and
+  starts and stops whichever stores are installed (`./stop.sh` keeps MongoDB's
+  data). A MongoDB that is already running is reused at once. When the container
+  runtime is stopped, the message says how to start it; on an install where
+  Redis holds the app data the app still starts.
+- **Docker Compose: the same three choices** via `COMPOSE_PROFILES` (unset or
+  `redis`, `mongodb`, `both`). MongoDB is reachable only inside the compose
+  network, and its passwords are generated on first start into the
+  `visualweaver-mongodb-secrets` volume.
+- **`./docker.sh` sets up Docker in one command.** `./docker.sh up` asks for
+  Redis, MongoDB or both (and remembers it in `.env`), shows MongoDB's licence
+  before downloading it, checks the Compose version and the web UI port (moving
+  to the next free one), pulls or builds the images, starts everything, waits
+  until the app answers and prints the address and versions. `status`, `logs`,
+  `stop`, `down`, `backup` and `restore` cover the rest; `backup` saves the app
+  data and every store, and `restore` puts them back on the same or a new
+  machine. `.env.example` lists the settings. `./docker.sh`, `./start.sh` and
+  `./install.sh` warn when the disk holding MongoDB's search indexes is 80 %
+  full (MongoDB's search stops building indexes above 85 %).
+  `VISUALWEAVER_WEB_BIND=127.0.0.1` in `.env` limits the web UI to this machine.
+- **Ollama on the same machine works in Docker without configuration.** The
+  container reaches it as `host.docker.internal` (`VISUALWEAVER_OLLAMA_URL`),
+  used while the Ollama setting is still the default and never written to
+  `config.json`.
+- **Settings → Storage shows what the installer set up.** The Built-in section
+  lists **Built-in Redis**, **Built-in MongoDB**, or both, each with its
+  address, vector-search status, server and search versions, and number of RAG
+  instances. Built-in storage cannot be removed. On a MongoDB install the panel,
+  the Status and Analytics tabs, the Cache tab and the New Instance form name
+  MongoDB, and the Redis host and port fields are not shown.
+- **App data and the answer cache can move to another storage.** A card in
+  Settings → Storage picks where conversations, the token-usage tally, retrieval
+  stats, the watched-folder record and the answer cache are kept — any built-in
+  or added storage with vector search. **Move app data** asks first, then copies
+  everything but the answer cache (conversations keep their remaining lifetime,
+  and answers finishing during the move are saved on the new storage), leaves
+  the previous storage's copy in place, and reports what was copied; the answer
+  cache starts empty on the new storage and fills again with use. Storage that
+  cannot be reached or has no vector search cannot be chosen. **New Instance**
+  preselects this storage, and the Status and Cache tabs say when it cannot be
+  reached (`GET /api/storage`, `POST /api/storage/app`).
+- **The answer cache works on MongoDB.** It lives on the same storage as the
+  app's data, Redis or MongoDB, and behaves the same on both: the same
+  similarity threshold and matching rules, per-setup scopes, exact matching for
+  drawing requests, the TTL (refreshed on every hit), discarding entries when
+  the embedding model changes, and the cache analytics (entry list, **Uncache**,
+  **Clear Cache**). On MongoDB it uses the collection `vw_cache` and one vector
+  search index, `vw_cache_vector`.
+- **Settings → About lists the components this instance runs**: the VisualWeaver
+  and Python versions, each storage server with its search component, version
+  and status (with the error when it cannot be reached), the client libraries
+  (redis-py, redisvl, pymongo) and the container runtime. **📋 Copy** puts a
+  plain-text list on the clipboard for bug reports, with host addresses in error
+  messages replaced by `<host>`; **🧩 Components** under the welcome card opens
+  it. The same list is in the startup log and at `GET /api/components`.
+
+### Changed
+- Built-in storage connections, and the connection holding the app data, cannot
+  be removed. `GET /api/redis/endpoints` marks each connection `builtin` and
+  gives the built-in one its real type. A settings save or config import no
+  longer changes the installed storage (`storage`, `mongodb` and the built-in
+  connections), and the built-in MongoDB's password is redacted like every other
+  secret.
+- Analytics → **Storage Servers** (was "Redis Servers") shows MongoDB
+  connections with their version, data size, size on disk, document count and
+  instances.
+- Rebuilding the answer cache after a settings save no longer reloads the
+  embedding model, so the first question afterwards is not delayed by it.
+- The answer-cache table shows remaining lifetimes as minutes, hours or days
+  instead of seconds.
+
+### Security
+- **Other websites can no longer use VisualWeaver from your browser.** There is
+  no login, so a page you visit could post to the API — run chats over the
+  WebSocket on the stored API keys, import a config, delete conversations.
+  Requests that another site makes (by `Origin` or `Sec-Fetch-Site`) are now
+  refused, except for following a link to the app; the app's own page and
+  non-browser clients are unaffected, and origins in `VISUALWEAVER_CORS_ORIGINS`
+  stay trusted.
+- **DNS rebinding is blocked.** Browsers are answered only for host names an
+  outsider cannot own: IP addresses, `localhost`, single-word intranet names,
+  names ending in `.local`, `.lan`, `.internal` or `.home.arpa`, and the
+  machine's own name. Any other name — for example a reverse proxy's domain — is
+  listed in `VISUALWEAVER_ALLOWED_HOSTS` (comma-separated, `*.example.com` for
+  subdomains); `deploy/docker-compose.https.yml` sets it next to the Caddy
+  domain.
+- A RAG instance's colour must be a hex colour; a value carrying markup was
+  stored and written into the page.
+
+### Fixed
+- **Mermaid flowcharts with quoted labels no longer fail to parse.** A label such
+  as `["Gs\n(anacrusis)"]`, `["Call f(x)"]` or `["one<br>two"]` was rewritten
+  inside its own quotes and the whole diagram showed a parse error. Labels are
+  now left as written, and the repairs for unquoted labels reach more of what
+  models write: special characters in an edge label set off by a space
+  (`--> |cost (usd)| B`), node ids in non-Latin scripts (`开始`, `α`), brackets
+  nested inside a label (`A[arr[i]]`), a label containing its own closing
+  bracket (`A("a)")`), multi-line quoted labels with parentheses, subgraph
+  titles with parentheses, inline edge labels such as `-- f(x) -->`, and
+  diagrams that start with a YAML front-matter block.
+- **Wide diagrams are readable.** A diagram card was a fixed 560 px, so a long
+  left-to-right flowchart was shrunk until its labels were a few pixels high. The
+  card now widens to the diagram (up to the width of the message), the diagram
+  keeps at least 70% of its natural size, and anything wider scrolls sideways,
+  with the right edge faded while there is more to see. Small diagrams are
+  centred.
+- **Line breaks in diagram labels.** A `\n` in a label is drawn as a line break
+  instead of the two characters `\n`; `<br>`, `<br/>` and `</br>` stay line
+  breaks rather than appearing as text; and `>` and `&` in a label that has a
+  line break no longer show as `&gt;` / `&amp;`.
+- `.visualweaver.env` is read the same way however it was written: a last line
+  without a trailing newline, Windows (CRLF) line endings and `export NAME=value`
+  lines are now honoured, so a `VISUALWEAVER_HOST=127.0.0.1` written that way
+  no longer leaves the app reachable from the network.
+- Re-running `./install.sh` while the dedicated Redis was running moved it to
+  the next port (its own port looked taken), and a second Redis could then be
+  started on the same data directory. A port held by this install's own Redis is
+  now kept.
+- The answer-cache table showed entries that never expire (cache TTL 0) as
+  "expired"; they now read "never".
+- Conversations keep their titles and are listed newest first after a reload; a
+  conversation whose first answer came from the answer cache is titled after its
+  question.
+- The answer cache loads its embedding model from the local model cache. It
+  asked huggingface.co about every file first, so with the Hub slow or
+  unreachable the cache stayed off for minutes after a start.
+- Re-running `./install.sh` respects a recorded `export VISUALWEAVER_HOST=…`
+  line. It asked again, and the answer it appended was ignored, so "Only this
+  machine" could leave the app on the network.
+- Scanning a watched folder no longer forgets the files of a sibling folder
+  whose name starts the same (`docs` and `docs2`), which were then read in
+  again.
+- A Redis connection's vector-search check is repeated after a minute instead of
+  being remembered as "no" until a restart, and a connection on a database other
+  than 0 is reported as unable to hold instances (Redis search indexes live in
+  database 0), with that reason shown by **Test**.
+- Importing a file that is not a VisualWeaver config says so (400) instead of
+  failing with a server error.
+- **Reset Defaults no longer moves the app onto an empty store.** It cleared the
+  built-in Redis address too, so the next Save pointed the app at
+  `localhost:6379` and every instance and conversation disappeared. Reset now
+  keeps the built-in storage, where app data is kept, the other storage
+  connections and the embedding model, and its dialog lists exactly what it
+  clears (saved web sources, watched folders, API keys stored in `config.json`,
+  the access password) and what it keeps.
+- **The Built-in Redis connection is shown read-only** under Settings → Storage,
+  with a note that the installer manages it, and Save Settings no longer sends
+  it. To keep data on another Redis, add it as a connection and move the app
+  data there.
+- **Closing Settings without saving undoes everything staged**, as the dialogs
+  say: a Reset Defaults, and added or removed web sources, watched folders and
+  prompt templates. Those edits now also show **Unsaved changes**, and closing
+  with ✕ asks first. The discard dialog no longer claims a provider switch is
+  forgotten without saving — it stays selected in that browser.
+- **A refused upload or crawl says why.** A file over the size limit (or any
+  other refusal) left "Uploading 1 file(s)…" at 2% for good; the panel and a
+  message now show the server's reason, and a crawl the server refuses frees
+  the Start button. A stream that ends early is reported as well.
+- **A message sent while the connection is re-establishing is not lost.** It
+  waits for the reconnect and is sent then ("Reconnecting to the server…"); if
+  the server stays away it is taken back, the text returns to the message box
+  and a message says it was not sent. A connection that drops in the middle of
+  an answer unlocks the composer and says the answer was interrupted.
+- **The message box is usable on phones and tablets.** At 375 px it was 24 px
+  wide: on a narrow screen the template picker now sits on its own row above it,
+  the top bar wraps into two rows (title and actions, then knowledge base and
+  model) so the session title and ⚙️ stay visible, and the sidebar closes once
+  a conversation is picked from it.
+- **A new knowledge base is ready to fill.** After **Create**, it is the target
+  for file ingest, crawls and watched folders and the one the chat consults; the
+  name field is cleared, so a second Create is not refused. Progress and the
+  success message name the instance files went into, and an answer from an
+  instance with no documents says **📭 “name” is empty** instead of "No KB
+  match".
+- **Settings tabs** wrap onto a second row instead of hiding half of them behind
+  an invisible scrollbar; on a phone they scroll with faded edges and the
+  selected tab (also when opened from Analytics or 🧩 Components) is scrolled into
+  view. They are a proper tab list for screen readers, with ←/→, Home and End.
+- **Keyboard access:** the upload zone, an instance's Import button, an
+  instance's name (which selects it for chat), the welcome suggestions and the
+  pinned messages can be used with Tab and Enter/Space; template Name and System
+  Prompt fields are labelled.
+- **The welcome card says "Looking for models…"** while the model list is
+  loading, instead of "no local models were found", and the model list is
+  fetched without waiting for the conversation history.
+- **The connection holding the app data has no working Remove** — it used to ask
+  for confirmation and then be refused; its tooltip says to move the app data
+  first. Removing a connection that cannot be reached says its instances cannot
+  be listed, instead of claiming it holds none, and a second connection to the
+  same Redis server no longer lists the built-in instances as its own.
+- **Contrast:** the Playwright notice, the Status tiles, the instance and pinned
+  counts and the Redis name on the dark storage banner now meet WCAG AA in both
+  themes. The Playwright notice only appears when the server lacks the JS
+  crawler.
+- **Embedding-only Ollama models** (`nomic-embed-text`, `mxbai-embed-large`, …)
+  are no longer offered or picked as chat models; the Ollama table marks them
+  **Embedding**, and the welcome card explains when Ollama has nothing else.
+- The composer's template list shows **💬 Default** once (a shipped template
+  called "Default" with no prompt is the same thing).
+- The upload zone names every accepted type (PDF, TXT, Markdown, CSV, DOCX,
+  XLSX).
+- Analytics labels its per-tab counters (queries, cache hits, hit rate, average
+  latency) as **this session**.
+- The conversation delete ✕, 📄, 📎 and 🎤 are at least 24×24 px.
+- A form's error message closes once that form succeeds (for example "Enter a
+  name for the connection" after the connection is added), and every
+  confirmation puts **Cancel** first.
+- First load no longer logs a failed request from creating the `default`
+  instance twice.
+- Save and Cancel are hidden on the Status, Analytics, Logs and About tabs
+  unless something elsewhere is unsaved.
+- When the storage holding conversations and the answer cache cannot be reached,
+  a line above the chat says so and links to **Settings → Status**.
+- Reopening a conversation shows its messages without the welcome screen above
+  them, and a long conversation opens faster, most noticeably in Safari.
+- Clicking the conversation that is already open no longer reconnects it every
+  two seconds (each reconnect could cut off an answer being written).
+- Removing an attached image or document removes that one — after an earlier
+  one was removed, ✕ could remove a different one and send the one still shown
+  as gone. Dropped images need a vision model, as pasted ones do.
+- Clicking a pinned message from another conversation opens that conversation
+  and scrolls to it.
+- 👍/👎 records the provider, model and knowledge base that produced the rated
+  answer, not the ones selected when rating.
+- Voice input uses the browser's language and separates dictated phrases with a
+  space; the 🎤 tooltip says that some browsers send the audio to their vendor's
+  service.
+- Stored values such as an instance's colour or creation date, and texts from a
+  Redis server (status, memory and analytics figures) or Ollama, are always shown
+  as text and can no longer inject markup.
+- **Chat stays responsive while a crawl runs.** Crawling a site made every other
+  conversation stutter: answers paused for up to half a second at a time while
+  pages were processed. Pages are now parsed in separate worker processes, and
+  host lookups and the ingestion log are handled in the background, so streaming
+  answers and the Stop button keep up during a crawl, and the crawl itself is no
+  slower. In smart mode each page is parsed once instead of twice.
+- **The same conversation open in two tabs.** Closing one tab no longer cuts off
+  the answer streaming in the other, and Stop in one tab no longer stops the
+  other tab's answer. A question sent from the second tab while the first is
+  still answering waits its turn and is then answered, with the earlier exchange
+  as context, instead of being silently dropped. The same goes for **Regenerate**
+  or **Re-run** clicked while an answer is still streaming: it runs once that
+  answer is done instead of being ignored. A regenerate that would discard an
+  answer just given in another tab is refused with a message asking to reload,
+  and a message the server cannot read is answered with an error instead of
+  closing the connection.
+- **Ollama and Gemini replies start sooner.** The connection to Ollama and the
+  Gemini client are reused instead of being set up again for every answer,
+  conversation title and HyDE request; a changed Ollama address or Gemini key in
+  Settings still applies from the next message.
+- **The app log no longer fills with `Batches: 100%` progress bars** on every
+  question and every reranked answer.
+- **Faster chat turns with a customised Base Instruction.** The check that tops
+  up a saved instruction with newer visual blocks now runs once per settings
+  change instead of on every message.
+- **Uploads, settings saves and ratings no longer pause other conversations.**
+  An uploaded file, a settings or template save and a thumbs-up/down are written
+  to disk in the background. The ratings store is written safely: a failure
+  mid-write (a full disk) no longer erases every rating given so far.
+- `./install.sh` no longer prints screens of packaging warnings while installing
+  the Python dependencies: pip's output goes to `pip-install.log` in the data
+  folder and is shown only when the install fails, and the package declares its
+  licence in the current format.
+- `./install.sh` says when it keeps an existing virtualenv and which Python that
+  is, instead of naming a newer Python it then did not use.
+- The install check no longer reports "search ?" for a Redis that is still
+  loading its data, and waits until the data is loaded before saying the install
+  is ready.
+
 ## [1.14.0] — 2026-09-29
 
 ### Changed

@@ -41,25 +41,45 @@ def valid_replace_index(value, n_messages: int) -> bool:
 
 @appcore.app.websocket("/ws/chat/{sid}")
 async def ws_chat(ws: WebSocket, sid: str):
-    """One WebSocket per session; each message is a full chat request.
+    """One WebSocket per browser tab; each message is a full chat request.
 
     The streaming task runs as an asyncio background task so the receive loop
     can concurrently process an {"type":"abort"} message and cancel it.
+
+    Everything here is per SOCKET, not per session. The UI resumes the last
+    conversation, so two tabs routinely open the same session id — and with the state
+    keyed by session, closing one tab cancelled the other tab's answer mid-stream, and a
+    question sent from the second tab while the first was answering was dropped without
+    a word. Now Stop and closing a tab touch only that tab's own turns, and every
+    message is answered: turns on one conversation run one after another (_run_turn),
+    and one that has to wait is told so.
     """
     await _ns_ws.mgr.connect(ws, sid)
-    if sid not in state._sessions:
-        state._sessions[sid] = await asyncio.to_thread(sessions.load_session, sid)
-    state.touch_session(sid)
     try:
+        if sid not in state._sessions:
+            state._sessions[sid] = await asyncio.to_thread(sessions.load_session, sid)
+        state.touch_session(sid)
         while True:
             raw = await ws.receive_text()
-            msg = json.loads(raw)
+            # Parsed INSIDE the try: a malformed frame used to raise straight out of the
+            # handler, skipping the cleanup below and leaving this socket's task running.
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                msg = None
+            if not isinstance(msg, dict):
+                await ws.send_json({"type": "error",
+                                    "content": "Ignored a message that was not a valid chat request."})
+                continue
 
-            # ── Abort: cancel the active streaming task if any ──────────────
+            # ── Abort: cancel THIS socket's turns — the one answering and any queued
+            # behind it (Stop means stop) — and nobody else's ─────────────────────
             if msg.get("type") == "abort":
-                task = state._chat_tasks.pop(sid, None)
-                if task and not task.done():
-                    task.cancel()
+                tasks = state._chat_tasks.pop(ws, [])
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                for task in tasks:
                     try:
                         await task
                     except (asyncio.CancelledError, Exception):
@@ -72,21 +92,105 @@ async def ws_chat(ws: WebSocket, sid: str):
                 continue
 
             # ── New chat turn: start as a background task ────────────────────
-            # If a task is somehow still running, let it finish (shouldn't happen
-            # in normal usage since send-btn is disabled during streaming).
-            task = state._chat_tasks.get(sid)
-            if task and not task.done():
-                continue
-
-            t = asyncio.create_task(handle_chat(ws, sid, msg))
-            state._chat_tasks[sid] = t
+            # If this socket's previous answer is still streaming (a regenerate clicked
+            # mid-answer), the new turn queues behind it like one from another tab. It
+            # used to be dropped without a word.
+            state._chat_tasks.setdefault(ws, []).append(
+                asyncio.create_task(_run_turn(ws, sid, msg)))
 
     except WebSocketDisconnect:
-        # Cancel any in-flight task when the client disconnects
-        task = state._chat_tasks.pop(sid, None)
-        if task and not task.done():
-            task.cancel()
-        _ns_ws.mgr.disconnect(sid)
+        pass
+    finally:
+        # Cancel only this socket's turns; another tab on the same conversation keeps
+        # its answer.
+        for task in state._chat_tasks.pop(ws, []):
+            if not task.done():
+                task.cancel()
+        _ns_ws.mgr.disconnect(sid, ws)
+
+
+def _transcript_mark(sid: str) -> tuple:
+    """What a turn compares to tell whether it changed the transcript: its length and
+    its last message — a regenerate can leave the length as it was."""
+    msgs = state._sessions.get(sid) or []
+    return len(msgs), id(msgs[-1]) if msgs else None
+
+
+async def _run_turn(ws: WebSocket, sid: str, msg: dict):
+    """Run one socket's chat turn once the conversation is free.
+
+    A conversation's history is read when a turn starts and appended and saved whole
+    when it ends, so two turns on it at once — the same conversation open in two tabs
+    — would each save a transcript missing the other's exchange. A turn that finds the
+    conversation busy waits its turn (first come, first served) and its tab is told it
+    is queued. The claim ends at stream_end (handle_chat calls ``release``): the title
+    and the cache store that follow do not hold up the next question.
+    """
+    turn = state._session_turns.setdefault(sid, {"lock": asyncio.Lock(), "turns": 0, "writers": []})
+    lock = turn["lock"]
+    turn["turns"] += 1
+    me = asyncio.current_task()
+    mark = len(turn["writers"])      # turns that change the transcript from here on
+    held = False
+    before = None
+    released = False
+
+    def release():
+        nonlocal held, released
+        if released:
+            return
+        released = True
+        if held:
+            held = False
+            if _transcript_mark(sid) != before:
+                turn["writers"].append(ws)            # this turn changed the transcript
+            lock.release()
+        turn["turns"] -= 1
+        if turn["turns"] <= 0 and state._session_turns.get(sid) is turn:
+            del state._session_turns[sid]
+        # Free this socket's slot: Stop and closing the tab no longer reach this turn's
+        # title and cache work, and the next message is not queued behind it.
+        mine = state._chat_tasks.get(ws)
+        if mine and me in mine:
+            mine.remove(me)
+            if not mine:
+                state._chat_tasks.pop(ws, None)
+
+    try:
+        if lock.locked():
+            # The UI keeps its typing indicator up on a status frame, so the question
+            # visibly waits instead of seeming lost.
+            await ws.send_json({"type": "status", "phase": "queued"})
+        await lock.acquire()
+        held = True
+        before = _transcript_mark(sid)
+        if (any(w is not ws for w in turn["writers"][mark:])
+                and valid_replace_index(msg.get("replace_from"), before[0])):
+            # A regenerate names a position in the transcript THIS tab saw. Another tab
+            # added to it while this one waited, so the position no longer means what the
+            # user clicked on — and truncating there would delete the other tab's answer.
+            # (A turn of this same tab ahead of it is fine: the tab saw that one.)
+            await ws.send_json({"type": "error", "content": (
+                "This conversation changed in another tab — reload it, then regenerate.")})
+            return
+        await handle_chat(ws, sid, msg, release=release)
+    except asyncio.CancelledError:
+        raise
+    except WebSocketDisconnect:
+        pass                         # the tab went away mid-turn; nobody to tell
+    except Exception as e:
+        # Uncaught, this died as an unretrieved task exception: the tab kept its typing
+        # indicator up forever with nothing in the log to say why.
+        log.exception(f"chat turn failed for session {sid}")
+        if not released:
+            # After stream_end the answer is complete and the tab may already be
+            # streaming its next one, which an error frame would cut short.
+            try:
+                await ws.send_json({"type": "error", "content": f"Could not answer: {e}"})
+            except Exception:
+                pass
+    finally:
+        release()
 
 
 # Citation markers the model wrote, e.g. "[3]" or "[3, 4]". The grouped form counts
@@ -125,7 +229,7 @@ def _record_answer_citations(answer: str, chunks: list[dict]) -> None:
         state.record_citations(inst, rs, count_answer=(inst == owner))
 
 
-async def handle_chat(ws: WebSocket, sid: str, msg: dict):
+async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     """
     Process one chat turn:
     1. Semantic cache lookup  — return immediately on hit
@@ -134,6 +238,9 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict):
     4. Stream LLM response    — Ollama / Claude / OpenAI token-by-token
     5. Auto-title generation  — on first turn, generate a short session title
     6. Cache store            — save the response for future similar queries
+
+    ``release``, when given (see _run_turn), is called right after stream_end: from
+    there on this turn no longer holds the conversation or its socket.
     """
     query         = msg.get("content", "")
     provider      = msg.get("provider", state._config.get("provider", "ollama"))
@@ -248,7 +355,18 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict):
                                provider, model,
                                cache={"hit": True, "score": hit.get("score")}),
         })
+        # A conversation that opens with a cached answer runs no generation, so no title
+        # call either: name it after its question instead of leaving it untitled.
+        cache_title = None
+        if len(state._sessions[sid]) == 2:
+            cache_title = re.sub(r"\s+", " ", query).strip()[:60] or None
+            sessions.set_title(sid, cache_title or "")
         await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
+        if cache_title:
+            try:
+                await ws.send_json({"type": "session_title", "title": cache_title})
+            except Exception:
+                pass
         return
 
     # ── 2. RAG retrieval ────────────────────────────────────────────────────
@@ -450,13 +568,16 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict):
                     "label": cache.skip_label(cache_kind),
                     "bypassed": bool(bypass_cache) and cacheable},
     })
-    state._chat_tasks.pop(sid, None)
+    # The answer is complete and saved: a question queued in another tab can start, and
+    # this tab can send its next one (or Stop) without touching the title call below.
+    if release is not None:
+        release()
 
     # ── 6. Cache store — off the critical path ──────────────────────────────
     # Tagged with the scope it was produced under, so it can only be replayed for
     # the same corpus/provider/model/prompt. `cacheable` also excludes turns that
     # had an uploaded file in context.
-    if not stream_error and cacheable:
+    if not stream_error and cacheable and cache.worth_caching(effective_rag, chunks):
         await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope)
 
     # Which chunks did the answer actually use? The app knows how many it SENT;
@@ -531,6 +652,8 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict):
             pass   # title generation is non-critical
 
     if title_msg:
+        if sessions.set_title(sid, title_msg):
+            await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
         try:
             await ws.send_json({"type": "session_title", "title": title_msg})
         except Exception:
@@ -771,7 +894,7 @@ async def api_chat(payload: dict):
     if usage_sink.get("prompt") is not None:
         await asyncio.to_thread(sessions.record_usage, provider, model, usage_sink)
 
-    if not stream_error and cacheable:
+    if not stream_error and cacheable and cache.worth_caching(effective_rag, chunks):
         await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope)
 
     # Which chunks did the answer actually use? The app knows how many it SENT;

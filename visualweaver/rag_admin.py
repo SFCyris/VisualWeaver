@@ -7,11 +7,13 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 import logging
 import asyncio
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
 import redis
-from . import config, rag, redis_store, state
+from fastapi import HTTPException
+from . import appstore, config, mongo_store, rag, redis_store, state
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +21,28 @@ log = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RAG INSTANCE MANAGEMENT
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def meta_get(rc, instance: str) -> dict | None:
+    """An instance's metadata on one connection (Redis key rag_meta:<i>, or vw_meta)."""
+    if mongo_store.is_mongo(rc):
+        return mongo_store.get_meta(rc, instance)
+    raw = rc.get(f"rag_meta:{instance}")
+    return json.loads(raw) if raw else None
+
+
+def meta_set(rc, instance: str, meta: dict) -> None:
+    if mongo_store.is_mongo(rc):
+        mongo_store.set_meta(rc, instance, meta)
+    else:
+        rc.set(f"rag_meta:{instance}", json.dumps(meta))
+
+
+def meta_delete(rc, instance: str) -> None:
+    if mongo_store.is_mongo(rc):
+        mongo_store.delete_meta(rc, instance)
+    else:
+        rc.delete(f"rag_meta:{instance}")
+
 
 def list_rag_instances() -> list[dict]:
     """
@@ -30,7 +54,12 @@ def list_rag_instances() -> list[dict]:
     all_instances: dict[str, dict] = {}   # "endpoint:name" -> info
 
     # Build the list of endpoints to scan: default + any extras in config
-    endpoints_to_scan = [("default", redis_store.r())]
+    endpoints_to_scan = []
+    try:
+        endpoints_to_scan.append(("default", redis_store.r_for("default")))
+    except Exception as e:           # e.g. a malformed built-in MongoDB connection string
+        state._endpoint_health["default"] = False
+        log.warning(f"Built-in storage connection unusable: {e}")
     for ep in state._config.get("redis_endpoints", []):
         ep_name = ep.get("name", "")
         if ep_name and ep_name != "default":
@@ -39,9 +68,28 @@ def list_rag_instances() -> list[dict]:
             except Exception:
                 pass
 
+    listed: set = set()        # endpoints whose names were read completely this time
+    # RediSearch indexes are server-wide: FT._LIST answers the same on every logical
+    # database, and an index can only be created in database 0. A connection to another
+    # database of a server therefore listed every instance of that server's database 0 as
+    # its own — duplicate cards, and a Remove dialog naming instances it does not hold.
+    # FT._LIST is read only through a database-0 connection; rag_meta keys are per
+    # database. A second connection to the same server AND database (another host name
+    # for it) is the same store and is not listed twice — servers are told apart by run_id.
+    stores_seen: set[tuple[str, int]] = set()
+
     for ep_name, rc in endpoints_to_scan:
         # Skip endpoints already known to be down — avoids hanging on socket_timeout
         if state._endpoint_health.get(ep_name, None) is False:
+            continue
+        if mongo_store.is_mongo(rc):
+            try:
+                for m in mongo_store.list_instances(rc):
+                    all_instances[f"{ep_name}:{m['name']}"] = {
+                        "count": m["chunks"], "ep": ep_name, "name": m["name"], "meta": m}
+                listed.add(ep_name)
+            except Exception as e:
+                log.warning(f"Could not list instances on MongoDB '{ep_name}': {e}")
             continue
         try:
             # Enumerate this endpoint's RAG indexes (FT._LIST) and read each
@@ -49,9 +97,23 @@ def list_rag_instances() -> list[dict]:
             # returns the match total). O(instances) index reads instead of a scan
             # over every chunk key in the keyspace.
             try:
-                idx_names = [rag._decode(x) for x in rc.execute_command("FT._LIST")]
+                db = int(rc.connection_pool.connection_kwargs.get("db", 0) or 0)
             except Exception:
-                idx_names = []
+                db = 0
+            try:
+                run_id = (rc.info("server") or {}).get("run_id")
+            except Exception:
+                run_id = None
+            if run_id:
+                if (run_id, db) in stores_seen:
+                    continue
+                stores_seen.add((run_id, db))
+            idx_names = []
+            if db == 0:
+                try:
+                    idx_names = [rag._decode(x) for x in rc.execute_command("FT._LIST")]
+                except Exception:
+                    idx_names = []
             for idx_name in idx_names:
                 if not (idx_name.startswith("rag:") and idx_name.endswith(":idx")):
                     continue
@@ -71,8 +133,12 @@ def list_rag_instances() -> list[dict]:
                 inst = rag._decode(mk).replace("rag_meta:", "")
                 key  = f"{ep_name}:{inst}"
                 all_instances.setdefault(key, {"count": 0, "ep": ep_name, "name": inst})
+            listed.add(ep_name)
         except Exception:
             pass
+    for ep_name in listed:
+        state._known_instance_names[ep_name] = {
+            i["name"] for i in all_instances.values() if i["ep"] == ep_name}
 
     # Pipeline metadata fetches grouped by endpoint to avoid N round-trips
     ep_instances: dict[str, list[tuple[str, str]]] = {}  # ep_name → [(key, inst)]
@@ -81,6 +147,12 @@ def list_rag_instances() -> list[dict]:
 
     meta_cache: dict[str, dict] = {}
     for ep_name, pairs in ep_instances.items():
+        if redis_store.endpoint_type(ep_name) == "mongodb":
+            for key, _ in pairs:
+                m = dict(all_instances[key].get("meta") or {})
+                m["redis_endpoint"] = ep_name
+                meta_cache[key] = m
+            continue
         try:
             rc = redis_store.r_for(ep_name)
             pipe = rc.pipeline(transaction=False)
@@ -103,11 +175,12 @@ def list_rag_instances() -> list[dict]:
         result.append({
             "name":            inst,
             "chunks":          info["count"],
-            "color":           meta.get("color",   "#6366f1"),
+            "color":           safe_color(meta.get("color")),
             "tags":            meta.get("tags",    []),
             "created":         meta.get("created", ""),
             "enabled":         meta.get("enabled", True),
             "redis_endpoint":  resolved_ep,
+            "endpoint_type":   redis_store.endpoint_type(resolved_ep),
             "reachable":       reachable,
         })
     return result
@@ -122,7 +195,12 @@ def reset_rag(instance: str, rc: redis.Redis | None = None):
     far more efficient than the previous KEYS scan + bulk DELETE approach.
     The chunk counter key is cleaned up separately.
     """
-    rc = rc or redis_store.r()
+    rc = rc or redis_store.r_for("default")
+    if mongo_store.is_mongo(rc):
+        mongo_store.reset_instance(rc, instance)
+        config.append_log({"ts": datetime.now(timezone.utc).isoformat(), "instance": instance,
+                           "source": "RESET", "chunks": 0, "status": "reset"})
+        return
     prefix = rag.rag_prefix(instance)
     rag._index_ensured.discard(instance)   # force re-creation on next ingest
     rag._bm25_leg_warned.discard(instance)  # re-warn if the rebuilt index still has no text leg
@@ -177,9 +255,8 @@ def _resolve_rag_meta(instance: str) -> tuple[dict | None, str]:
     One GET on the default endpoint in the common case; extra endpoints are consulted only
     when the instance is not on the default. Mirrors the old rc_for_instance search order."""
     try:
-        meta_raw = redis_store.r().get(f"rag_meta:{instance}")
-        if meta_raw:
-            meta = json.loads(meta_raw)
+        meta = meta_get(redis_store.r_for("default"), instance)
+        if meta:
             return meta, meta.get("redis_endpoint", "default")
     except Exception:
         pass
@@ -187,9 +264,9 @@ def _resolve_rag_meta(instance: str) -> tuple[dict | None, str]:
         ep_name = ep.get("name", "")
         if ep_name and ep_name != "default":
             try:
-                meta_raw = redis_store.r_for(ep_name).get(f"rag_meta:{instance}")
-                if meta_raw:
-                    return json.loads(meta_raw), ep_name
+                meta = meta_get(redis_store.r_for(ep_name), instance)
+                if meta is not None:
+                    return meta, ep_name
             except Exception:
                 pass
     return None, "default"
@@ -241,6 +318,18 @@ def _rc_for(instance: str, endpoint: str | None = None) -> redis.Redis:
     endpoints.
     """
     if endpoint:
+        if endpoint != "default" and redis_store.endpoint_cfg(endpoint) is None:
+            raise HTTPException(400, f"Unknown storage connection '{endpoint}'")
+        if redis_store.endpoint_type(endpoint) == "mongodb":
+            # Naming a connection directly (ingest/import ?endpoint=) must not reach a
+            # server that cannot hold an instance — the same rule creation enforces.
+            ok = state._search_available.get(endpoint)
+            if ok is None:
+                p = mongo_store.probe(redis_store.endpoint_cfg(endpoint), ep=redis_store.r_for(endpoint))
+                state._endpoint_health[endpoint] = bool(p["ok"])
+                ok = state._search_available[endpoint] = bool(p.get("vector_search")) if p["ok"] else None
+            if ok is False:
+                raise HTTPException(400, f"Storage '{endpoint}': {mongo_store.NO_SEARCH_MSG}")
         return redis_store.r_for(endpoint)
     return rc_for_instance(instance)
 
@@ -257,10 +346,16 @@ _RAG_STATS_KEY = "rag_stats"
 # turn inside it used to SET the whole key from a dict holding a single fresh row —
 # overwriting every other instance's history permanently.
 _stats_loaded = False
+# The restore could not READ the store (not reachable yet — a MongoDB container still
+# starting). Flushing stays blocked and the next flush retries the restore, or the first
+# turn would overwrite the persisted history with a one-row snapshot.
+_stats_load_failed = False
 
 
 def save_rag_stats() -> None:
-    """Flush the retrieval counters to Redis. Best-effort: never fail a request."""
+    """Flush the retrieval counters to the app store. Best-effort: never fail a request."""
+    if not _stats_loaded and _stats_load_failed and state._rag_stats_dirty:
+        load_rag_stats()                 # the store may be reachable now
     if not _stats_loaded or not state._rag_stats_dirty:
         return
     try:
@@ -272,7 +367,8 @@ def save_rag_stats() -> None:
         state._rag_stats_dirty -= pending
         snapshot = {k: dict(v) for k, v in list(state._rag_stats.items())}
         try:
-            redis_store.r().set(_RAG_STATS_KEY, json.dumps(snapshot))
+            with appstore.gate.write():
+                appstore.current().set(_RAG_STATS_KEY, json.dumps(snapshot))
         except Exception:
             state._rag_stats_dirty |= pending      # unwritten — try again next turn
             raise
@@ -369,8 +465,15 @@ def load_rag_stats() -> None:
     """Restore the counters at startup. A malformed or partial record is discarded
     rather than half-loaded — a counter that is wrong is worse than one that is absent,
     because the advice built on it reads as measurement either way."""
+    global _stats_load_failed
     try:
-        raw = redis_store.r().get(_RAG_STATS_KEY)
+        try:
+            raw = appstore.current().get(_RAG_STATS_KEY)
+        except Exception as e:
+            _stats_load_failed = True
+            log.warning(f"Could not read the persisted RAG stats yet ({str(e)[:200]}); will retry")
+            return
+        _stats_load_failed = False
         if not raw:
             return
         data = json.loads(raw)
@@ -393,18 +496,42 @@ def load_rag_stats() -> None:
         log.warning(f"Could not restore RAG stats: {e}")
     finally:
         # Flushing is unblocked either way: a corrupt or missing key must not wedge
-        # persistence for the life of the process.
+        # persistence for the life of the process. Only an unreadable store keeps it
+        # blocked (see _stats_load_failed).
         global _stats_loaded
-        _stats_loaded = True
+        _stats_loaded = not _stats_load_failed
 
 
 def clear_rag_stats() -> None:
-    """Zero the counters, in memory and in Redis."""
-    global _stats_loaded
-    _stats_loaded = True
+    """Zero the counters, in memory and in the app store."""
+    global _stats_loaded, _stats_load_failed
+    _stats_loaded, _stats_load_failed = True, False
     state._rag_stats.clear()
     state._rag_stats_dirty.clear()
     try:
-        redis_store.r().delete(_RAG_STATS_KEY)
+        with appstore.gate.write():
+            appstore.current().delete(_RAG_STATS_KEY)
     except Exception as e:                                        # pragma: no cover
         log.warning(f"Could not clear persisted RAG stats: {e}")
+
+
+def names_on_unreachable_connections() -> dict[str, str]:
+    """{instance name: connection} last listed on connections that are down now — the
+    instances list_rag_instances cannot show, which a new name must not repeat."""
+    out: dict[str, str] = {}
+    for ep_name, names in list(state._known_instance_names.items()):
+        if state._endpoint_health.get(ep_name) is False:
+            for n in names:
+                out.setdefault(n, ep_name)
+    return out
+
+
+_COLOR_RE = re.compile(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+DEFAULT_COLOR = "#6366f1"
+
+
+def safe_color(value) -> str:
+    """An instance colour as the UI may use it: a #hex colour, else the default. The
+    colour is written into style attributes, so anything else (a value that closes the
+    attribute and adds markup) must never reach the page — whatever stored it."""
+    return value if isinstance(value, str) and _COLOR_RE.fullmatch(value) else DEFAULT_COLOR

@@ -8,13 +8,14 @@ Commands are shown for **macOS** and **Linux** side-by-side where they differ. P
 
 ## Prerequisites
 
-- **Python 3.11 or newer** — check with `python3 --version`.
+- **Python 3.11 or 3.12** — check with `python3 --version` (`install.sh` finds a supported one, or use `PYTHON=/path/to/python3.12 ./install.sh`).
 - **git** *or* **unzip** — to obtain the code.
 - **curl** — the start script uses it for a health check.
 - **macOS only:** [Homebrew](https://brew.sh) and the Xcode Command Line Tools (`xcode-select --install`).
 - **~500 MB free disk** — the virtualenv, the vendored Redis, and the embedding model (downloaded on first ingest).
+- **Only if you choose MongoDB:** a running container runtime with Compose — Colima, Podman, Rancher Desktop, OrbStack or Docker Desktop (Docker Engine on Linux) — and about 2 GB more disk for MongoDB's images.
 
-No running Redis is required — `install.sh` provisions its own on port 6389.
+No running Redis or MongoDB is required — `install.sh` provisions its own on private ports (6389 for Redis, 27019 for MongoDB).
 
 ---
 
@@ -35,22 +36,40 @@ git clone https://github.com/SFCyris/VisualWeaver.git && cd VisualWeaver
 
 ## Step 1 — Install
 
-One script sets up everything — a Python virtual environment, the app's dependencies, and a Redis 8 with the search/query engine, kept on its own port and separate from any Redis you already run:
+One script sets up everything — a Python virtual environment, the app's dependencies, and the database VisualWeaver keeps its knowledge bases, conversations and answer cache in, on its own port and separate from anything you already run:
 
 **macOS and Linux:**
 ```bash
 ./install.sh
 ```
 
+It first asks which storage to install:
+
+```
+── Storage ──
+  1) Redis 8 with search                 (runs natively; no containers needed)
+  2) MongoDB 9.0 with vector search      (runs in containers: Colima, Podman, OrbStack, Rancher Desktop or Docker)
+  3) Both                                (Redis holds app data and the answer cache; MongoDB is available for RAG)
+Choose [1/2/3] (default 1):
+```
+
+Press **Enter** for Redis — the rest of this tutorial uses it. Choosing MongoDB (2 or 3):
+
+- checks that a container runtime is running first; if none is, it says how to start one (it never installs one) and offers Redis instead;
+- shows MongoDB's licence — MongoDB Community Server and MongoDB Search are licensed by MongoDB, Inc. under the [Server Side Public License v1](https://www.mongodb.com/licensing/server-side-public-license), downloaded from MongoDB and not distributed with VisualWeaver — and asks you to type **yes**;
+- downloads the two official images (about 1.9 GB on disk, once) and starts them.
+
+For scripted installs set `VISUALWEAVER_STORAGE=redis`, `mongodb` or `both` (plus `VISUALWEAVER_ACCEPT_MONGODB_LICENSE=1` for MongoDB). Running `./install.sh` again later keeps what you have and offers to add the other one.
+
 - On **macOS** it needs Homebrew (for `openssl@3`) and Xcode Command Line Tools; Redis 8 is vendored into `./.redis` so it never touches a system install.
 - On **Linux**, if you already run a Redis with the search module it is reused; otherwise Redis 8 is installed for you.
 
-The dedicated Redis runs on a loopback port (6389 by default), so it never conflicts with any Redis you already have. The default sentence-transformer embedding model (~90 MB) is downloaded and cached the first time you ingest content — not during install.
+The dedicated Redis runs on a loopback port (6389 by default), so it never conflicts with any Redis you already have. If a port the install needs (8420 for the web UI, 6389 for Redis, 27019 for MongoDB) is taken by another program, the installer names that program and uses the next free port. The default sentence-transformer embedding model (~90 MB) is downloaded and cached the first time you ingest content — not during install.
 
 > **If it fails:** `python3 not found` or `Homebrew is required` → install those (see [Prerequisites](#prerequisites)) and re-run. If it reports the Redis **search module** did not load, re-run `./install.sh` — it re-locates the module.
-> **Verify:** the script ends with a success banner and a `./.redis/` folder now exists.
+> **Verify:** the script ends with a **Validation** table — a ✓ for the Python environment, each store you chose (with its address and version) and the web UI port — followed by *Install complete — ready to use*. A ✗ line says what to fix, and the install then exits with an error.
 
-> Prefer containers? Skip Steps 1–3 and run `docker compose pull && docker compose up -d` instead (pulls the prebuilt app image from GitHub + Redis). Stop with `docker compose stop`. See the README's Docker section for details.
+> Prefer containers? Skip Steps 1–3 and run `./docker.sh up` instead: it asks for Redis, MongoDB or both, starts everything, waits until it is ready and prints the address. Stop with `./docker.sh stop`. See the README's Docker section for details.
 
 ---
 
@@ -93,30 +112,31 @@ sudo apt-get install -y \
 ./start.sh
 ```
 
-This starts the dedicated Redis, then the app. Open **http://localhost:8420** in your browser — you should see the chat interface with a glass-effect sidebar.
+This starts the storage you installed (Redis and/or MongoDB), then the app, and prints the versions in use. Open **http://localhost:8420** in your browser — you should see the chat interface with a glass-effect sidebar.
 
 ![The VisualWeaver welcome screen](screenshots/tutorial/03-welcome.png)
 
-- Stop everything (app **and** its Redis): `./stop.sh`
+- Stop everything (app **and** its storage; data is kept): `./stop.sh`
 - Restart: `./restart.sh`
 - Use a different port: `./start.sh 9000`
+- Who can open it: `./changeAccess.sh local` (this machine only) or `./changeAccess.sh lan` (any device on your network), then restart
 
 > **If the page doesn't load or the port is busy** (`Port 8420 is already in use`), start on another port: `./start.sh 9000`, then open `http://localhost:9000`. Check the app log path printed in the start banner for errors.
 > **Verify:** `curl -fsS http://localhost:8420/api/health` returns an `ok` status.
 
-The app listens on all interfaces (`0.0.0.0`) by default, so other devices on your network can reach it — `start.sh` prints the LAN address. There is no built-in authentication: on an untrusted network start it with `VISUALWEAVER_HOST=127.0.0.1 ./start.sh`, and put a reverse proxy with auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
+Who can open the app is the answer you gave `install.sh`: **only this machine** (`127.0.0.1` — the default when you just press Enter) or **any device on your network** (`0.0.0.0`, and `start.sh` then prints the LAN address). An install run without a terminal is not asked and leaves the app listening on all interfaces (`0.0.0.0`). There is no built-in authentication: switch with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
 
 ---
 
-## Step 4 — Verify Redis connection
+## Step 4 — Verify your storage
 
 1. Click the **⚙** settings icon (or press `⌘/Ctrl + K`)
 2. Go to the **Status** tab
-3. The Redis row should show a green dot and the Redis version
+3. The storage row — Redis, MongoDB or both, whatever you installed — should show a green dot and its version (**Settings → About** lists every component and version)
 
 ![Settings → Status tab showing Redis and provider health](screenshots/tutorial/04-status.png)
 
-If it shows red, go to the **Redis** tab and update the host/port to match your setup.
+If it shows red, that store is not running — `./start.sh` starts it (for MongoDB the container runtime must be running, e.g. `colima start`), and the **Storage** tab shows the address it uses. While the storage that holds your conversations cannot be reached, a line above the chat says so and links to the Status tab.
 
 ---
 
@@ -149,9 +169,9 @@ ollama serve   # or: sudo systemctl enable --now ollama
 
 > **`ollama serve` blocks its terminal** — run it in a *separate* terminal from `./start.sh`. On macOS the Ollama app usually already runs the server, so `ollama serve` may say *"address already in use"* — that's fine, skip it.
 
-In the Providers accordion, expand the **Ollama** card. Click **Test Connection** — it should show green. Click **Refresh Models**, select your model, and click **Use**.
+In the Providers accordion, expand the **Ollama** card. Click **🔌 Test** — it should show green. Click **🔄 Refresh Models**, select your model, and click **Use**. Embedding-only models such as `nomic-embed-text` are listed as **Embedding** and are never offered for chat.
 
-> **If Test Connection is red:** confirm `ollama serve` is running (or the Ollama app is open) and the host in the card is `http://localhost:11434`.
+> **If 🔌 Test is red:** confirm `ollama serve` is running (or the Ollama app is open) and the host in the card is `http://localhost:11434`.
 
 ### Option B — Cloud provider (API key required)
 
@@ -184,7 +204,7 @@ The response streams token-by-token. Notice the badge showing latency and a **�
 
 Ask the same question again — this time you should see a **⚡ Cached XX%** badge. The response returns instantly from the semantic cache.
 
-Hover an earlier question to reveal its **📋 Copy · ↻ Rerun · ↺ Force rerun** bar — *Rerun* may reuse the cache, *Force rerun* always asks the model again. The topbar dropdown selects which knowledge base to consult (that's **RAG** — you'll create one in Step 7); with none created yet it sits on **✦ All RAGs**, and you can pick **⊘ No RAG** any time to answer purely from the model with no retrieval.
+Hover an earlier question to reveal its **📋 Copy · ↻ Rerun · ↺ Force rerun** bar — *Rerun* may reuse the cache, *Force rerun* always asks the model again. The topbar dropdown selects which knowledge base to consult (that's **RAG** — you'll create one in Step 7). It starts on **default**, which holds nothing until you add documents — an answer then carries a **📭 “default” is empty** badge. **✦ All RAGs** consults every enabled knowledge base at once, and **⊘ No RAG** answers purely from the model with no retrieval.
 
 ---
 
@@ -194,9 +214,8 @@ RAG (Retrieval-Augmented Generation) lets the model answer questions using your 
 
 1. Open **Settings → RAG**
 2. Click **＋ New Instance**
-3. Name it `my-docs`, pick any colour, leave the Redis endpoint as default
-4. Click **Create**
-5. In the topbar dropdown, select `my-docs`
+3. Name it `my-docs`, pick any colour, leave **Storage** on the built-in Redis
+4. Click **Create** — `my-docs` becomes the knowledge base the chat consults (the topbar dropdown shows it) and the target for the files and crawls in Step 8
 
 ![Settings → RAG tab — create and manage knowledge-base instances](screenshots/tutorial/07-rag.png)
 
@@ -207,9 +226,9 @@ RAG (Retrieval-Augmented Generation) lets the model answer questions using your 
 ### From a file
 
 1. Still in **Settings → RAG**, scroll to **Ingest Documents**
-2. Select `my-docs` from the **Target Instance** dropdown
-3. Drag a `.txt`, `.pdf`, or `.csv` file onto the upload zone (or click to browse)
-4. Watch the progress bar — it shows per-file chunk counts in real time
+2. **Target Instance** already shows `my-docs` (pick another instance there to send files elsewhere)
+3. Drag a PDF, TXT, Markdown, CSV, DOCX or XLSX file onto the upload zone — or click it, or Tab to it and press Enter, to browse
+4. Watch the progress bar — it shows per-file chunk counts in real time and names the instance the files go into. A file the server refuses (over the upload size limit, for example) stops the upload with the server's reason
 5. **✕ Cancel** stops after the file being indexed; anything already indexed is kept
 
 > **First run only:** before the first file is indexed the panel says the embedding model
@@ -391,11 +410,18 @@ No re-embedding needed — the vectors are stored in the export.
 |---|---|
 | `install.sh`: *python3 not found* / *Homebrew is required* | Install the missing tool (see [Prerequisites](#prerequisites)) and re-run. |
 | Redis is up but **search unavailable** (Status tab) | Re-run `./install.sh` — it re-locates the Redis search module. |
-| **Port 8420 already in use** / page won't load | `./start.sh 9000`, then open `http://localhost:9000`. |
-| Ollama **Test Connection** red | Start `ollama serve` (or open the Ollama app); confirm host `http://localhost:11434`. |
+| `start.sh`: *The built-in MongoDB did not start* | Usually the container runtime is not running — start it as the message says (e.g. `colima start`), then `./start.sh` again. |
+| **Port 8420 already in use** / page won't load | `./start.sh 9000`, then open `http://localhost:9000`. (Redis and MongoDB ports are moved to a free one automatically.) |
+| A new knowledge base on **MongoDB** finds nothing | Its search index takes a few seconds to build. If it stays empty, the disk is likely over 85 % full — `./start.sh` warns about it; free space (`docker image prune`). |
+| Ollama **🔌 Test** red | Start `ollama serve` (or open the Ollama app); confirm host `http://localhost:11434`. |
 | Cloud provider errors | Check the API key / its environment variable (see Step 5), and the model is selected + **Use** clicked. |
 | Crawl returns **0 pages** | The site is likely JS-rendered — use **Force JS** (needs the Step 2 extras), or check the URL/depth. |
 | Chat says a knowledge base was searched but found nothing (**📭 No KB match**) | Lower **Similarity Threshold** or raise **Top-K** in Settings → RAG; confirm the document ingested. |
+| An answer carries **📭 “name” is empty** | That knowledge base has no documents yet — ingest some (Step 8), or pick another one in the topbar dropdown. |
+
+---
+
+More on running VisualWeaver day to day — ports, logs, the built-in MongoDB's passwords, upgrading, adding or removing a store — is in [DOCS.md → Running and Maintenance](DOCS.md#running-and-maintenance).
 
 ---
 
@@ -404,5 +430,5 @@ No re-embedding needed — the vectors are stored in the export.
 - Read [SETTINGS.md](SETTINGS.md) to understand what every slider and option does
 - Read [DOCS.md](DOCS.md) for the full technical reference including the REST API and WebSocket protocol
 - Try a vision model with Ollama (`llava`) or Gemini and attach an image to your message
-- Set up multiple Redis endpoints for horizontal scaling
+- Store RAG instances on another Redis server or in MongoDB (Atlas or self-hosted) under **Settings → Storage**
 - If you expose the app beyond loopback, put a reverse proxy with authentication in front of it — VisualWeaver has no built-in auth

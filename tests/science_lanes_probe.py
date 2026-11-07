@@ -378,19 +378,55 @@ MERMAID = "async () => {" + _BUILD + r"""
     sankey:'sankey-beta\n\nA,B,10\nA,C,5\nB,D,8',
     block:'block-beta\n  columns 3\n  a b c\n  d:2 e',
     kanban:'kanban\n  Todo\n    t1[Write docs]\n  Done\n    t2[Ship]',
+    // a long left-to-right chain, far wider than the card, a small top-down one, and the two
+    // chart types that keep mermaid's own fit-to-width
+    gantt_lane:'gantt\n  title Plan\n  dateFormat YYYY-MM-DD\n  section A\n  One :a1, 2026-01-01, 3d\n  Two :after a1, 2d\n  section B\n  Three :2026-01-02, 4d',
+    pie_lane:'pie title Share\n  "Alpha" : 40\n  "Beta" : 35\n  "Gamma" : 25',
+    flowchart_wide:'graph LR\n  A[Collect requirements] --> B[Design the schema] --> C[Build the service] --> D[Write the tests] --> E[Review the change] --> F[Ship to production]',
+    flowchart_small:'graph TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]',
+    // already-quoted labels with "\n(" and an edge label — the label sanitiser once read the
+    // `n` of each \n as a node id and quoted the parens inside the label (parse error)
+    flowchart_breaks:'graph LR\n    A["♩♩♩ Three short Gs\\n(anacrusis — unstressed)"] -->|"rhythmic tension"| B["One long E♭\\n(downbeat)"]\n    B -->|"a step<br>lower"| C["Total cost(usd)"]',
   };
   const r={};
   for(const [name,src] of Object.entries(cases)){
-    const {host,out,err}=await build('mermaid', src);
+    const {host,wrap,out,err}=await build('mermaid', src);
     const svg=out&&out.querySelector('svg');
     r[name]={ svg:!!svg, children: svg?svg.childElementCount:0, err: err||null,
       syntaxError: !!(out&&/syntax error/i.test(out.textContent)),
+      textMinH: svg?Math.min(...[...svg.querySelectorAll('text')].map(x=>x.getBoundingClientRect().height).filter(h=>h>0)):0,
+      wrapW: Math.round(wrap.getBoundingClientRect().width),
+      overflow: out?out.scrollWidth-out.clientWidth:0, more: wrap.classList.contains('rich-more'),
+      fitted: !!(svg&&/clamp/.test(svg.style.width)),
+      centreOffset: svg?Math.round((svg.getBoundingClientRect().left+svg.getBoundingClientRect().right)/2-(out.getBoundingClientRect().left+out.getBoundingClientRect().right)/2):null,
+      texts: svg?[...svg.querySelectorAll('text')].map(x=>[...x.querySelectorAll(':scope > tspan')].map(s=>s.textContent.trim())).filter(a=>a.length):[],
       h: svg?Math.round(svg.getBoundingClientRect().height):0 };
     host.remove();
   }
   return r;
 }
 """
+
+
+WIDE = "graph LR\\n  A[Collect requirements] --> B[Design the schema] --> C[Build the service] --> D[Write the tests] --> E[Review the change] --> F[Ship to production]"
+
+MERMAID_APPLY = "async () => {" + _BUILD + r"""
+  const {host,wrap,out}=await build('mermaid', '""" + WIDE + r"""');
+  const before=wrap.style.width;
+  await applySrc(wrap, 'graph LR\n A[[[ broken', ()=>true);
+  const r={before, after: wrap.style.width, afterPx: Math.round(wrap.getBoundingClientRect().width),
+           more: wrap.classList.contains('rich-more'), err: !!out.querySelector('.rich-err')};
+  host.remove(); return r;
+}"""
+
+MERMAID_PRINT = "async () => {" + _BUILD + r"""
+  const {host,out}=await build('mermaid', '""" + WIDE + r"""');
+  const box=out.getBoundingClientRect();
+  const nodes=[...out.querySelectorAll('g.node')].map(n=>n.getBoundingClientRect());
+  const r={nodes: nodes.length, inside: nodes.filter(n=>n.left>=box.left-1&&n.right<=box.right+1).length,
+           mask: getComputedStyle(out).maskImage||getComputedStyle(out).webkitMaskImage||'none'};
+  host.remove(); return r;
+}"""
 
 
 def main(index: pathlib.Path) -> None:
@@ -415,6 +451,19 @@ def main(index: pathlib.Path) -> None:
                 OUT[key] = pg.evaluate(js)
             except Exception as exc:                  # noqa: BLE001 — reported per case
                 OUT[key] = {"error": f"{type(exc).__name__}: {exc}"}
+        for key, js in (("mermaid_apply", MERMAID_APPLY),):
+            try:
+                OUT[key] = pg.evaluate(js)
+            except Exception as exc:                  # noqa: BLE001
+                OUT[key] = {"error": f"{type(exc).__name__}: {exc}"}
+        # Print: paper cannot scroll, so a printed wide diagram must fit whole again.
+        try:
+            pg.emulate_media(media="print")
+            OUT["mermaid_print"] = pg.evaluate(MERMAID_PRINT)
+        except Exception as exc:                      # noqa: BLE001
+            OUT["mermaid_print"] = {"error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            pg.emulate_media(media="screen")
         # A REAL mouse drag through hit-testing — element.dispatchEvent on the canvas
         # bypassed the overlay that was painted over every live scene in 1.13.0.
         try:

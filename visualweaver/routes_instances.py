@@ -11,7 +11,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
-from . import appcore, embeddings, rag, rag_admin, redis_store, state
+from . import appcore, embeddings, mongo_store, rag, rag_admin, redis_store, state
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +70,11 @@ def api_embedding_models():
 def api_instance_embedding_models(instance: str, endpoint: str | None = None):
     """Registry ids present in one instance's chunks, with counts."""
     rc = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        models = [{"id": mid, "chunks": n, "label": embeddings.EMBEDDING_MODELS.get(mid, {}).get(
+                       "label", "unknown model")} for mid, n in mongo_store.embedding_models(rc, instance)]
+        return {"instance": instance, "models": sorted(models, key=lambda m: -m["chunks"]),
+                "mixed": len(models) > 1}
     try:
         res = rc.execute_command(
             "FT.AGGREGATE", f"{rag.rag_prefix(instance)}:idx", "*",
@@ -110,18 +115,49 @@ def api_rag_instances():
 async def api_create_instance(payload: dict):
     """
     Create a new RAG instance with optional metadata.
-    Accepts redis_endpoint to store this instance on a specific Redis server.
+    ``endpoint`` (or the older ``redis_endpoint``) names the storage connection —
+    Redis or MongoDB — that holds the instance; it defaults to the built-in "default"
+    connection (the built-in Redis or MongoDB).
     """
+    color = payload.get("color") or rag_admin.DEFAULT_COLOR
+    if rag_admin.safe_color(color) != color:
+        raise HTTPException(400, "A colour must be a hex colour such as #6366f1")
     name     = _check_instance_name(payload.get("name") or f"rag_{uuid.uuid4().hex[:6]}")
-    ep_name  = payload.get("redis_endpoint", "default")
+    ep_name  = payload.get("endpoint") or payload.get("redis_endpoint") or "default"
+    # Chat and every name-only route resolve an instance by NAME, built-in Redis first —
+    # a second instance with the same name on another connection would never be searched.
+    clash = next((i for i in await asyncio.to_thread(rag_admin.list_rag_instances) if i["name"] == name), None)
+    if clash is None:
+        down = rag_admin.names_on_unreachable_connections().get(name)
+        if down:
+            raise HTTPException(409, f"An instance named '{name}' already exists on '{down}', "
+                                     f"which can't be reached right now")
+    if clash:
+        where = clash.get("redis_endpoint") or "default"
+        if where == "default":
+            where = "the " + redis_store.default_label().replace("Built-in", "built-in")
+        raise HTTPException(409, f"An instance named '{name}' already exists (on {where})")
+    if ep_name != "default" and redis_store.endpoint_cfg(ep_name) is None:
+        # r_for would quietly fall back to the default connection — the instance
+        # would land somewhere the user did not choose.
+        raise HTTPException(400, f"Unknown storage connection '{ep_name}'")
+    if redis_store.endpoint_type(ep_name) == "mongodb":
+        probe = await asyncio.to_thread(mongo_store.probe, redis_store.endpoint_cfg(ep_name))
+        state._endpoint_health[ep_name] = bool(probe.get("ok"))
+        state._search_available[ep_name] = bool(probe.get("vector_search")) if probe.get("ok") else None
+        if not probe.get("ok"):
+            raise HTTPException(400, f"Cannot reach MongoDB '{ep_name}': {probe.get('error')}")
+        if not probe.get("vector_search"):
+            raise HTTPException(400, f"MongoDB '{ep_name}' has no vector search, so it cannot hold "
+                                     "a RAG instance. Use MongoDB Atlas, or MongoDB 8.3+ with the search process (mongot).")
     rc       = redis_store.r_for(ep_name)
     meta = {
-        "color":           payload.get("color", "#6366f1"),
+        "color":           color,
         "tags":            payload.get("tags", []),
         "created":         datetime.now(timezone.utc).isoformat(),
         "redis_endpoint":  ep_name,
     }
-    await asyncio.to_thread(rc.set, f"rag_meta:{name}", json.dumps(meta))
+    await asyncio.to_thread(rag_admin.meta_set, rc, name, meta)
     rag_admin.invalidate_rag_meta(name)
     await asyncio.to_thread(rag.ensure_rag_index, name, rc)
     return {"name": name, **meta}
@@ -131,7 +167,7 @@ async def api_create_instance(payload: dict):
 def api_delete_instance(instance: str, endpoint: str | None = None):
     rc = rag_admin._rc_for(instance, endpoint)
     rag_admin.reset_rag(instance, rc)
-    rc.delete(f"rag_meta:{instance}")
+    rag_admin.meta_delete(rc, instance)
     rag_admin.invalidate_rag_meta(instance)
     state.drop_rag_stats(instance)
     rag_admin.save_rag_stats()
@@ -142,10 +178,9 @@ def api_delete_instance(instance: str, endpoint: str | None = None):
 def api_toggle_rag(instance: str, payload: dict, endpoint: str | None = None):
     """Enable or disable a RAG instance without deleting its data."""
     rc       = rag_admin._rc_for(instance, endpoint)
-    meta_raw = rc.get(f"rag_meta:{instance}")
-    meta     = json.loads(meta_raw) if meta_raw else {}
+    meta     = rag_admin.meta_get(rc, instance) or {}
     meta["enabled"] = bool(payload.get("enabled", True))
-    rc.set(f"rag_meta:{instance}", json.dumps(meta))
+    rag_admin.meta_set(rc, instance, meta)
     rag_admin.invalidate_rag_meta(instance)
     return {"ok": True, "enabled": meta["enabled"]}
 
@@ -166,6 +201,8 @@ def api_rag_chunks(instance: str, limit: int = 50, offset: int = 0, endpoint: st
     pagination.
     """
     rc     = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        return mongo_store.chunks_page(rc, instance, max(0, offset), max(0, limit))
     prefix = rag.rag_prefix(instance)
     idx_name = f"{prefix}:idx"
     try:

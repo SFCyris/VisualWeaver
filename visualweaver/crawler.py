@@ -6,25 +6,16 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
 import asyncio
+import functools
 import ipaddress
-import os
 import re
 import socket
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
+from concurrent.futures import ThreadPoolExecutor
 import httpx
 import redis
-try:
-    import trafilatura   # Best-in-class web content extraction
-    HAS_TRAFILATURA = True
-except ImportError:
-    HAS_TRAFILATURA = False
-try:
-    from bs4 import BeautifulSoup   # HTML parsing fallback + link extraction
-    HAS_BS4 = True
-except ImportError:
-    HAS_BS4 = False
 try:
     from crawl4ai import AsyncWebCrawler as _C4AIWebCrawler   # parallel JS-capable crawler
     from crawl4ai import BrowserConfig  as _C4AIBrowserConfig
@@ -44,7 +35,7 @@ _BROWSER_EXTRA_ARGS: list[str] = [
 ]
 if _platform.system() == "Linux":
     _BROWSER_EXTRA_ARGS += ["--no-sandbox", "--disable-setuid-sandbox"]
-from . import config, ingest, rag, rag_admin, state
+from . import config, ingest, mongo_store, pagetext, rag, rag_admin, state
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +119,9 @@ async def fetch_url(url: str) -> str:
     client = await _get_http_client()
     current = _strip_fragment(url)
     for _ in range(10):  # bounded redirect chain
-        assert_public_url(current)          # re-checked on every hop
+        # Re-checked on every hop. getaddrinfo blocks, so it runs in a thread: on the
+        # loop, a slow resolver stalled every other session once per page.
+        await _off_loop(assert_public_url, current)
         r = await client.get(current)
         if r.is_redirect:
             location = r.headers.get("location")
@@ -200,83 +193,31 @@ def parse_llms_txt(content: str, base_url: str) -> list[dict]:
     return links
 
 
-def extract_text(html: str, url: str) -> str:
-    """
-    Extract clean readable text from a fetched page.
-
-    Plain-text and Markdown files (URL ends in .md/.txt, or content has no
-    HTML tags) are returned directly — no stripping needed and HTML parsers
-    would mangle them.  For real HTML pages we try trafilatura first (best
-    quality), then BeautifulSoup, then fall back to the raw content.
-    """
-    url_lower = url.split("?")[0].lower()
-    if url_lower.endswith(".md") or url_lower.endswith(".txt"):
-        return html.strip()
-
-    stripped = html.strip()
-    if stripped and not stripped.startswith("<"):
-        return stripped
-
-    if HAS_TRAFILATURA:
-        t = trafilatura.extract(html, include_links=False, include_images=False)
-        if t:
-            return t
-    if HAS_BS4:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
-        return soup.get_text(separator="\n", strip=True)
-    return html
+# Extraction lives in pagetext, which a worker process can import without the app. The
+# names stay reachable here because the crawl, the routes and the tests use them.
+extract_text = pagetext.extract_text
+_strip_fragment = pagetext._strip_fragment
+_SKIP_EXTENSIONS = pagetext._SKIP_EXTENSIONS
+_is_crawlable_url = pagetext._is_crawlable_url
+_extract_html_links = pagetext._extract_html_links
 
 
-def _strip_fragment(url: str) -> str:
-    """Remove the #anchor from a URL — same page regardless of anchor."""
-    parsed = urlparse(url)
-    return parsed._replace(fragment="").geturl()
+# The crawl's own blocking calls — the SSRF guard's getaddrinfo, robots.txt, ingestion-log
+# writes — run on threads of their own. On the default executor a slow resolver under a
+# 10-way crawl could hold every thread that chat turns use for retrieval and saving.
+_io_threads = ThreadPoolExecutor(max_workers=8, thread_name_prefix="vw-crawl-io")
 
 
-# File extensions that are never useful to crawl as text content.
-# Binary downloads, media, archives, executables, and data files.
-_SKIP_EXTENSIONS: frozenset[str] = frozenset({
-    # Archives / compressed
-    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".zst", ".rar", ".7z",
-    # Executables / installers
-    ".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".apk", ".appimage",
-    # Images
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tiff",
-    # Audio / video
-    ".mp3", ".mp4", ".wav", ".ogg", ".flac", ".avi", ".mov", ".mkv", ".webm",
-    # Documents (handled separately via file upload, not crawl)
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt",
-    # Data / binary
-    ".bin", ".dat", ".iso", ".img", ".whl", ".jar",
-    # Fonts
-    ".woff", ".woff2", ".ttf", ".eot",
-})
+async def _off_loop(fn, *args):
+    """Run a blocking crawl call on _io_threads. Callers pass the module attribute, read
+    at call time, so a test's monkeypatch of it applies."""
+    return await asyncio.get_running_loop().run_in_executor(_io_threads, functools.partial(fn, *args))
 
 
-def _is_crawlable_url(url: str) -> bool:
-    """Return False if the URL points to a known binary/non-text file type."""
-    path = urlparse(url).path.lower().split("?")[0]
-    _, ext = os.path.splitext(path)
-    return ext not in _SKIP_EXTENSIONS
-
-
-def _extract_html_links(html: str, base_url: str) -> list[str]:
-    """Return all absolute HTTP(S) links found in an HTML page, excluding binary file types."""
-    if not HAS_BS4:
-        return []
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        links: list[str] = []
-        for a in soup.find_all("a", href=True):
-            href = _strip_fragment(urljoin(base_url, a["href"]))
-            p = urlparse(href)
-            if p.scheme in ("http", "https") and p.netloc and _is_crawlable_url(href):
-                links.append(href)
-        return links
-    except Exception:
-        return []
+def _log_entries(entries: list[dict]) -> None:
+    """Append ingestion-log entries with one rewrite of the file. Blocking: crawl code
+    calls it through _off_loop."""
+    config.append_logs(entries)
 
 
 _robots_cache: dict[str, RobotFileParser] = {}
@@ -423,10 +364,25 @@ async def crawl_url(
     # round-trips and zero thread-pool overhead during the crawl.
     _crawl_rc         = rc or rag_admin.rc_for_instance(instance)
     _indexed_urls_key = f"rag:{instance}:indexed_urls"
+    _crawl_mongo      = mongo_store.is_mongo(_crawl_rc)
+
+    def _flush_urls(urls: list[str]) -> None:
+        """Record crawled URLs in the instance's skip-list (Redis set or vw_urls)."""
+        if _crawl_mongo:
+            mongo_store.add_urls(_crawl_rc, instance, urls)
+            return
+        pipe = _crawl_rc.pipeline(transaction=False)
+        for u in urls:
+            pipe.sadd(_indexed_urls_key, u)
+        pipe.execute()
+
     if force_reindex:
         # Wipe the URL skip-list so every page is fetched and re-embedded fresh
         try:
-            await asyncio.to_thread(_crawl_rc.delete, _indexed_urls_key)
+            if _crawl_mongo:
+                await asyncio.to_thread(mongo_store.clear_urls, _crawl_rc, instance)
+            else:
+                await asyncio.to_thread(_crawl_rc.delete, _indexed_urls_key)
         except Exception:
             pass
         _indexed_urls_mem: set[str] = set()
@@ -434,8 +390,11 @@ async def crawl_url(
         try:
             # Loading the whole indexed-URL set is one sync command; keep it off the loop
             # so a large skip-list doesn't stall chat at crawl start.
-            members = await asyncio.to_thread(_crawl_rc.smembers, _indexed_urls_key)
-            _indexed_urls_mem = {u.decode() if isinstance(u, bytes) else u for u in members}
+            if _crawl_mongo:
+                _indexed_urls_mem = await asyncio.to_thread(mongo_store.get_urls, _crawl_rc, instance)
+            else:
+                members = await asyncio.to_thread(_crawl_rc.smembers, _indexed_urls_key)
+                _indexed_urls_mem = {u.decode() if isinstance(u, bytes) else u for u in members}
         except Exception:
             _indexed_urls_mem = set()
 
@@ -452,10 +411,7 @@ async def crawl_url(
             if len(_newly_indexed) % 50 == 0:
                 to_flush = list(_newly_indexed)
                 try:
-                    pipe = _crawl_rc.pipeline(transaction=False)
-                    for fu in to_flush:
-                        pipe.sadd(_indexed_urls_key, fu)
-                    await asyncio.to_thread(pipe.execute)   # only the round-trip blocks
+                    await asyncio.to_thread(_flush_urls, to_flush)   # only the round-trip blocks
                 except Exception:
                     pass
 
@@ -484,7 +440,7 @@ async def crawl_url(
                     return
             else:
                 # Cache miss — fetch robots.txt in a thread (blocks until done)
-                if not await asyncio.to_thread(can_crawl, page_url):
+                if not await _off_loop(can_crawl, page_url):
                     if progress_cb:
                         await progress_cb(page_url, "blocked", 0, "", counter["count"])
                     return
@@ -498,11 +454,14 @@ async def crawl_url(
                 if progress_cb:
                     await progress_cb(page_url, "crawling", 0, "", counter["count"])
 
-                raw_content, discovered_links = await fetch_fn(page_url)
+                # `fetched_text` is the page's text when the fetch already extracted it
+                # (the httpx paths do, off the loop), None when it is still to be done.
+                raw_content, discovered_links, fetched_text = await fetch_fn(page_url)
 
                 # llms.txt manifest → parse links and queue them all
                 if is_llms_txt(page_url, raw_content):
-                    manifest_links = parse_llms_txt(raw_content, page_url)
+                    # A thread: an llms-full.txt runs to megabytes of regex work.
+                    manifest_links = await asyncio.to_thread(parse_llms_txt, raw_content, page_url)
                     if progress_cb:
                         await progress_cb(page_url, "parsed_llms_txt",
                                           len(manifest_links), "", counter["count"])
@@ -518,8 +477,14 @@ async def crawl_url(
                     return
 
                 # Regular page: extract text → chunk+dedup → hand off to embed worker
-                # js_render path: raw_content is already clean markdown from crawl4ai
-                text = raw_content if js_render else extract_text(raw_content, page_url)
+                # js_render path: raw_content is already clean markdown from crawl4ai.
+                # Extraction is ~10 ms of CPU per page: never on the event loop (pagetext).
+                if js_render:
+                    text = raw_content
+                elif fetched_text is not None:
+                    text = fetched_text
+                else:
+                    text, _ = await pagetext.extract(raw_content, page_url, want_links=False)
                 if not text.strip():
                     if progress_cb:
                         await progress_cb(page_url, "skipped", 0, "empty content", counter["count"])
@@ -556,11 +521,11 @@ async def crawl_url(
                         queue.put_nowait((href, page_depth - 1))
 
             except Exception as e:
-                config.append_log({
+                await _off_loop(_log_entries, [{
                     "ts": datetime.now(timezone.utc).isoformat(),
                     "instance": instance, "source": page_url,
                     "chunks": 0, "status": "error", "error": str(e),
-                })
+                }])
                 if progress_cb:
                     await progress_cb(page_url, "error", 0, str(e), counter["count"])
 
@@ -591,21 +556,22 @@ async def crawl_url(
                     await asyncio.to_thread(rag.add_chunks, instance, records_snap, _crawl_rc)
                 except Exception as e:
                     log.warning("embed_worker: batch embed/store failed (%s) — %d chunks lost", e, len(records_snap))
+                    # One write for the whole batch, off the loop (the log is rewritten whole).
+                    await _off_loop(_log_entries, [{
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "instance": instance, "source": page_url,
+                        "chunks": 0, "status": "error", "error": str(e),
+                    } for page_url, n in meta_snap])
                     for page_url, n in meta_snap:
-                        config.append_log({
-                            "ts": datetime.now(timezone.utc).isoformat(),
-                            "instance": instance, "source": page_url,
-                            "chunks": 0, "status": "error", "error": str(e),
-                        })
                         if progress_cb:
                             await progress_cb(page_url, "error", 0, str(e), counter["count"])
                     return
+                await _off_loop(_log_entries, [{
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "instance": instance, "source": page_url,
+                    "chunks": n, "status": "ok",
+                } for page_url, n in meta_snap])
                 for page_url, n in meta_snap:
-                    config.append_log({
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                        "instance": instance, "source": page_url,
-                        "chunks": n, "status": "ok",
-                    })
                     if progress_cb:
                         await progress_cb(page_url, "indexed", n, "", counter["count"])
 
@@ -695,10 +661,7 @@ async def crawl_url(
             # Flush all newly indexed URLs to Redis in a single pipeline
             if _newly_indexed:
                 try:
-                    pipe = _crawl_rc.pipeline(transaction=False)
-                    for u in _newly_indexed:
-                        pipe.sadd(_indexed_urls_key, u)
-                    await asyncio.to_thread(pipe.execute)   # only the round-trip blocks
+                    await asyncio.to_thread(_flush_urls, list(_newly_indexed))   # only the round-trip blocks
                 except Exception as e:
                     log.warning(f"crawl: could not record {len(_newly_indexed)} indexed "
                                 f"URLs — they will be re-crawled next time: {e!r}")
@@ -716,10 +679,17 @@ async def crawl_url(
             [l["href"] for l in r.links.get("external", []) if l.get("href", "").startswith("http")]
         )
 
-    async def fetch_httpx(u: str) -> tuple[str, list[str]]:
-        html  = await fetch_url(u)
-        links = _extract_html_links(html, u)
-        return html, links
+    async def fetch_httpx(u: str) -> tuple[str, list[str], str]:
+        """(html, links, text). Text and links come out of one off-loop extraction, so
+        smart mode's word count and the page's indexing share it instead of parsing the
+        page twice."""
+        html = await fetch_url(u)
+        if is_llms_txt(u, ""):
+            # A manifest: process_page parses its links itself, and extract_text would
+            # return the stripped text unchanged (.txt) — no parser needed.
+            return html, [], html.strip()
+        text, links = await pagetext.extract(html, u)
+        return html, links, text
 
     # ── Resolve which modes are actually available ──────────────────────────
     use_js    = js_render
@@ -762,39 +732,44 @@ async def crawl_url(
     if use_js:
         # Full JS mode: every page goes through Playwright.
         async with _C4AIWebCrawler(config=_browser_cfg) as _c4ai:
-            async def fetch_js(u: str) -> tuple[str, list[str]]:
-                assert_public_url(u)          # block internal targets before the browser fetch
+            async def fetch_js(u: str) -> tuple[str, list[str], None]:
+                # block internal targets before the browser fetch (DNS: in a thread)
+                await _off_loop(assert_public_url, u)
                 async with _js_sem:
                     r = await _c4ai.arun(u, config=_run_cfg)
-                _assert_c4ai_result_public(r, u)   # block redirect-to-internal
+                await _off_loop(_assert_c4ai_result_public, r, u)   # block redirect-to-internal
                 text = (r.markdown.fit_markdown
                         if (r.markdown and r.markdown.fit_markdown)
                         else (r.html or ""))
-                return text, _links_from_result(r)
+                return text, _links_from_result(r), None
 
             await run_bfs(fetch_js)
 
     elif use_smart:
+        await asyncio.to_thread(pagetext.warm)   # workers up before the first page needs one
         # Smart mode: try httpx first (fast, zero browser overhead).
         # Only pages whose extracted text is below min_words are retried
         # with Playwright — typically 5-15% of pages in a real docs crawl.
         async with _C4AIWebCrawler(config=_browser_cfg) as _c4ai:
-            async def fetch_smart(u: str) -> tuple[str, list[str]]:
+            async def fetch_smart(u: str) -> tuple[str, list[str], str | None]:
                 # SSRF guard for BOTH the httpx and browser paths. Raised here,
                 # OUTSIDE the try below, so an internal-target rejection is never
                 # swallowed into the browser fallback (which would defeat it).
-                assert_public_url(u)
+                await _off_loop(assert_public_url, u)
                 # ── Fast path: pooled httpx ────────────────────────────────
-                httpx_html:  str       = ""
-                httpx_links: list[str] = []
+                httpx_html:  str        = ""
+                httpx_links: list[str]  = []
+                httpx_text:  str | None = None
                 try:
-                    httpx_html, httpx_links = await fetch_httpx(u)
-                    text = extract_text(httpx_html, u)
+                    # fetch_httpx extracts the text once; process_page reuses it rather
+                    # than extracting the same page a second time.
+                    httpx_html, httpx_links, httpx_text = await fetch_httpx(u)
+                    text = httpx_text
                     if len(text.split()) >= min_words:
-                        return httpx_html, httpx_links   # sufficient content, done
+                        return httpx_html, httpx_links, httpx_text   # sufficient content, done
                     if not httpx_html:
                         # Empty response (4xx) — JS won't help; skip browser entirely
-                        return httpx_html, httpx_links
+                        return httpx_html, httpx_links, httpx_text
                     log.debug("smart-crawl: thin content (%d words) on %s — retrying with JS",
                               len(text.split()), u)
                 except Exception as exc:
@@ -804,20 +779,21 @@ async def crawl_url(
                 try:
                     async with _js_sem:
                         r = await _c4ai.arun(u, config=_run_cfg)
-                    _assert_c4ai_result_public(r, u)   # block redirect-to-internal
+                    await _off_loop(_assert_c4ai_result_public, r, u)   # block redirect-to-internal
                     text = (r.markdown.fit_markdown
                             if (r.markdown and r.markdown.fit_markdown)
                             else (r.html or ""))
-                    return text, _links_from_result(r)
+                    return text, _links_from_result(r), None
                 except Exception as js_exc:
                     # Browser context was None or crashed (e.g. after a cancelled crawl).
                     # Return whatever httpx gave us rather than failing the page entirely.
                     log.debug("smart-crawl: JS fallback failed for %s (%s) — using httpx result", u, js_exc)
-                    return httpx_html, httpx_links
+                    return httpx_html, httpx_links, httpx_text
 
             await run_bfs(fetch_smart)
 
     else:
         # Pure httpx — no browser, maximum speed for pre-rendered HTML sites.
+        await asyncio.to_thread(pagetext.warm)   # workers up before the first page needs one
         await run_bfs(fetch_httpx)
 

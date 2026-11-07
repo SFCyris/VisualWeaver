@@ -8,10 +8,12 @@ import logging
 import hashlib
 import json
 import re
+import time
 from typing import Any, Optional
 from redisvl.query.filter import Tag
 from redisvl.extensions.cache.llm import SemanticCache
-from . import config, constants, embeddings, rag_admin, redis_store, state
+from . import (appstore, config, constants, embeddings, mongo_cache, mongo_store, rag_admin,
+               redis_store, state)
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +34,11 @@ def _make_cache_vectorizer() -> Any:
     from redisvl.utils.vectorize import HFTextVectorizer  # noqa: PLC0415
     raw = state._config.get("embedding", {}).get("model", "all-MiniLM-L6-v2")
     model = raw if "/" in raw else f"sentence-transformers/{raw}"
+    # The cached snapshot, like the RAG embedder loads it: by repo name, the vectorizer
+    # asks the Hub about every file first, and with the Hub slow or unreachable the
+    # answer cache stayed off for minutes after a start (each question answered live,
+    # nothing stored). A model not cached yet is still fetched by name.
+    model = embeddings._local_snapshot(model) or model
     prefix = embeddings.embedding_spec(raw).get("query_prefix") or ""
     if not prefix:
         return HFTextVectorizer(model=model)
@@ -54,6 +61,50 @@ def _make_cache_vectorizer() -> Any:
     return _PrefixedVectorizer(model=model)
 
 
+# (model identity, vectorizer). The cache object is rebuilt on every settings save and
+# on a change of app-data store; loading the model again each time cost the next
+# question several seconds. The identity covers the prefix (_cache_embedding_model).
+_vectorizer_memo: tuple | None = None
+
+
+def _cache_vectorizer() -> Any:
+    global _vectorizer_memo
+    ident = _cache_embedding_model()
+    memo = _vectorizer_memo
+    if memo is not None and memo[0] == ident:
+        return memo[1]
+    v = _make_cache_vectorizer()
+    _vectorizer_memo = (ident, v)
+    return v
+
+
+# ── where the cache lives ────────────────────────────────────────────────────
+# On the app-data store (appstore, ``storage.app``): the built-in Redis, the built-in
+# MongoDB, or another connection. Moving the app's data moves the cache with it.
+
+def _cache_home() -> tuple[str, str, str]:
+    """(connection name, "redis" | "mongodb", target) of the app-data store, from the
+    config alone — it is asked on every lookup, so it must not cost a client. The target
+    (server and database) changes when a connection is edited under the same name."""
+    name = appstore.app_connection()
+    kind, c = appstore.connection_target(name)
+    target = (f"{c.get('uri', '')}|{c.get('database', '')}" if kind == "mongodb"
+              else f"{c.get('host', '')}:{c.get('port', '')}/{c.get('db', '')}")
+    return name, kind, target
+
+
+def _cache_backend() -> tuple[str, Any]:
+    """("redis", redis client) or ("mongodb", mongo_store.MongoEndpoint) for the cache.
+
+    The built-in Redis is reached through redis_store.r() — the same client r_for
+    ("default") returns — and every other store through appstore.current()."""
+    name, kind, _target = _cache_home()
+    if name == "default" and kind == "redis":
+        return "redis", redis_store.r()
+    st = appstore.current()
+    return st.kind, st.raw
+
+
 def _cache_embedding_model() -> str:
     """What the cached vectors were produced by — the model AND the text fed to it.
 
@@ -67,18 +118,20 @@ def _cache_embedding_model() -> str:
     return f"{canonical}|{pre}" if pre else canonical
 
 
-# The marker lives in Redis, NOT only in the process. An in-process marker is unreachable
+# The marker lives in the store, NOT only in the process. An in-process marker is unreachable
 # on the path that actually matters: routes_settings calls invalidate_redis_clients() on
 # every POST /api/config, which nulls state._semantic_cache, so a guard conditioned on the
 # live object never runs — and the marker would not survive a restart either, which is the
 # case a real deployment hits (index built under one model, config changed, server
 # restarted, 18 stale vectors still indexed at the old dimension).
 _CACHE_MODEL_KEY = "visualweaver:semcache_model"
+# It lives on the same store as the entries it describes: each store's cache has its own.
 
 
 def _stored_cache_model() -> str | None:
     try:
-        v = redis_store.r().get(_CACHE_MODEL_KEY)
+        kind, rc = _cache_backend()
+        v = appstore.current().get(_CACHE_MODEL_KEY) if kind == "mongodb" else rc.get(_CACHE_MODEL_KEY)
     except Exception:                                             # pragma: no cover
         return None
     if v is None:
@@ -86,10 +139,21 @@ def _stored_cache_model() -> str | None:
     return v.decode() if isinstance(v, bytes) else str(v)
 
 
+def _set_stored_cache_model(model: str) -> None:
+    kind, rc = _cache_backend()
+    if kind == "mongodb":
+        appstore.current().set(_CACHE_MODEL_KEY, model)
+    else:
+        rc.set(_CACHE_MODEL_KEY, model)
+
+
 def _cache_index_dim() -> int | None:
     """The vector width of the existing cache index, or None if there is no index."""
     try:
-        info = redis_store.r().execute_command(
+        kind, rc = _cache_backend()
+        if kind == "mongodb":
+            return mongo_cache.index_dims(rc)
+        info = rc.execute_command(
             "FT.INFO", constants.CACHE_PREFIX.rstrip(":"))
     except Exception:
         return None                      # no index yet, or Search unavailable
@@ -138,9 +202,20 @@ def _discard_stale_cache() -> None:
     redisvl's overwrite path issues DROPINDEX without DD, so the documents survive an
     index rebuild as orphans — they keep their old-model vectors and reappear the moment
     a matching index exists again.
+
+    On MongoDB the entries are deleted and the index is checked again on the next build,
+    which recreates it if the new model has another width.
     """
     try:
-        rc = redis_store.r()
+        kind, rc = _cache_backend()
+        if kind == "mongodb":
+            n = mongo_cache.clear(rc)
+            appstore.current().delete(_CACHE_MODEL_KEY)
+            mongo_cache.forget_indexes(rc)
+            if n:
+                log.info("Discarded %d cached answer%s embedded with the previous model.",
+                         n, "" if n == 1 else "s")
+            return
         try:
             rc.execute_command("FT.DROPINDEX", constants.CACHE_PREFIX.rstrip(":"), "DD")
         except Exception:
@@ -154,6 +229,18 @@ def _discard_stale_cache() -> None:
                      len(dead), "" if len(dead) == 1 else "s")
     except Exception as e:                                        # pragma: no cover
         log.warning(f"Could not discard the stale semantic cache: {e}")
+
+
+def clear_cache_entries(store) -> int:
+    """Remove every answer-cache entry on an app store (any connection, not only the
+    current one); the index and its model marker stay. Returns how many were removed."""
+    if store.kind == "mongodb":
+        return mongo_cache.clear(store.raw)
+    rc = store.raw
+    dead = list(rc.scan_iter(match=f"{constants.CACHE_PREFIX}*", count=500))
+    for i in range(0, len(dead), 500):
+        rc.delete(*dead[i:i + 500])
+    return len(dead)
 
 
 def effective_threshold() -> float:
@@ -228,32 +315,65 @@ def _apply_cache_config(c: "SemanticCache") -> None:
         log.warning(f"Could not apply cache TTL: {e}")
 
 
+# Which store state._semantic_cache_model describes (see _follow_app_store).
+_cache_model_home: tuple | None = None
+# The model this process last built a cache with, on any store. A store's marker can
+# differ from the configured model because the store was last used under another one;
+# only a change of the configured model resets the similarity threshold.
+_last_built_model: str | None = None
+# (home, time.monotonic()) of the last failed build: retried after _BUILD_RETRY_S, not on
+# every question, so an unreachable store or one without vector search does not add its
+# connection timeout to each turn.
+_build_failed: tuple | None = None
+_BUILD_RETRY_S = 30.0
+
+
+def _follow_app_store() -> None:
+    """Forget a cache object and model marker that belong to another store.
+
+    Changing ``storage.app`` moves the cache to the new store. The live object is bound
+    to the old store's client, and the in-process marker describes the old store's
+    entries — trusting it would skip the model check against the new store's own.
+    """
+    home = _cache_home()
+    c = state._semantic_cache
+    if c is not None and getattr(c, "_vw_home", home) != home:
+        state._semantic_cache = None
+    if state._semantic_cache_model is not None and _cache_model_home not in (None, home):
+        state._semantic_cache_model = None
+
+
 def _get_semantic_cache() -> "SemanticCache | None":
     """
     Lazily create and return the shared SemanticCache.
 
-    Uses redisvl's SemanticCache which stores prompt→response pairs as
-    vector embeddings and performs approximate-nearest-neighbour lookup on
-    every incoming query.  A query is a cache hit when its cosine distance
-    to a stored prompt is ≤ distance_threshold (i.e. similarity ≥ threshold).
+    The cache lives on the app-data store (``storage.app``). On Redis it is redisvl's
+    SemanticCache; on MongoDB, mongo_cache.MongoSemanticCache, which has the same
+    interface and semantics. Both store prompt→response pairs as vector embeddings and
+    look up the nearest stored prompt on every incoming query. A query is a cache hit
+    when its cosine distance to a stored prompt is ≤ distance_threshold (i.e.
+    similarity ≥ threshold).
 
-    Returns None if the cache is disabled in config or if the Redis Search
-    module is not available (logged once, never repeated).
+    Returns None if the cache is disabled in config or if the store has no vector
+    search (Redis without the Search module, MongoDB without mongot).
     """
+    global _cache_model_home, _last_built_model, _build_failed
     if not state._config.get("cache", {}).get("enabled", True):
         return None
+    _follow_app_store()
     if _cache_model_changed():
         was = state._semantic_cache_model or _stored_cache_model()
         log.info("Discarding the semantic cache: %s. Its vectors are not comparable "
                  "under %s.",
-                 f"the embedding model changed from {was}" if was
+                 f"its entries were embedded with {was}" if was
                  else "it predates model tracking, so the model it was built with is "
                       "unknown",
                  _cache_embedding_model())
         _discard_stale_cache()
         state._semantic_cache = None
         state._semantic_cache_model = None
-        _reset_threshold_for_new_model()
+        if _last_built_model != _cache_embedding_model():
+            _reset_threshold_for_new_model()
     if state._semantic_cache is not None:
         # The object is memoised, so everything read at build time was frozen there:
         # changing the cache threshold or TTL in Settings did nothing at all until the
@@ -262,17 +382,23 @@ def _get_semantic_cache() -> "SemanticCache | None":
         # widen what matched, and entries kept being written with the old TTL.
         _apply_cache_config(state._semantic_cache)
         return state._semantic_cache
+    home = _cache_home()
+    if (_build_failed is not None and _build_failed[0] == home
+            and time.monotonic() - _build_failed[1] < _BUILD_RETRY_S):
+        return None
+    kind = "redis"
     try:
+        kind, rc = _cache_backend()
         similarity_threshold = effective_threshold()
         ttl  = state._config.get("cache", {}).get("ttl", 3600)
         # SemanticCache uses cosine DISTANCE not SIMILARITY — convert
         def _build(overwrite: bool):
             return SemanticCache(
                 name=constants.CACHE_PREFIX.rstrip(":"),   # "semcache"
-                vectorizer=_make_cache_vectorizer(),
+                vectorizer=_cache_vectorizer(),
                 distance_threshold=round(1.0 - similarity_threshold, 4),
                 ttl=ttl,
-                redis_client=redis_store.r(),
+                redis_client=rc,
                 # Scope tag — see _cache_scope(). A cached answer is only valid for the
                 # exact corpus/provider/model/prompt it was produced under, so the scope
                 # is an indexed TAG we filter on rather than part of the embedded text.
@@ -285,27 +411,42 @@ def _get_semantic_cache() -> "SemanticCache | None":
                                    {"name": "qhash", "type": "tag"}],
                 overwrite=overwrite,
             )
-        try:
-            state._semantic_cache = _build(overwrite=False)
-        except Exception as e:
-            # An index built by an older version has no `scope` field, and redisvl
-            # refuses to reuse a mismatched schema — which would leave the cache
-            # permanently disabled. A cache is disposable, so rebuild it once;
-            # entries are re-earned on the next few queries.
-            if "does not match" not in str(e):
-                raise
-            log.info("Semantic cache schema changed (scope filter added) — rebuilding index; "
-                     "previously cached answers are discarded.")
-            state._semantic_cache = _build(overwrite=True)
+        if kind == "mongodb":
+            # Same filters (scope, qhash) as the Redis tags, indexed as vector-search filters.
+            built = mongo_cache.MongoSemanticCache(
+                rc, _cache_vectorizer(), distance_threshold=round(1.0 - similarity_threshold, 4),
+                ttl=ttl)
+        else:
+            try:
+                built = _build(overwrite=False)
+            except Exception as e:
+                # An index built by an older version has no `scope` field, and redisvl
+                # refuses to reuse a mismatched schema — which would leave the cache
+                # permanently disabled. A cache is disposable, so rebuild it once;
+                # entries are re-earned on the next few queries.
+                if "does not match" not in str(e):
+                    raise
+                log.info("Semantic cache schema changed (scope filter added) — rebuilding index; "
+                         "previously cached answers are discarded.")
+                built = _build(overwrite=True)
+        built._vw_home = home
+        state._semantic_cache = built
         _apply_cache_config(state._semantic_cache)
         state._semantic_cache_model = _cache_embedding_model()
+        _cache_model_home = home
+        _last_built_model = state._semantic_cache_model
+        _build_failed = None
         try:
-            redis_store.r().set(_CACHE_MODEL_KEY, state._semantic_cache_model)
+            _set_stored_cache_model(state._semantic_cache_model)
         except Exception:                                         # pragma: no cover
             pass
-        log.info("SemanticCache initialised (redisvl, scope-filtered)")
+        log.info("SemanticCache initialised (%s, scope-filtered)",
+                 "MongoDB" if kind == "mongodb" else "redisvl")
     except Exception as e:
-        if "unknown command" in str(e).lower():
+        if kind == "mongodb" and isinstance(e, mongo_store.NoVectorSearch):
+            log.warning("Semantic cache disabled — this MongoDB has no vector search. "
+                        "Use MongoDB Atlas, or MongoDB 8.3+ with the search process (mongot).")
+        elif "unknown command" in str(e).lower():
             log.warning(
                 "Semantic cache disabled — Redis Search module not available. "
                 "Use Redis Stack or Redis Enterprise with the Search module enabled."
@@ -313,6 +454,7 @@ def _get_semantic_cache() -> "SemanticCache | None":
         else:
             log.warning(f"SemanticCache init failed: {e}")
         state._semantic_cache = None
+        _build_failed = (home, time.monotonic())
     return state._semantic_cache
 
 
@@ -505,8 +647,9 @@ def _qhash(query: str) -> str:
 def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
                  exact_only: bool = False) -> dict | None:
     """
-    Look up the nearest cached response via redisvl SemanticCache.
-    Returns {"response": str, "score": float} or None.
+    Look up the nearest cached response in the semantic cache (redisvl on Redis,
+    mongo_cache on MongoDB — the same filters and distance on both).
+    Returns {"response": str, "score": float, "entry_id": str, "chunks": list} or None.
 
     ``scope`` (see _cache_scope) restricts the search to entries produced under
     the same corpus/provider/model/prompt; an empty scope matches only entries
@@ -527,15 +670,22 @@ def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
     if cache is None:
         return None
     try:
-        flt = Tag("scope") == (scope or "_none")
+        want = {"scope": scope or "_none"}
         if exact_only:
-            flt = flt & (Tag("qhash") == _qhash(query))
+            want["qhash"] = _qhash(query)
         # The vector search still runs — redisvl has no non-vector path — but on the
         # exact partition the tag decides, so the distance is opened right up rather
         # than being asked to do work it has been measured to be bad at.
-        hits = cache.check(prompt=_normalize_query(query), num_results=1,
-                           filter_expression=flt,
-                           **({"distance_threshold": 1.0} if exact_only else {}))
+        opened = {"distance_threshold": 1.0} if exact_only else {}
+        if getattr(cache, "kind", "") == "mongodb":
+            hits = cache.check(prompt=_normalize_query(query), num_results=1,
+                               filters=want, **opened)
+        else:
+            flt = Tag("scope") == want["scope"]
+            if exact_only:
+                flt = flt & (Tag("qhash") == want["qhash"])
+            hits = cache.check(prompt=_normalize_query(query), num_results=1,
+                               filter_expression=flt, **opened)
         if hits:
             h = hits[0]
             dist  = float(h.get("vector_distance", h.get("score", 1.0)))
@@ -550,6 +700,15 @@ def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
     except Exception as e:
         log.error(f"Cache lookup error: {e}")
     return None
+
+
+def worth_caching(rag_instances, chunks) -> bool:
+    """Whether a finished answer may be replayed from the cache. Not when knowledge
+    bases were searched and nothing was found: that answer says "no relevant context"
+    and would keep being served after the documents arrive or the index finishes
+    building (a new MongoDB instance answers its first questions before its search
+    index is ready)."""
+    return not (rag_instances and not chunks)
 
 
 def cache_store(query: str, response: str, chunks: list | None = None, scope: str = ""):

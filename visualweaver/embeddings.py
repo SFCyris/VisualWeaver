@@ -292,7 +292,11 @@ def embed(text: str, is_query: bool = False) -> np.ndarray:
     """
     spec = embedding_spec()
     prefix = spec["query_prefix"] if is_query else spec["passage_prefix"]
-    return get_embed_model().encode(prefix + text, normalize_embeddings=True)
+    # show_progress_bar=False everywhere: left at its default, sentence-transformers
+    # draws a tqdm bar whenever its logger is at INFO — which the app's is — so every
+    # question and every rerank wrote a "Batches: 100%" line into the app log.
+    return get_embed_model().encode(prefix + text, normalize_embeddings=True,
+                                    show_progress_bar=False)
 
 
 def embed_batch(texts: list[str]) -> np.ndarray:
@@ -355,7 +359,7 @@ def rerank_chunks(query: str, chunks: list[dict], top_n: int = 5) -> list[dict]:
         return chunks
     try:
         pairs  = [(query, c["text"]) for c in chunks]
-        scores = reranker.predict(pairs)
+        scores = reranker.predict(pairs, show_progress_bar=False)   # see embed()
         ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
         result = [c for _, c in ranked[:top_n]]
         # Annotate each chunk with its reranker score for debugging/analytics

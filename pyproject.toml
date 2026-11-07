@@ -1,18 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "visualweaver"
-version = "1.14.0"
-description = "Self-hosted retrieval-augmented chat over your own documents and sites, backed by Redis vector search"
+version = "1.15.0"
+description = "Self-hosted retrieval-augmented chat over your own documents and sites, backed by Redis or MongoDB vector search"
 requires-python = ">=3.11,<3.13"
-license = { text = "AGPL-3.0-or-later" }
+license = "AGPL-3.0-or-later"
 authors = [{ name = "S.F. Cyris" }]
 readme = "readme.md"
 classifiers = [
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
@@ -25,6 +24,7 @@ dependencies = [
     "httpx>=0.28.1",
     "redis==7.3.0",
     "redisvl==0.16.0",
+    "pymongo==4.19.0",
     "numpy==1.26.4",
     "sentence-transformers==2.7.0",
     "PyMuPDF==1.24.3",

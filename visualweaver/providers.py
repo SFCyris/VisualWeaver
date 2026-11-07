@@ -61,6 +61,39 @@ def _sink_usage(sink: dict | None, prompt, completion, cached=None) -> None:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# POOLED HTTP CLIENT
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _new_http_client() -> httpx.AsyncClient:
+    # Every call passes its own timeout; this default only covers a call that forgets.
+    return httpx.AsyncClient(timeout=httpx.Timeout(30.0),
+                             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
+
+
+async def http_client() -> httpx.AsyncClient:
+    """The pooled client for provider HTTP calls (Ollama, the key checks).
+
+    Building an httpx.AsyncClient loads the CA bundle into a fresh SSL context — ~12 ms
+    of CPU, on the event loop — and ollama_stream built one per call: three on a first
+    turn (answer, title, HyDE), and a fresh connection each time. One client is kept
+    instead, built off the loop. Nothing provider-specific lives in it: each call passes
+    its own timeout and reads its base URL from the config, so a settings change applies
+    to the very next request. It is tied to the loop that made it (its pooled
+    connections are), so a different loop — a test's — gets its own.
+    """
+    loop = asyncio.get_running_loop()
+    c = state._provider_http_client
+    if c is None or c.is_closed or state._provider_http_loop is not loop:
+        made = await asyncio.to_thread(_new_http_client)
+        c = state._provider_http_client
+        # Another call may have finished building one while this one was in the thread.
+        if c is None or c.is_closed or state._provider_http_loop is not loop:
+            state._provider_http_client, state._provider_http_loop = made, loop
+            c = made
+    return c
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LLM PROVIDER — OLLAMA
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -86,22 +119,22 @@ async def ollama_models() -> list[dict]:
     if time.time() - state._ollama_models_ts < _OLLAMA_MODELS_TTL and state._ollama_models_cache:
         return state._ollama_models_cache
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            res = await client.get(f"{ollama_base()}/api/tags")
-            data = res.json()
-            models = []
-            for m in data.get("models", []):
-                name = m["name"]
-                details = m.get("details", {})
-                families = details.get("families", []) or []
-                vision = any(f in ["clip", "llava"] for f in families) or any(
-                    v in name.lower()
-                    for v in ["llava", "bakllava", "moondream", "vision", "minicpm", "gemma3", "qwen-vl"]
-                )
-                models.append({"name": name, "size": m.get("size", 0), "vision": vision, "details": details})
-            state._ollama_models_cache = models
-            state._ollama_models_ts = time.time()
-            return models
+        client = await http_client()
+        res = await client.get(f"{ollama_base()}/api/tags", timeout=5)
+        data = res.json()
+        models = []
+        for m in data.get("models", []):
+            name = m["name"]
+            details = m.get("details", {})
+            families = details.get("families", []) or []
+            vision = any(f in ["clip", "llava"] for f in families) or any(
+                v in name.lower()
+                for v in ["llava", "bakllava", "moondream", "vision", "minicpm", "gemma3", "qwen-vl"]
+            )
+            models.append({"name": name, "size": m.get("size", 0), "vision": vision, "details": details})
+        state._ollama_models_cache = models
+        state._ollama_models_ts = time.time()
+        return models
     except Exception as e:
         log.error(f"Ollama models error: {e}")
         return []
@@ -195,35 +228,35 @@ async def ollama_stream(messages: list, model: str, images: list[str] | None = N
     - tool_calls entries are converted to renderable markdown (images or code blocks).
     """
     payload = {"model": model, "messages": _to_ollama_messages(messages), "stream": True}
-    url = f"{ollama_base()}/api/chat"
-    async with httpx.AsyncClient(timeout=120) as client:
-        async with client.stream("POST", url, json=payload) as resp:
-            async for line in resp.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    d    = json.loads(line)
-                    msg  = d.get("message", {})
-                    done = d.get("done", False)
-                    if done:   # the final chunk carries the real token counts
-                        _sink_usage(usage, d.get("prompt_eval_count"), d.get("eval_count"))
+    url = f"{ollama_base()}/api/chat"   # read per call: a settings change applies at once
+    client = await http_client()
+    async with client.stream("POST", url, json=payload, timeout=120) as resp:
+        async for line in resp.aiter_lines():
+            if not line.strip():
+                continue
+            try:
+                d    = json.loads(line)
+                msg  = d.get("message", {})
+                done = d.get("done", False)
+                if done:   # the final chunk carries the real token counts
+                    _sink_usage(usage, d.get("prompt_eval_count"), d.get("eval_count"))
 
-                    # Standard text content
-                    token = msg.get("content", "")
+                # Standard text content
+                token = msg.get("content", "")
 
-                    # Tool calls — convert to markdown so the frontend can render images
-                    tool_calls = msg.get("tool_calls", [])
-                    if tool_calls:
-                        token += _tool_result_to_markdown(tool_calls)
+                # Tool calls — convert to markdown so the frontend can render images
+                tool_calls = msg.get("tool_calls", [])
+                if tool_calls:
+                    token += _tool_result_to_markdown(tool_calls)
 
-                    if token:
-                        yield token, done
-                    elif done:
-                        yield "", True
-                    if done:
-                        break
-                except Exception:
-                    pass
+                if token:
+                    yield token, done
+                elif done:
+                    yield "", True
+                if done:
+                    break
+            except Exception:
+                pass
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LLM PROVIDER — ANTHROPIC CLAUDE
@@ -749,6 +782,19 @@ def _to_gemini_contents(messages: list) -> tuple[list, str | None]:
     return contents, system_text
 
 
+async def gemini_client(api_key: str):
+    """The pooled google-genai Client for ``api_key`` (see config._cached_client).
+
+    The first use of a key builds it in a thread — ~25 ms of SSL setup that would
+    otherwise stall the event loop; afterwards it is a dict lookup. Dropped with the
+    other provider clients on every settings save.
+    """
+    c = config._provider_clients.get(("gemini", api_key, ""))
+    if c is None:
+        c = await asyncio.to_thread(config._cached_client, "gemini", api_key, "")
+    return c
+
+
 def _gemini_err_msg(exc: Exception) -> str:
     """Return a human-readable error message from a Gemini SDK exception."""
     s = str(exc)
@@ -796,7 +842,7 @@ async def gemini_models() -> list[dict]:
     if not api_key or not _GENAI_AVAILABLE:
         return GEMINI_MODELS_STATIC
     try:
-        client = _google_genai.Client(api_key=api_key)
+        client = await gemini_client(api_key)
         raw = await asyncio.get_event_loop().run_in_executor(
             None, lambda: list(client.models.list()))
         result = []
@@ -832,7 +878,7 @@ async def gemini_stream(messages: list, model: str, usage: dict | None = None):
         return
 
     try:
-        client   = _google_genai.Client(api_key=api_key)
+        client   = await gemini_client(api_key)
         contents, system_text = _to_gemini_contents(messages)
         cfg = _genai_types.GenerateContentConfig(
             system_instruction=system_text if system_text else None,

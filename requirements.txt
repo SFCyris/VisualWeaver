@@ -4,6 +4,7 @@ websockets>=13.0
 httpx>=0.28.1
 redis==7.3.0
 redisvl==0.16.0
+pymongo==4.19.0
 numpy==1.26.4
 sentence-transformers==2.7.0
 PyMuPDF==1.24.3

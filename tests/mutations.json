@@ -42,8 +42,8 @@
  {
   "id": "M06_lexical_floor_unused",
   "file": "visualweaver/rag.py",
-  "find": "        lex_floor = threshold * _LEXICAL_FLOOR_RATIO",
-  "replace": "        lex_floor = 0.0  # _LEXICAL_FLOOR_RATIO",
+  "find": "    lex_floor = threshold * _LEXICAL_FLOOR_RATIO",
+  "replace": "    lex_floor = 0.0  # _LEXICAL_FLOOR_RATIO",
   "defect": "the whole BM25 tail reaches the prompt again",
   "expect": "test_keyword_only_hits_get_a_real_score"
  },
@@ -186,10 +186,11 @@
  {
   "id": "M24_newSession_remembers_id",
   "file": "visualweaver/index.html",
-  "find": "  S.sessions[id]={title:'New Conversation',messages:[]};",
-  "replace": "  _rememberSessionId(id);\n  S.sessions[id]={title:'New Conversation',messages:[]};",
+  "find": "  S.sessions[id]={title:'New Conversation',messages:[],updated:Date.now()/1000};",
+  "replace": "  _rememberSessionId(id);\n  S.sessions[id]={title:'New Conversation',messages:[],updated:Date.now()/1000};",
   "defect": "#6 empty sessions consume the 200-id cap and evict real conversations",
-  "expect": "test_issue6_unused_session_ids_are_not_remembered"
+  "expect": "test_issue6_unused_session_ids_are_not_remembered",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
  },
  {
   "id": "M25_pendingRegen_leaks",
@@ -1207,23 +1208,33 @@
  {
   "id": "M149_mermaid_quoted_label_not_protected",
   "file": "visualweaver/index.html",
-  "find": "  s=s.replace(/\\[\"([^\"\\n]*)\"\\]/g,(m,i)=>push('[\"'+NL(i)+'\"]'));",
-  "replace": "  s=s;",
-  "defect": "already-quoted flowchart labels not protected -> a quoted label containing [ ] (arr[0]) is re-split and breaks",
-  "expect": "test_quoted_label_with_literal_brackets_is_not_corrupted"
+  "find": "  for(const [o,c] of SHAPES)",
+  "replace": "  if(0)for(const [o,c] of SHAPES)",
+  "defect": "already-quoted labels are not settled first -> a quoted label containing its own closing delimiter (A(\"a)\"), A([\"[a]\"])) is split and breaks",
+  "expect": "test_rendered_cases test_a_quoted_label_that_contains_shape_syntax_is_never_rewritten"
  },
  {
   "id": "M150_mermaid_parallelogram_not_skipped",
   "file": "visualweaver/index.html",
-  "find": "    if(/^[/\\\\][\\s\\S]*[/\\\\]$/.test(t))return m;",
-  "replace": "    if(false)return m;",
-  "defect": "parallelogram/trapezoid [/x/] shapes wrapped as rectangles, delimiters become literal text",
-  "expect": "test_a_padded_compound_shape_is_tightened_not_demoted"
+  "find": "  s=s.replace(/\\[\\s*([/\\\\])([^\\n]*?)([/\\\\])\\s*\\]/g,(m,o,i,c,off,str)=>i.trim()&&claim(str,off)?push('['+o+wrapInner(i)+c+']'):m);",
+  "replace": "  ;",
+  "defect": "parallelogram/trapezoid [/x/] shapes are not settled before the rectangle passes and are not skipped by them -> wrapped as rectangles, delimiters become literal text",
+  "expect": "test_parallelogram_and_trapezoid_shapes_are_preserved",
+  "also": [
+   {
+    "find": "    if(!t||/^\\(.*\\)$/.test(t)||/^[/\\\\][\\s\\S]*[/\\\\]$/.test(t))return m;   // compound, held above",
+    "replace": "    if(!t||/^\\(.*\\)$/.test(t))return m;"
+   },
+   {
+    "find": "    if(/^[/\\\\][\\s\\S]*[/\\\\]$/.test(t))return m;",
+    "replace": "    if(false)return m;"
+   }
+  ]
  },
  {
   "id": "M151_mermaid_gate_ignores_leading_comment",
   "file": "visualweaver/index.html",
-  "find": "  const head=String(src).replace(/^(?:\\s|%%\\{[\\s\\S]*?\\}%%|%%[^\\n]*\\n)*/,'');",
+  "find": "  const head=String(src).replace(/^(?:\\s|---[^\\S\\n]*\\n[\\s\\S]*?\\n---[^\\S\\n]*(?:\\n|$)|%%\\{[\\s\\S]*?\\}%%|%%[^\\n]*\\n)*/,'');",
   "replace": "  const head=String(src);",
   "defect": "diagram-type sniff not tolerant of a leading %% comment -> a real flowchart behind a comment is not fixed",
   "expect": "test_flowchart_behind_a_leading_comment_is_still_transformed"
@@ -1239,7 +1250,7 @@
  {
   "id": "M153_mermaid_lt_not_rewritten",
   "file": "visualweaver/index.html",
-  "find": "  s=s.replace(/\"[^\"\\n]*\"/g,q=>q.replace(/&lt;|</g,'#lt;'));",
+  "find": "  s=s.replace(/\"([^\"\\n]*)\"/g,(q,i,off,str)=>inQuotes(str,off)?q:'\"'+EL(i)+'\"');",
   "replace": "  ;",
   "defect": "a literal < in a quoted flowchart label is not rewritten to #lt; -> renders as literal &lt;",
   "expect": "test_less_than_in_a_quoted_label_becomes_the_lt_entity"
@@ -1247,8 +1258,8 @@
  {
   "id": "M154_mermaid_node_lt_not_fullwidth",
   "file": "visualweaver/index.html",
-  "find": "const NL=x=>x.replace(/&lt;|</g,'＜');",
-  "replace": "const NL=x=>x;",
+  "find": "const NL=x=>afterBr(BR(x).replace(LT,'＜'),'＞','＆');",
+  "replace": "const NL=x=>afterBr(BR(x),'＞','＆');",
   "defect": "a < in a NODE label is not rewritten to the fullwidth ＜ -> #lt; leaks as literal &lt; in node labels",
   "expect": "test_less_than_in_a_node_label_becomes_the_fullwidth_glyph"
  },
@@ -1335,8 +1346,8 @@
  {
   "id": "M165_pipe_anchor_single_char",
   "file": "visualweaver/index.html",
-  "find": "  s=s.replace(/((?:-{2,}|-\\.-*|={2,})[>xo]?)\\|([^|\\n]+)\\|/g,(m,link,inner)=>{",
-  "replace": "  s=s.replace(/([-.=>ox])\\|([^|\\n]+)\\|/g,(m,link,inner)=>{",
+  "find": "  s=s.replace(/(<?-{2,}[>xo]?|<?={2,}[>xo]?|<?-\\.+-*[>xo]?|~{3,}|￿\\d+￿)([^\\S\\n]*)\\|([^|\\n]+)\\|/g,(m,link,sp,inner,off,str)=>{",
+  "replace": "  s=s.replace(/([-.=>ox])([^\\S\\n]*)\\|([^|\\n]+)\\|/g,(m,link,sp,inner,off,str)=>{",
   "defect": "pipe wrap anchored on a single arrow-tail char -> the 'o' of Ratio| and 'x' of Max| match, mis-pairing two node labels across the arrow and corrupting both",
   "expect": "test_pipes_inside_two_unquoted_node_labels_are_not_paired_into_an_edge_label"
  },
@@ -1375,16 +1386,16 @@
  {
   "id": "M170_cache_write_not_tallied",
   "file": "visualweaver/sessions.py",
-  "find": "        if usage.get(\"cache_write\"):   # Claude cache-creation tokens, billed ~1.25x input\n            pipe.hincrby(_USAGE_KEY, f\"{pfx}:cache_write\", int(usage[\"cache_write\"]))",
-  "replace": "        pass",
+  "find": "            inc[f\"{pfx}:cache_write\"] = int(usage[\"cache_write\"])",
+  "replace": "            pass",
   "defect": "cache-creation tokens dropped from the cumulative tally -> all-time cost under-reports the most expensive token class",
   "expect": "test_cache_write_tokens_reach_the_cumulative_tally"
  },
  {
   "id": "M171_clear_usage_noop",
   "file": "visualweaver/sessions.py",
-  "find": "        redis_store.r().delete(_USAGE_KEY)",
-  "replace": "        pass",
+  "find": "            appstore.current().delete(_USAGE_KEY)",
+  "replace": "            pass",
   "defect": "Reset tally silently does nothing -> the counter keeps growing after the user resets it",
   "expect": "test_clear_usage_zeroes_the_tally_and_survives_a_second_call"
  },
@@ -1423,8 +1434,8 @@
  {
   "id": "M176_endpoint_name_in_js_string",
   "file": "visualweaver/index.html",
-  "find": "      <button class=\"btn btn-danger btn-sm\" data-ep-del=\"${escHtml(ep.name)}\"",
-  "replace": "      <button class=\"btn btn-danger btn-sm\" onclick=\"deleteRedisEndpoint('${escHtml(ep.name)}')\" data-x=\"${escHtml(ep.name)}\"",
+  "find": "<button class=\"btn btn-danger btn-sm\" data-ep-del=\"${escHtml(ep.name)}\" title=\"Remove connection\"",
+  "replace": "<button class=\"btn btn-danger btn-sm\" onclick=\"deleteRedisEndpoint('${escHtml(ep.name)}')\" data-x=\"${escHtml(ep.name)}\" title=\"Remove connection\"",
   "defect": "endpoint name interpolated into a JS string context -> an endpoint named ');alert(1);// executes",
   "expect": "test_endpoint_buttons_do_not_interpolate_a_name_into_a_js_string"
  },
@@ -1495,10 +1506,10 @@
  {
   "id": "M186_click_style_hold_removed",
   "file": "visualweaver/index.html",
-  "find": "  s=s.replace(/^[ \\t]*(?:click|style|classDef|linkStyle)[^\\n]*/gim,m=>push(m));\n",
+  "find": "  s=s.replace(/^[^\\S\\n]*(?:click|style|classDef|linkStyle)[^\\S\\n][^\\n]*/gim,m=>push(m));\n",
   "replace": "",
   "defect": "click/style statements are treated as labels -> click A call myFn(1,2) becomes myFn(\"1,2\")",
-  "expect": "test_directive_statements_keep_their_syntax_parens"
+  "expect": "test_directive_statements_keep_their_syntax_parens test_click_and_style_strings_are_not_given_label_rewrites"
  },
  {
   "id": "M187_icon_buttons_unnamed",
@@ -1848,16 +1859,16 @@
  {
   "id": "M231_paren_shape_unbounded",
   "file": "visualweaver/index.html",
-  "find": "  let _paren=String.raw`[^()\\n]*`;\n  for(let d=0;d<3;d++)_paren=String.raw`(?:[^()\\n]|\\(`+_paren+String.raw`\\))*`;\n  const paren=_paren+'?';",
-  "replace": "  const paren=String.raw`(?:[^\\n]|\\((?:[^\\n]|\\((?:[^\\n])*\\))*\\))*?`;",
+  "find": "  const paren=nest('(',')'), brack=nest('[',']'), brace=nest('{','}');",
+  "replace": "  const paren=String.raw`(?:[^\\n]|\\((?:[^\\n]|\\((?:[^\\n])*\\))*\\))*?`, brack=nest('[',']'), brace=nest('{','}');",
   "defect": "the paren-shape pattern nests an unbounded quantifier, so a malformed diagram hangs the tab",
   "expect": "test_deeply_nested_parens_in_a_shape_label_are_rescued test_every_shape_normalises_to_its_own_quoted_form"
  },
  {
   "id": "M232_paren_shape_backtracks",
   "file": "visualweaver/index.html",
-  "find": "  let _paren=String.raw`[^()\\n]*`;\n  for(let d=0;d<3;d++)_paren=String.raw`(?:[^()\\n]|\\(`+_paren+String.raw`\\))*`;\n  const paren=_paren+'?';",
-  "replace": "  const paren=String.raw`(?:[^()\\n]*|\\([^()\\n]*\\))*?`;",
+  "find": "  const paren=nest('(',')'), brack=nest('[',']'), brace=nest('{','}');",
+  "replace": "  const paren=String.raw`(?:[^()\\n]*|\\([^()\\n]*\\))*?`, brack=nest('[',']'), brace=nest('{','}');",
   "defect": "the paren-shape pattern's first alternative can match empty — the classic nested-quantifier blowup — so a malformed diagram hangs the tab",
   "expect": "test_deeply_nested_parens_in_a_shape_label_are_rescued"
  },
@@ -1880,10 +1891,10 @@
  {
   "id": "M235_node_id_matches_inside_label",
   "file": "visualweaver/index.html",
-  "find": "  const ID=String.raw`(^|[^\\w￿\\[\\](){}\"])([A-Za-z0-9_]+)`;",
-  "replace": "  const ID=String.raw`(^|[^\\w￿])([A-Za-z0-9_]+)`;",
-  "defect": "a word inside a label is read as a node id, so A[cost(usd)] is rewritten to A[\"cost(\"usd\")\"] and stops rendering",
-  "expect": "test_a_word_inside_a_label_is_not_read_as_a_node_id"
+  "find": "  const ID=String.raw`((?:^|[\\n;&|]|subgraph[^\\S\\n]+|`+LINK+String.raw`|￿)[^\\S\\n]*)(`+IDC+'(?:'+IDC+'|[.-](?='+IDC+'))*)';",
+  "replace": "  const ID=String.raw`((?:^|[^\\p{L}\\p{N}_￿])[^\\S\\n]*)(`+IDC+'(?:'+IDC+'|[.-](?='+IDC+'))*)';",
+  "defect": "a node id may stand anywhere after a non-word character -> words inside labels (the n of \\n(..), R&D(x) in an inline label) are read as node ids and quoted in place",
+  "expect": "test_a_node_after_every_kind_of_statement_start_is_still_rescued test_rendered_cases"
  },
  {
   "id": "M236_chips_hidden_attr_only",
@@ -3860,5 +3871,2013 @@
   "replace": "if(e.button!==0)return; drag=",
   "defect": "grabbing a spinning scene does not stop the spin, so the drag fights the animation",
   "expect": "test_scene_spin_turns_until_a_manual_input"
+ },
+ {
+  "id": "M488_mermaid_quote_map_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  const claim=(str,off)=>{ const m=scan(str); return !m.q[off]&&!m.b[off]&&!m.e[off]; };",
+  "replace": "  const claim=(str,off)=>{ const m=scan(str); return !m.b[off]&&!m.e[off]; };",
+  "defect": "shape passes may claim positions inside a quoted string -> A[\"see [[1]]\"] and A[\"a --> b(c)\"] are rewritten inside their quotes",
+  "expect": "test_a_quoted_label_that_contains_shape_syntax_is_never_rewritten"
+ },
+ {
+  "id": "M489_mermaid_bracket_depth_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  const claim=(str,off)=>{ const m=scan(str); return !m.q[off]&&!m.b[off]&&!m.e[off]; };",
+  "replace": "  const claim=(str,off)=>{ const m=scan(str); return !m.q[off]&&!m.e[off]; };",
+  "defect": "a word inside an open [..]/(..)/{..} label may be claimed as a node -> A[Q&A(FAQ)] and A(R&D{x}) get quotes injected",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M490_mermaid_inline_edge_span_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  const claim=(str,off)=>{ const m=scan(str); return !m.q[off]&&!m.b[off]&&!m.e[off]; };",
+  "replace": "  const claim=(str,off)=>{ const m=scan(str); return !m.q[off]&&!m.b[off]; };",
+  "defect": "inline edge label text is claimable -> A -- x[0] --> B and B -- R&D(x) --> C are rewritten as nodes and stop parsing",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M491_mermaid_inch_mark_opens_string",
+  "file": "visualweaver/index.html",
+  "find": "        else if(!(i&&IDCH.test(str[i-1]))){\n",
+  "replace": "        else {\n",
+  "defect": "an inch mark (27\") opens a string and pairs with a later quote on its line -> every shape between them is treated as quoted text and not rescued",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M492_mermaid_backslash_n_kept",
+  "file": "visualweaver/index.html",
+  "find": "  const BR=x=>raw(x)?x:x.replace(/(\\\\*)\\\\n/g,(m,bs,off,str)=>",
+  "replace": "  const BR=x=>x;const _unusedBR=x=>raw(x)?x:x.replace(/(\\\\*)\\\\n/g,(m,bs,off,str)=>",
+  "defect": "a literal \\n in a label is left as the two characters -> mermaid draws backslash-n instead of a line break",
+  "expect": "test_a_literal_backslash_n_becomes_a_line_break test_a_quoted_label_with_a_line_break_before_a_paren_is_left_intact"
+ },
+ {
+  "id": "M493_mermaid_br_tag_rewritten",
+  "file": "visualweaver/index.html",
+  "find": "  const LT=/&lt;|<(?!\\/?br\\s*\\/?\\s*>)/gi;",
+  "replace": "  const LT=/&lt;|</gi;",
+  "defect": "a <br> tag gets the '<' rewrite -> the label shows the literal text ＜br> instead of a line break",
+  "expect": "test_a_br_tag_stays_a_line_break"
+ },
+ {
+  "id": "M494_mermaid_gt_amp_after_br",
+  "file": "visualweaver/index.html",
+  "find": "  const NL=x=>afterBr(BR(x).replace(LT,'＜'),'＞','＆');",
+  "replace": "  const NL=x=>BR(x).replace(LT,'＜');",
+  "defect": "> and & in a node label with a line break are left raw -> mermaid shows &gt; and &amp;",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M495_mermaid_long_dash_run_not_held",
+  "file": "visualweaver/index.html",
+  "find": "  s=s.replace(/<?-{21,}[>xo]?|<?={21,}[>xo]?|~{21,}/g,m=>{ const k=push(m); arrows.add(k); return k; });",
+  "replace": "  ;",
+  "defect": "long dash runs are not held -> the link patterns retry from every position and a divider of a few thousand dashes freezes the tab",
+  "expect": "test_a_long_dash_run_stays_fast"
+ },
+ {
+  "id": "M496_music_font_not_awaited",
+  "file": "visualweaver/index.html",
+  "find": "        if(await _musicFontReady(music[0])) font={fontFamily:_MERMAID_FONT,themeVariables:{fontFamily:_MERMAID_FONT}};",
+  "replace": "        if(await _musicFontReady(music[0])) font={};",
+  "defect": "the loaded music font is never given to mermaid -> note symbols still draw as empty boxes",
+  "expect": "test_with_the_font_the_real_note_symbols_are_drawn"
+ },
+ {
+  "id": "M497_music_fallback_missing",
+  "file": "visualweaver/index.html",
+  "find": "        else src=_musicCommon(src);",
+  "replace": "        else {}",
+  "defect": "no fallback when the music font cannot load -> offline, notes draw as empty boxes",
+  "expect": "test_without_the_font_the_common_symbols_stand_in"
+ },
+ {
+  "id": "M498_music_eighth_matched_as_quarter",
+  "file": "visualweaver/index.html",
+  "find": "  [/\\u{1D158}\\u{1D165}\\u{1D16E}(?![\\u{1D16E}-\\u{1D172}])|\\u{1D160}/gu,'♪'],  // eighth note\n",
+  "replace": "",
+  "defect": "an eighth note written as notehead+stem+flag is matched by the quarter-note rule first -> shown as ♩ plus a stray flag",
+  "expect": "test_notes_map_to_the_common_symbols"
+ },
+ {
+  "id": "M499_mermaid_diagram_not_fitted",
+  "file": "visualweaver/index.html",
+  "find": "          _fitDiagram(out);\n",
+  "replace": "",
+  "defect": "the diagram keeps mermaid's width=100% inside the fixed 560px card -> a wide flowchart is scaled until its text is 6-7px",
+  "expect": "test_a_wide_flowchart_stays_readable_and_scrolls"
+ },
+ {
+  "id": "M501_mermaid_circle_link_read_as_label",
+  "file": "visualweaver/index.html",
+  "find": "(?![-.=>ox])/gu, CL=",
+  "replace": "(?![-.=>])/gu, CL=",
+  "defect": "the --o / --x of a circle or cross link (spaced or tight, A--oB) is read as an inline-label opener -> the node after it is marked as label text and never rescued",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M502_mermaid_long_arrow_head_split",
+  "file": "visualweaver/index.html",
+  "find": "  s=s.replace(/<?-{21,}[>xo]?|<?={21,}[>xo]?|~{21,}/g,m=>{ const k=push(m); arrows.add(k); return k; });",
+  "replace": "  s=s.replace(/-{21,}|={21,}|~{21,}/g,m=>{ const k=push(m); arrows.add(k); return k; });",
+  "defect": "a long arrow is held without its head -> the head sits between the placeholder and the next node, which is no longer at a link position and is not rescued",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M503_mermaid_path_and_math_newline",
+  "file": "visualweaver/index.html",
+  "find": "  const raw=x=>/^\\s*`|\\$[^$\\n]+\\$|[A-Za-z]:\\\\/.test(x);",
+  "replace": "  const raw=x=>/^\\s*`|\\$\\$/.test(x);",
+  "defect": "a Windows path or $..$ math label is given the line-break rewrite -> C:\\Users\\name\\notes.txt and $\\nabla f$ lose their \\n",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M504_mermaid_subgraph_id_dropped",
+  "file": "visualweaver/index.html",
+  "find": "    return p+push(named?id+'['+q+']':q);",
+  "replace": "    return p+push(q);",
+  "defect": "a bare subgraph title is quoted without its id -> an edge to that id makes a stray node instead of reaching the subgraph",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M505_mermaid_charts_fitted",
+  "file": "visualweaver/index.html",
+  "find": "  if(/^(gantt|pie|quadrantChart|xychart|sankey)/i.test(svg.getAttribute('aria-roledescription')||''))return;\n",
+  "replace": "",
+  "defect": "gantt and pie charts get the scroll floor -> a gantt sized from the window and a pie on a phone are cropped",
+  "expect": "test_charts_keep_mermaids_own_fit_to_width"
+ },
+ {
+  "id": "M506_mermaid_failed_apply_keeps_width",
+  "file": "visualweaver/index.html",
+  "find": "      if(card){ card.style.width=''; card.classList.remove('rich-more'); }\n",
+  "replace": "",
+  "defect": "a redraw keeps the previous diagram's card width -> a failed Apply leaves an empty card as wide as the old diagram",
+  "expect": "test_a_failed_apply_returns_the_card_to_its_default_width"
+ },
+ {
+  "id": "M507_mermaid_print_crops",
+  "file": "visualweaver/index.html",
+  "find": "  .rich-wrap[data-kind=\"mermaid\"] .rich-output{overflow:visible!important;-webkit-mask-image:none!important;mask-image:none!important}\n",
+  "replace": "",
+  "defect": "printing keeps the on-screen scroll sizing -> a printed or PDF-saved wide diagram is cropped to the first card-width of nodes",
+  "expect": "test_a_printed_wide_diagram_fits_the_page",
+  "also": [
+   {
+    "find": "  .rich-wrap[data-kind=\"mermaid\"] .rich-output svg{width:100%!important;max-width:100%!important;height:auto!important}\n",
+    "replace": ""
+   }
+  ]
+ },
+ {
+  "id": "M508_music_slow_font_pins_fallback",
+  "file": "visualweaver/index.html",
+  "find": "      timeout]).finally(()=>{ _musicFontLoad=null; });",
+  "replace": "      timeout]);",
+  "defect": "the first wait's answer is kept for the page -> after one slow font fetch every later diagram uses the fallback even once the font has loaded",
+  "expect": "test_a_slow_font_falls_back_once_then_is_used",
+  "also": [
+   {
+    "find": "  if(faces.some(f=>f.status==='loaded'))return Promise.resolve(true);\n",
+    "replace": ""
+   }
+  ]
+ },
+ {
+  "id": "M509_music_png_export_boxes",
+  "file": "visualweaver/index.html",
+  "find": "      for(let n=tw.nextNode();n;n=tw.nextNode())if(_MUSIC_CH.test(n.nodeValue))n.nodeValue=_musicCommon(n.nodeValue);",
+  "replace": "      ;",
+  "defect": "the PNG export keeps the notation characters -> rasterised through <img> without the web font, notes come out as empty boxes",
+  "expect": "test_a_png_export_carries_the_common_symbols"
+ },
+ {
+  "id": "M510_mermaid_stray_quote_opens_string",
+  "file": "visualweaver/index.html",
+  "find": "          if(close>0&&(sp||str.lastIndexOf('\\n',close)<i))inS=true;",
+  "replace": "          inS=true;",
+  "defect": "a quote with no partner opens a string -> a stray quote in an unquoted label hides every later shape from the rescue (a shape-label quote: to the end of the diagram)",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M511_mermaid_inline_percent_held_as_comment",
+  "file": "visualweaver/index.html",
+  "find": "  s=s.replace(/^[^\\S\\n]*%%[^\\n]*/gm,m=>push(m));",
+  "replace": "  s=s.replace(/%%[^\\n]*/g,m=>push(m));",
+  "defect": "a %% inside a label is held as a comment to the end of the line -> its closing quote is swallowed and the rest of the diagram reads as one string",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M512_mermaid_pipe_after_long_arrow",
+  "file": "visualweaver/index.html",
+  "find": "|~{3,}|￿\\d+￿)([^\\S\\n]*)\\|([^|\\n]+)\\|/g",
+  "replace": "|~{3,})([^\\S\\n]*)\\|([^|\\n]+)\\|/g",
+  "defect": "a pipe label after a long (held) arrow is not recognised -> its specials stay unquoted and the diagram fails to parse",
+  "expect": "test_rendered_cases"
+ },
+ {
+  "id": "M514_mongo_score_not_cosine",
+  "file": "visualweaver/mongo_store.py",
+  "find": "\"_vec_score\": round(2.0 * float(d.get(\"score\", 0.5)) - 1.0, 4)})",
+  "replace": "\"_vec_score\": round(float(d.get(\"score\", 0.5)), 4)})",
+  "defect": "Atlas's (1 + cos) / 2 score is used as the cosine -> every MongoDB chunk scores higher than the same chunk on Redis and the similarity threshold lets noise through",
+  "expect": "test_scores_match_the_redis_backend"
+ },
+ {
+  "id": "M515_mongo_no_vector_search_allowed",
+  "file": "visualweaver/routes_instances.py",
+  "find": "        if not probe.get(\"vector_search\"):\n",
+  "replace": "        if False:\n",
+  "defect": "an instance can be created on a MongoDB without vector search -> it accepts documents and never finds anything",
+  "expect": "test_a_server_without_vector_search_cannot_hold_an_instance"
+ },
+ {
+  "id": "M516_unknown_connection_redirected",
+  "file": "visualweaver/routes_instances.py",
+  "find": "    if ep_name != \"default\" and redis_store.endpoint_cfg(ep_name) is None:\n",
+  "replace": "    if False:\n",
+  "defect": "an unknown storage name silently falls back to the built-in Redis -> the instance lands somewhere the user did not choose",
+  "expect": "test_an_unknown_connection_is_refused_not_redirected"
+ },
+ {
+  "id": "M517_mongo_uri_password_kept",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    uri, u_user, u_pw = mongo_store.split_uri_credentials(mongo_store.server_uri(payload.get(\"uri\", \"\")))",
+  "replace": "    uri, u_user, u_pw = (payload.get(\"uri\", \"\") or \"\").strip(), \"\", \"\"",
+  "defect": "a password pasted inside the connection string stays in the stored URI -> it is sent to the browser unredacted",
+  "expect": "test_a_password_in_the_connection_string_is_stored_as_a_secret"
+ },
+ {
+  "id": "M518_mongo_delete_keeps_hashes",
+  "file": "visualweaver/routes_sources.py",
+  "find": "            mongo_store.remove_hashes(rc, instance, [",
+  "replace": "            (lambda *a: None)(rc, instance, [",
+  "defect": "deleting a document on MongoDB keeps its dedup hashes -> re-ingesting it is skipped as a duplicate and it is gone for good",
+  "expect": "test_an_instance_round_trips_on_mongodb"
+ },
+ {
+  "id": "M519_mongo_source_filter_ignored",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    if source_filter:\n        sources = _matching_sources(",
+  "replace": "    if False:\n        sources = _matching_sources(",
+  "defect": "a source-scoped question on MongoDB searches every document -> answers cite the wrong source",
+  "expect": "test_an_instance_round_trips_on_mongodb"
+ },
+ {
+  "id": "M520_mongo_search_not_dispatched",
+  "file": "visualweaver/rag.py",
+  "find": "    if mongo_store.is_mongo(rc):\n        return _search_mongo(",
+  "replace": "    if False:\n        return _search_mongo(",
+  "defect": "a MongoDB instance is searched with Redis commands -> every question retrieves nothing",
+  "expect": "test_an_instance_round_trips_on_mongodb"
+ },
+ {
+  "id": "M521_ui_storage_option_not_disabled",
+  "file": "visualweaver/index.html",
+  "find": "  return `<option value=\"${escHtml(e.name)}\"${why?' disabled':''}>",
+  "replace": "  return `<option value=\"${escHtml(e.name)}\">",
+  "defect": "a connection without vector search can be chosen as an instance's storage in the form",
+  "expect": "test_new_instance_offers_storage_and_disables_what_cannot_hold_one"
+ },
+ {
+  "id": "M522_ui_create_refusal_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  if(!r.ok){\n    const d=await r.json().catch(()=>({}));\n    return toast((typeof d.detail==='string'&&d.detail)||`Could not create \"${name}\"`,'error',sc);\n  }",
+  "replace": "  if(false){\n  }",
+  "defect": "a refused instance creation is reported as created -> the user believes the instance exists",
+  "expect": "test_a_refused_creation_is_shown_to_the_user",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M523_mongo_vector_index_updated_in_place",
+  "file": "visualweaver/mongo_store.py",
+  "find": "                    col.drop_search_index(VEC_INDEX)\n",
+  "replace": "                    col.update_search_index(VEC_INDEX, vec_def); continue_ = True\n",
+  "defect": "a model change updates the vectorSearch index in place, which the server refuses -> every search and ingest on the connection fails",
+  "expect": "test_a_model_change_rebuilds_the_vector_index",
+  "also": [
+   {
+    "find": "                    existing.pop(VEC_INDEX, None)\n",
+    "replace": ""
+   }
+  ]
+ },
+ {
+  "id": "M524_named_connection_not_checked",
+  "file": "visualweaver/rag_admin.py",
+  "find": "            if ok is False:\n                raise HTTPException(400, f\"Storage '{endpoint}': {mongo_store.NO_SEARCH_MSG}\")\n",
+  "replace": "",
+  "defect": "ingest/import naming a connection without vector search reach it -> stray dedup hashes and a phantom instance",
+  "expect": "test_naming_a_connection_without_vector_search_is_refused_everywhere"
+ },
+ {
+  "id": "M525_mongo_client_closed_on_invalidate",
+  "file": "visualweaver/redis_store.py",
+  "find": "        if mongo_store.is_mongo(c):\n            retire_client(c)\n",
+  "replace": "        if mongo_store.is_mongo(c):\n            c.close()\n",
+  "defect": "a settings save closes MongoDB clients held by running crawls, scans, exports and imports -> they fail mid-way",
+  "expect": "test_a_settings_save_does_not_cut_off_running_work"
+ },
+ {
+  "id": "M526_stored_password_sent_to_any_host",
+  "file": "visualweaver/routes_redis.py",
+  "find": "        password = existing.get(\"password\", \"\") if same else \"\"\n",
+  "replace": "        password = existing.get(\"password\", \"\")\n",
+  "defect": "Test with the redacted password sends the stored one to whatever address the form names",
+  "expect": "test_the_stored_password_is_only_reused_for_its_own_server"
+ },
+ {
+  "id": "M527_uri_split_on_first_at",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    m = re.match(r\"^(mongodb(?:\\+srv)?://)(.*)@([^@/?]+(?:[/?].*)?)$\", uri)",
+  "replace": "    m = re.match(r\"^(mongodb(?:\\+srv)?://)([^@/]*)@(.*)$\", uri)",
+  "defect": "a password with an unencoded @ is split at its own @ -> half of it stays in the stored URI sent to the browser",
+  "expect": "test_connection_string_helpers"
+ },
+ {
+  "id": "M528_duplicate_instance_name_allowed",
+  "file": "visualweaver/routes_instances.py",
+  "find": "    if clash:\n        where = clash",
+  "replace": "    if False:\n        where = clash",
+  "defect": "the same instance name can be created on two connections -> chat only ever searches the built-in Redis one",
+  "expect": "test_connection_and_name_rules"
+ },
+ {
+  "id": "M529_bad_database_name_saved",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    if not mongo_store.valid_database_name(database):\n",
+  "replace": "    if False:\n",
+  "defect": "an invalid MongoDB database name is saved -> every status poll of the connection errors",
+  "expect": "test_connection_and_name_rules"
+ },
+ {
+  "id": "M530_atlas_password_placeholder_stored",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    if mongo_store.is_password_placeholder(password):\n",
+  "replace": "    if False:\n",
+  "defect": "Atlas's <db_password> placeholder is saved as the password -> every login fails",
+  "expect": "test_an_atlas_connection_string_is_taken_as_atlas_shows_it"
+ },
+ {
+  "id": "M531_atlas_login_failure_unexplained",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    if isinstance(e, OperationFailure) and (e.code in (18, 8000) or \"auth\" in msg.lower()):\n",
+  "replace": "    if False:\n",
+  "defect": "a wrong password reads as the driver's raw error, not a login failure",
+  "expect": "test_an_atlas_connection_string_is_taken_as_atlas_shows_it"
+ },
+ {
+  "id": "M532_pasted_uri_not_split",
+  "file": "visualweaver/index.html",
+  "find": " onchange=\"_epSplitUri()\" onpaste=\"setTimeout(_epSplitUri)\"",
+  "replace": "",
+  "defect": "a pasted Atlas string keeps user:<db_password>@ and the password field stays empty",
+  "expect": "test_an_atlas_string_is_split_into_its_fields"
+ },
+ {
+  "id": "M533_atlas_server_not_srv",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    return (\"mongodb+srv://\" if srv else \"mongodb://\") + hosts + tail\n",
+  "replace": "    return \"mongodb://\" + hosts + tail\n",
+  "defect": "an Atlas cluster host is built into mongodb:// -> no SRV lookup, the cluster never answers",
+  "expect": "test_a_server_is_built_into_a_connection_string"
+ },
+ {
+  "id": "M534_server_preview_wrong_scheme",
+  "file": "visualweaver/index.html",
+  "find": "  return (srv?'mongodb+srv://':'mongodb://')+hosts+tail;\n",
+  "replace": "  return 'mongodb://'+hosts+tail;\n",
+  "defect": "the Server preview shows a different connection string from the one the server builds",
+  "expect": "test_a_server_username_and_password_build_the_string"
+ },
+ {
+  "id": "M600_storage_default_not_redis",
+  "file": "install.sh",
+  "find": "    *)                           STORAGE_REQ=\"redis\" ;;\n",
+  "replace": "    *)                           STORAGE_REQ=\"mongodb\" ;;\n",
+  "defect": "pressing Enter at the storage question installs MongoDB instead of Redis",
+  "expect": "test_pressing_enter_installs_redis_like_today"
+ },
+ {
+  "id": "M601_licence_accepted_without_asking",
+  "file": "install.sh",
+  "find": "  if [ \"${VISUALWEAVER_ACCEPT_MONGODB_LICENSE:-}\" = \"1\" ]; then\n",
+  "replace": "  if true; then\n",
+  "defect": "MongoDB's SSPL is taken as accepted without a yes or VISUALWEAVER_ACCEPT_MONGODB_LICENSE=1",
+  "expect": "test_non_interactive_mongodb_without_the_licence_variable_stops"
+ },
+ {
+  "id": "M602_rerun_removes_a_store",
+  "file": "install.sh",
+  "find": "  else printf 'both'; fi\n",
+  "replace": "  else printf '%s' \"$2\"; fi\n",
+  "defect": "asking for the other store on a re-run replaces the installed one instead of adding it",
+  "expect": "test_nothing_is_removed_when_the_other_store_is_requested"
+ },
+ {
+  "id": "M603_no_runtime_check_before_download",
+  "file": "install.sh",
+  "find": "  MONGO_RUNTIME=\"$(lm runtime 2>&1)\" || _rc=$?\n",
+  "replace": "  MONGO_RUNTIME=\"docker\"\n",
+  "defect": "MongoDB is chosen without checking for a running container runtime",
+  "expect": "test_no_runtime_explains_the_options_and_offers_redis"
+ },
+ {
+  "id": "M604_recorded_choice_asked_again",
+  "file": "install.sh",
+  "find": "elif [ -n \"${STORAGE_CURRENT}\" ]; then\n  _other=\"redis\"",
+  "replace": "elif false; then\n  _other=\"redis\"",
+  "defect": "a recorded storage choice is ignored and the full menu is shown again",
+  "expect": "test_a_recorded_choice_is_kept_and_the_menu_is_not_shown_again"
+ },
+ {
+  "id": "M605_taken_app_port_kept",
+  "file": "install.sh",
+  "find": "if port_in_use \"${APP_PORT}\" && ! app_port_ours \"${APP_PORT}\"; then\n  _holder",
+  "replace": "if false; then\n  _holder",
+  "defect": "a web UI port held by another program is kept instead of moved and recorded",
+  "expect": "test_a_taken_web_ui_port_moves_to_the_next_free_one_and_is_recorded"
+ },
+ {
+  "id": "M606_redis_ours_literal_path",
+  "file": "scripts/common.sh",
+  "find": "    && [ \"$(cd \"${d}\" 2>/dev/null && pwd -P)\" = \"$(cd \"${REDIS_DATA}\" && pwd -P)\" ]\n",
+  "replace": "    && [ \"${d}\" = \"${REDIS_DATA}\" ]\n",
+  "defect": "a running Redis of this install is not recognised when the data dir path is not physical; a re-run moves it to a second port and starts a second server on the same data",
+  "expect": "test_this_installs_redis_is_recognised_through_a_relative_data_dir"
+ },
+ {
+  "id": "M607_validation_failure_exits_zero",
+  "file": "install.sh",
+  "find": "  for _f in \"${V_FIXES[@]}\"; do c_err \"  • ${_f}\"; done\n  exit 1\n",
+  "replace": "  for _f in \"${V_FIXES[@]}\"; do c_err \"  • ${_f}\"; done\n",
+  "defect": "a ✗ in the final validation still ends the install successfully",
+  "expect": "test_a_redis_without_search_fails_validation_with_the_fix"
+ },
+ {
+  "id": "M608_recorded_storage_passed_to_app",
+  "file": "start.sh",
+  "find": "  [ -n \"${VISUALWEAVER_MONGODB_URI:-}\" ] || unset VISUALWEAVER_STORAGE\n",
+  "replace": "",
+  "defect": "start.sh hands install.sh's recorded VISUALWEAVER_STORAGE to the app, which reads it as the container deployment's switch",
+  "expect": "test_the_recorded_storage_choice_is_not_handed_to_the_app"
+ },
+ {
+  "id": "M609_required_store_failure_ignored",
+  "file": "start.sh",
+  "find": "store_required() { [ \"${DEFAULT_TYPE}\" = \"$1\" ] || [ \"${APP_STORE}\" = \"$1\" ]; }\n",
+  "replace": "store_required() { false; }\n",
+  "defect": "the app is started although the store it needs (MongoDB first) did not start",
+  "expect": "test_a_stopped_runtime_stops_a_mongodb_first_start_with_the_fix"
+ },
+ {
+  "id": "M610_stop_leaves_mongodb_running",
+  "file": "stop.sh",
+  "find": "if [ \"${STORE_MONGO}\" = 1 ]; then\n  c_info \"Stopping the built-in MongoDB (data kept)…\"\n",
+  "replace": "if false; then\n  c_info \"Stopping the built-in MongoDB (data kept)…\"\n",
+  "defect": "stop.sh leaves the built-in MongoDB running",
+  "expect": "test_stop_stops_mongodb_and_keeps_its_data"
+ },
+ {
+  "id": "M611_mongod_published_on_all_interfaces",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    ports: [\"127.0.0.1:{st[\"port\"]}:27017\"]\n",
+  "replace": "    ports: [\"{st[\"port\"]}:27017\"]\n",
+  "defect": "the built-in MongoDB is published on every network interface, not loopback only",
+  "expect": "test_only_mongod_is_published_and_only_on_loopback"
+ },
+ {
+  "id": "M612_keyfile_world_readable",
+  "file": "visualweaver/local_mongo.py",
+  "find": "target: /etc/vw-keyfile, uid: \"1000\", gid: \"1000\", mode: 0400}}",
+  "replace": "target: /etc/vw-keyfile, uid: \"1000\", gid: \"1000\", mode: 0444}}",
+  "defect": "the replica-set keyfile is readable by others (mongod refuses to start)",
+  "expect": "test_secrets_reach_the_containers_as_owner_only_files"
+ },
+ {
+  "id": "M613_foreign_port_kept",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    if port not in avoid and (_port_free(port) or probe(st)[\"running\"]):\n",
+  "replace": "    if True:\n",
+  "defect": "a MongoDB port taken by another program is kept, so the containers cannot start",
+  "expect": "test_a_port_taken_by_something_else_moves_to_the_next_free_one"
+ },
+ {
+  "id": "M614_running_mongodb_not_reused",
+  "file": "visualweaver/local_mongo.py",
+  "find": "        if p[\"ready\"]:\n            p[\"total_seconds\"]",
+  "replace": "        if False:\n            p[\"total_seconds\"]",
+  "defect": "start.sh goes through the container runtime even when the built-in MongoDB already answers",
+  "expect": "test_up_returns_at_once_when_already_running_what_was_last_applied"
+ },
+ {
+  "id": "M615_early_commands_need_the_venv",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    env = os.environ.get(\"VISUALWEAVER_DATA_DIR\", \"\").strip()\n    if env:\n        return Path(env).expanduser()\n    from .constants",
+  "replace": "    from .constants",
+  "defect": "install.sh's early MongoDB checks import the app (fastapi) and fail before the virtualenv exists",
+  "expect": "test_early_commands_need_only_the_standard_library"
+ },
+ {
+  "id": "M616_mongodb_first_keeps_template_redis",
+  "file": "install.sh",
+  "find": "        cfg.pop(\"redis\", None)   # a MongoDB-first install has no built-in Redis config\n",
+  "replace": "        pass\n",
+  "defect": "a MongoDB-only install keeps the template's redis block, so the app believes a built-in Redis exists",
+  "expect": "test_a_mongodb_first_install_has_no_builtin_redis"
+ },
+ {
+  "id": "M617_builtin_endpoint_duplicated",
+  "file": "install.sh",
+  "find": "            e.update({**entry, \"name\": e[\"name\"]})\n            return e[\"name\"]\n",
+  "replace": "            pass\n",
+  "defect": "every install re-run appends another copy of the built-in local-mongodb / local-redis connection",
+  "expect": "test_re_runs_update_in_place_and_never_touch_the_app_store_choice"
+ },
+ {
+  "id": "M618_compose_mongodb_published",
+  "file": "docker-compose.yml",
+  "find": "    container_name: visualweaver-mongodb\n    profiles: [mongodb, both]\n",
+  "replace": "    container_name: visualweaver-mongodb\n    profiles: [mongodb, both]\n    ports: [\"27017:27017\"]\n",
+  "defect": "the compose MongoDB is published on the host",
+  "expect": "test_compose_mongodb_is_never_published"
+ },
+ {
+  "id": "M619_compose_redis_needs_a_profile",
+  "file": "docker-compose.yml",
+  "find": "    profiles: [\"${COMPOSE_PROFILES:+redis}\", \"${COMPOSE_PROFILES:+both}\"]\n",
+  "replace": "    profiles: [redis, both]\n",
+  "defect": "plain `docker compose up -d` (no COMPOSE_PROFILES) no longer starts Redis",
+  "expect": "test_each_profile_starts_its_stores_and_tells_the_app"
+ },
+ {
+  "id": "M620_compose_app_password_unreadable",
+  "file": "docker-compose.yml",
+  "find": "chown 10001:10001 /secrets/app-password && chmod 0400 /secrets/app-password",
+  "replace": "chown 0:0 /secrets/app-password && chmod 0400 /secrets/app-password",
+  "defect": "the app (uid 10001) cannot read its generated MongoDB password",
+  "expect": "test_mongodb_secrets_are_generated_owner_only"
+ },
+ {
+  "id": "M621_mongod_killed_on_stop",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    entrypoint: [\"bash\", \"-c\", {json.dumps(MONGOD_ENTRYPOINT)}, \"vw-mongod\"]\n",
+  "replace": "",
+  "defect": "mongod never sees SIGTERM: every stop waits out the grace period and kills it",
+  "expect": "test_real_init_up_stop_up_keeps_data_then_down"
+ },
+ {
+  "id": "M622_start_versions_missing",
+  "file": "start.sh",
+  "find": "  c_info \"            Redis ${_rv} · search ${_sv}\"\n",
+  "replace": "",
+  "defect": "start.sh no longer prints the Redis and search-module versions in use",
+  "expect": "test_both_stores_start_and_report_their_versions"
+ },
+ {
+  "id": "M624_port_probe_ignores_reuseaddr",
+  "file": "scripts/common.sh",
+  "find": "    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n    try:\n        s.bind((host, int(sys.argv[1])))",
+  "replace": "    try:\n        s.bind((host, int(sys.argv[1])))",
+  "defect": "a port with only TIME_WAIT connections counts as taken, so restart.sh refuses to start and install moves ports",
+  "expect": "test_a_port_with_only_time_wait_connections_is_free_and_a_listener_is_not"
+ },
+ {
+  "id": "M625_envfile_append_glues_last_line",
+  "file": "scripts/common.sh",
+  "find": "    [ -s \"${f}\" ] && [ -n \"$(tail -c1 \"${f}\")\" ] && echo >> \"${f}\"\n",
+  "replace": "",
+  "defect": "recording a choice glues it onto a last line without a newline, corrupting that setting",
+  "expect": "test_envfile_set_keeps_a_last_line_without_newline"
+ },
+ {
+  "id": "M626_any_visualweaver_is_ours",
+  "file": "scripts/common.sh",
+  "find": "  case \"${cmd}\" in *\"--app-dir ${REPO_DIR} \"*|*\"--app-dir ${REPO_DIR}\") return 0 ;; esac\n  return 1\n",
+  "replace": "  return 0\n",
+  "defect": "another checkout's VisualWeaver on the web UI port counts as this install's own",
+  "expect": "test_only_this_installs_app_counts_as_holding_the_web_ui_port"
+ },
+ {
+  "id": "M627_licence_acceptance_not_recorded",
+  "file": "install.sh",
+  "find": "  [ \"${MONGO_ACCEPT}\" = 1 ] && lm accept-license\n",
+  "replace": "",
+  "defect": "the accepted MongoDB licence is not recorded in its state, so the next install asks again",
+  "expect": "test_mongodb_is_initialised_its_licence_recorded_and_its_images_pulled"
+ },
+ {
+  "id": "M628_compose_list_profiles_not_both",
+  "file": "docker-compose.yml",
+  "find": "          *,both,*|*,mongodb,*redis*|*,redis,*mongodb*) s=both ;;\n",
+  "replace": "          *,both,*) s=both ;;\n",
+  "defect": "COMPOSE_PROFILES=mongodb,redis starts both stores but the app is told only one",
+  "expect": "test_the_app_wrapper_hands_on_only_the_chosen_stores"
+ },
+ {
+  "id": "M629_stale_containers_reused",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    if st and applied.exists() and applied.read_text().strip() == _digest(st):\n",
+  "replace": "    if st and applied.exists():\n",
+  "defect": "after a port move or an image-pin bump, the old containers keep running because they still answer",
+  "expect": "test_up_goes_through_compose_when_the_state_changed_since_the_last_up"
+ },
+ {
+  "id": "M630_fresh_state_moves_port_silently",
+  "file": "visualweaver/local_mongo.py",
+  "find": "        \"port\": port or DEFAULT_PORT,\n",
+  "replace": "        \"port\": port or DEFAULT_PORT + 1,\n",
+  "defect": "a new MongoDB state does not start from the default port",
+  "expect": "test_a_new_state_uses_the_default_port_and_ensure_port_reports_its_holder"
+ },
+ {
+  "id": "M631_wait_timeout_without_logs",
+  "file": "visualweaver/local_mongo.py",
+  "find": "        raise LocalMongoError(f\"{e}\\n{_tail(base)}\") from None\n",
+  "replace": "        raise\n",
+  "defect": "a start that never gets ready gives no container log lines to act on",
+  "expect": "test_a_start_that_never_gets_ready_shows_the_container_logs"
+ },
+ {
+  "id": "M640_session_saved_without_ttl",
+  "file": "visualweaver/sessions.py",
+  "find": "            appstore.current().set(_session_key(sid), json.dumps(messages), ttl if ttl > 0 else None)\n",
+  "replace": "            appstore.current().set(_session_key(sid), json.dumps(messages))\n",
+  "defect": "conversations are stored without their lifetime and are never removed",
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M641_switch_drops_remaining_ttl",
+  "file": "visualweaver/routes_storage.py",
+  "find": "zip(batch, src.mget(batch), src.ttls(batch))",
+  "replace": "zip(batch, src.mget(batch), [None] * len(batch))",
+  "defect": "a storage switch copies conversations without their remaining lifetime: they never expire on the new store",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M642_switch_copies_usage_as_strings",
+  "file": "visualweaver/routes_storage.py",
+  "find": "        dst.hincrby(sessions._USAGE_KEY, {f: int(v) for f, v in usage.items()})\n",
+  "replace": "        dst.hset(sessions._USAGE_KEY, usage)\n",
+  "defect": "the usage tally is copied as strings: on MongoDB the next turn's $inc fails and the tally freezes",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M643_switch_not_persisted",
+  "file": "visualweaver/routes_storage.py",
+  "find": "            config.save_config({**state._config, \"storage\": storage})\n",
+  "replace": "",
+  "defect": "the app-data switch is not written to config.json: a restart silently moves the app data back",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M644_switch_keeps_old_cache_object",
+  "file": "visualweaver/routes_storage.py",
+  "find": "            state._semantic_cache = None     # the answer cache reconnects on the new store\n",
+  "replace": "",
+  "defect": "after a switch the in-process answer cache keeps writing to the old store",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M645_default_type_ignored",
+  "file": "visualweaver/redis_store.py",
+  "find": "    if endpoint_name == \"default\":\n        return default_type()\n",
+  "replace": "    if endpoint_name == \"default\":\n        return \"redis\"\n",
+  "defect": "a MongoDB default is reported and routed as Redis",
+  "expect": "test_endpoint_list_carries_builtin_and_the_real_default_type test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M646_default_client_always_redis",
+  "file": "visualweaver/redis_store.py",
+  "find": "    if cfg is None and default_type() == \"mongodb\":\n",
+  "replace": "    if False:\n",
+  "defect": "the built-in default connection is always a Redis client, so a MongoDB-only install has no store at all",
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M647_builtin_connection_deletable",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    if ep.get(\"builtin\"):\n",
+  "replace": "    if False:\n",
+  "defect": "a built-in connection set up by the installer can be removed through the API",
+  "expect": "test_builtin_connections_cannot_be_removed"
+ },
+ {
+  "id": "M648_app_connection_deletable",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    if name == appstore.app_connection():\n",
+  "replace": "    if False:\n",
+  "defect": "the connection holding the app data can be removed, leaving the app with no store for it",
+  "expect": "test_builtin_connections_cannot_be_removed"
+ },
+ {
+  "id": "M649_builtin_resave_loses_builtin",
+  "file": "visualweaver/routes_redis.py",
+  "find": "        entry[\"builtin\"] = True      # set up by the installer: stays undeletable\n",
+  "replace": "        pass\n",
+  "defect": "re-saving a built-in connection in Settings makes it deletable",
+  "expect": "test_builtin_connections_cannot_be_removed"
+ },
+ {
+  "id": "M650_mongodb_password_not_redacted",
+  "file": "visualweaver/config.py",
+  "find": "        red[\"mongodb\"][\"password\"] = _SECRET_SENTINEL\n",
+  "replace": "        pass\n",
+  "defect": "the built-in MongoDB's password is sent to the browser and written into config exports",
+  "expect": "test_mongodb_password_is_redacted_and_restored test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M651_settings_save_repoints_storage",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    config.keep_installed_storage(payload, state._config)\n",
+  "replace": "",
+  "defect": "a page holding a config read before a storage switch moves the app data back on its next save, uncopied",
+  "expect": "test_a_settings_save_or_import_cannot_repoint_the_installed_storage"
+ },
+ {
+  "id": "M652_env_mongodb_password_on_disk",
+  "file": "visualweaver/config.py",
+  "find": "    if state._mongodb_env_password:\n",
+  "replace": "    if False:\n",
+  "defect": "VISUALWEAVER_MONGODB_PASSWORD is written into config.json",
+  "expect": "test_an_environment_password_is_never_written_to_disk"
+ },
+ {
+  "id": "M653_env_uri_credentials_kept",
+  "file": "visualweaver/startup.py",
+  "find": "    uri, u_user, u_pw = mongo_store.split_uri_credentials(mongo_store.server_uri(raw))\n",
+  "replace": "    uri, u_user, u_pw = mongo_store.server_uri(raw), \"\", \"\"\n",
+  "defect": "a password inside VISUALWEAVER_MONGODB_URI stays in the stored URI instead of the redacted password field",
+  "expect": "test_env_mongodb_makes_the_default_a_mongodb"
+ },
+ {
+  "id": "M654_env_both_duplicates_mongodb_default",
+  "file": "visualweaver/startup.py",
+  "find": "    if mongo and (choice == \"mongodb\" or storage.get(\"default_type\") == \"mongodb\"):\n",
+  "replace": "    if mongo and choice == \"mongodb\":\n",
+  "defect": "VISUALWEAVER_STORAGE=both on a MongoDB-first install adds the built-in MongoDB a second time as local-mongodb",
+  "expect": "test_env_both_on_a_mongodb_first_install_keeps_mongodb_as_the_default"
+ },
+ {
+  "id": "M655_redis_keys_prefix_is_a_glob",
+  "file": "visualweaver/appstore.py",
+  "find": "self.raw.scan_iter(f\"{_glob_escape(prefix)}*\", count=500)",
+  "replace": "self.raw.scan_iter(f\"{prefix}*\", count=500)",
+  "defect": "glob characters in a key prefix match other keys on Redis but not on MongoDB",
+  "expect": "test_keys_take_the_prefix_literally"
+ },
+ {
+  "id": "M656_mongo_returns_expired_values",
+  "file": "visualweaver/appstore.py",
+  "find": "        d = self._kv.find_one({\"_id\": key, **self._live()}, {\"v\": 1})\n",
+  "replace": "        d = self._kv.find_one({\"_id\": key}, {\"v\": 1})\n",
+  "defect": "an expired conversation is returned on MongoDB until its TTL monitor runs (up to a minute)",
+  "expect": "test_ttl_and_expiry"
+ },
+ {
+  "id": "M657_switch_skips_watch_state",
+  "file": "visualweaver/routes_storage.py",
+  "find": "        dst.hset(ws._WATCH_SEEN_KEY, watch)\n",
+  "replace": "        pass\n",
+  "defect": "after a switch the watched-folder signatures are missing: every watched file is re-ingested",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data test_switch_mongodb_to_redis_copies_different_data_back"
+ },
+ {
+  "id": "M658_switch_without_vector_search",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    if not vs:\n        raise HTTPException(400, f\"{label} has no vector search",
+  "replace": "    if False:\n        raise HTTPException(400, f\"{label} has no vector search",
+  "defect": "the app data can be moved to a store without vector search, where the answer cache cannot work",
+  "expect": "test_a_switch_is_refused_for_an_unusable_target"
+ },
+ {
+  "id": "M659_module_version_raw",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    return f\"{v // 10000}.{v // 100 % 100}.{v % 100}\"\n",
+  "replace": "    return str(v)\n",
+  "defect": "the Redis Query Engine version is shown as 80800 instead of 8.8.0",
+  "expect": "test_module_versions_are_formatted_like_the_release"
+ },
+ {
+  "id": "M660_components_never_cached",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    if hit and time.time() - hit[0] < max_age:\n",
+  "replace": "    if False:\n",
+  "defect": "every /api/components call probes every connection again (seconds per call on an unreachable one)",
+  "expect": "test_components_report_versions_and_search"
+ },
+ {
+  "id": "M661_status_ignores_mongodb_default",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if redis_store.default_type() == \"mongodb\":\n        # The cached client",
+  "replace": "    if False:\n        # The cached client",
+  "defect": "the status bar reports a MongoDB default as an unreachable Redis",
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M662_memory_ignores_mongodb_default",
+  "file": "visualweaver/routes_monitor.py",
+  "find": "        if mongo_store.is_mongo(rc):\n            st = mongo_store.stats(rc)\n",
+  "replace": "        if False:\n            st = mongo_store.stats(rc)\n",
+  "defect": "the memory monitor errors on a MongoDB default",
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M663_endpoint_list_shows_redis_default",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    primary = _strip({**redis_store.endpoint_cfg(\"default\"), \"primary\": True})\n",
+  "replace": "    primary = _strip({**state._config.get(\"redis\", {}), \"name\": \"default\", \"primary\": True})\n",
+  "defect": "the endpoint list describes a MongoDB default as the unused Redis section",
+  "expect": "test_endpoint_list_carries_builtin_and_the_real_default_type test_the_app_runs_on_mongodb_with_no_redis"
+ },
+ {
+  "id": "M664_stats_on_bare_redis",
+  "file": "visualweaver/rag_admin.py",
+  "find": "                appstore.current().set(_RAG_STATS_KEY, json.dumps(snapshot))\n",
+  "replace": "                redis_store.r().set(_RAG_STATS_KEY, json.dumps(snapshot))\n",
+  "defect": "retrieval stats are written to the default client, not the app store (lost on a MongoDB app store)",
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis test_switch_mongodb_to_redis_copies_different_data_back"
+ },
+ {
+  "id": "M665_env_storage_written_to_disk",
+  "file": "visualweaver/config.py",
+  "find": "    ov = state._storage_env_overlay\n",
+  "replace": "    ov = None\n",
+  "defect": "storage from VISUALWEAVER_STORAGE/MONGODB_* is written into config.json and outlives the variables",
+  "expect": "test_env_storage_is_not_written_to_config_json"
+ },
+ {
+  "id": "M666_env_without_uri_flips_default",
+  "file": "visualweaver/startup.py",
+  "find": "    if mongo and (choice == \"mongodb\" or storage.get(\"default_type\") == \"mongodb\"):\n",
+  "replace": "    if choice == \"both\":\n        storage[\"default_type\"] = \"redis\"\n    if mongo and (choice == \"mongodb\" or storage.get(\"default_type\") == \"mongodb\"):\n",
+  "defect": "VISUALWEAVER_STORAGE=both from .visualweaver.env re-points a MongoDB 'default' at Redis: every instance and the app data vanish from view",
+  "expect": "test_env_both_on_a_mongodb_first_install_keeps_mongodb_as_the_default test_env_without_a_connection_changes_nothing"
+ },
+ {
+  "id": "M667_move_without_gate",
+  "file": "visualweaver/routes_storage.py",
+  "find": "        with appstore.gate.move():       # app-data writes wait until the switch is done\n",
+  "replace": "        if True:\n",
+  "defect": "a turn saved while the app data is being copied stays behind on the old store",
+  "expect": "test_writes_during_a_move_land_on_the_new_store test_a_move_waits_for_a_write_in_flight"
+ },
+ {
+  "id": "M668_cleared_usage_comes_back",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    dst.delete(sessions._USAGE_KEY)\n    if usage:\n",
+  "replace": "    if usage:\n        dst.delete(sessions._USAGE_KEY)\n",
+  "defect": "a usage tally reset on the new store reappears after switching back",
+  "expect": "test_a_round_trip_keeps_what_was_cleared_cleared"
+ },
+ {
+  "id": "M669_no_switch_without_copy",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    do_copy = (payload or {}).get(\"copy\", True) is not False\n",
+  "replace": "    do_copy = True\n",
+  "defect": "an app store that is gone for good can never be left (every switch tries to copy from it)",
+  "expect": "test_a_gone_store_can_be_left_without_copying"
+ },
+ {
+  "id": "M670_unreachable_cached_as_no_search",
+  "file": "visualweaver/routes_storage.py",
+  "find": "        vs = bool(p.get(\"vector_search\")) if p[\"ok\"] else None\n",
+  "replace": "        vs = bool(p.get(\"vector_search\"))\n",
+  "defect": "a MongoDB that was briefly unreachable is shown as 'no vector search' until re-tested",
+  "expect": "test_an_unreachable_mongodb_is_not_remembered_as_without_search"
+ },
+ {
+  "id": "M671_builtin_not_first",
+  "file": "visualweaver/routes_storage.py",
+  "find": "            + [c for c in rest if c[1].get(\"builtin\")] + [c for c in rest if not c[1].get(\"builtin\")])",
+  "replace": "            + rest)",
+  "defect": "added connections are listed before the built-in ones",
+  "expect": "test_storage_lists_builtin_connections_first"
+ },
+ {
+  "id": "M672_import_drops_app_connection",
+  "file": "visualweaver/config.py",
+  "find": "    if app_ep is not None:\n        out.append(copy.deepcopy(app_ep))\n",
+  "replace": "",
+  "defect": "a config import without the app-data connection drops it: the app data silently moves to 'default'",
+  "expect": "test_the_app_connection_survives_a_save_import_or_type_change"
+ },
+ {
+  "id": "M673_stats_restore_not_retried",
+  "file": "visualweaver/rag_admin.py",
+  "find": "        _stats_loaded = not _stats_load_failed\n",
+  "replace": "        _stats_loaded = True\n",
+  "defect": "with the store not yet reachable at boot, the first turn overwrites the persisted retrieval stats",
+  "expect": "test_stats_restore_retries_when_the_store_was_not_readable"
+ },
+ {
+  "id": "M674_connection_target_always_redis",
+  "file": "visualweaver/appstore.py",
+  "find": "    kind = \"mongodb\" if cfg.get(\"type\") == \"mongodb\" else \"redis\"\n",
+  "replace": "    kind = \"redis\"\n",
+  "defect": "connection_target reports a MongoDB connection as Redis: the answer cache is built for the wrong store",
+  "expect": "test_connection_target_resolves_every_kind_of_connection"
+ },
+ {
+  "id": "M675_switch_copies_every_key",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    keys = src.keys(sessions._SESSION_PREFIX)\n",
+  "replace": "    keys = src.keys(\"\")\n",
+  "defect": "a storage switch copies answer-cache entries and markers along with the conversations",
+  "expect": "test_a_switch_never_copies_answer_cache_data test_answer_cache_data_stays_where_it_is"
+ },
+ {
+  "id": "M680_cache_mongo_score_not_converted",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "            dist = 2.0 - 2.0 * float(d.pop(\"score\", 0.0))       # (1 + cos) / 2  →  1 − cos\n",
+  "replace": "            dist = 1.0 - float(d.pop(\"score\", 0.0))\n",
+  "defect": "the MongoDB vectorSearchScore is taken as cosine -> distances halved, answers served below the similarity threshold",
+  "expect": "test_a_close_rewording_is_a_hit[mongodb]"
+ },
+ {
+  "id": "M681_cache_mongo_scope_filter_dropped",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "        pre = [{k: {\"$eq\": v}} for k, v in (filters or {}).items()] + [{\"exp\": {\"$gt\": now}}]\n",
+  "replace": "        pre = [{\"exp\": {\"$gt\": now}}]\n",
+  "defect": "MongoDB lookups ignore the scope -> an answer from another corpus/provider/prompt (or another user's upload) is replayed",
+  "expect": "test_scopes_do_not_see_each_other[mongodb]"
+ },
+ {
+  "id": "M682_cache_mongo_expiry_not_checked_on_read",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "            if dist > dist_max or not isinstance(exp, _dt.datetime) or _aware(exp) <= now:\n",
+  "replace": "            if dist > dist_max:\n",
+  "defect": "an expired MongoDB entry is served until the search index catches up / the TTL monitor runs",
+  "expect": "test_mongodb_does_not_wait_for_the_ttl_monitor"
+ },
+ {
+  "id": "M683_cache_mongo_ttl_ignored_on_store",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "\"exp\": _exp_for(ttl or self._ttl)}",
+  "replace": "\"exp\": NO_EXPIRY}",
+  "defect": "MongoDB entries never expire -> cache.ttl has no effect",
+  "expect": "test_an_expired_entry_is_gone[mongodb]"
+ },
+ {
+  "id": "M684_cache_mongo_hit_no_ttl_refresh",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "        if hits and self._ttl:\n",
+  "replace": "        if False:\n",
+  "defect": "a MongoDB hit does not refresh the entry's TTL (Redis does) -> frequently used answers expire",
+  "expect": "test_a_hit_keeps_the_entry_alive[mongodb]"
+ },
+ {
+  "id": "M685_cache_backend_ignores_app_store",
+  "file": "visualweaver/cache.py",
+  "find": "    if name == \"default\" and kind == \"redis\":\n        return \"redis\", redis_store.r()\n",
+  "replace": "    if True:\n        return \"redis\", redis_store.r()\n",
+  "defect": "the cache stays on the built-in Redis whatever storage.app names",
+  "expect": "test_a_redis_endpoint_for_app_data_moves_the_cache_too"
+ },
+ {
+  "id": "M686_cache_does_not_follow_store_switch",
+  "file": "visualweaver/cache.py",
+  "find": "    _follow_app_store()\n",
+  "replace": "",
+  "defect": "after storage.app changes, the live cache object keeps serving the previous store",
+  "expect": "test_the_cache_moves_with_the_app_data"
+ },
+ {
+  "id": "M687_cache_mongo_marker_not_written",
+  "file": "visualweaver/cache.py",
+  "find": "        appstore.current().set(_CACHE_MODEL_KEY, model)\n",
+  "replace": "        pass\n",
+  "defect": "the model marker is never written on MongoDB -> a model change after a restart is not detected",
+  "expect": "test_a_marker_from_another_model_discards_the_entries[mongodb]"
+ },
+ {
+  "id": "M688_cache_mongo_discard_keeps_entries",
+  "file": "visualweaver/cache.py",
+  "find": "            n = mongo_cache.clear(rc)\n",
+  "replace": "            n = 0\n",
+  "defect": "a model change on MongoDB keeps the old model's vectors -> they are scored against new-model queries",
+  "expect": "test_a_marker_from_another_model_discards_the_entries[mongodb]"
+ },
+ {
+  "id": "M689_cache_mongo_index_not_retargeted",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "            if VEC_INDEX in existing and _definition_dims(existing[VEC_INDEX]) != dims:\n",
+  "replace": "            if False:\n",
+  "defect": "the MongoDB cache index keeps the old width after a model change -> the cache never matches again",
+  "expect": "test_a_real_model_change_rebuilds_at_the_new_width[mongodb]"
+ },
+ {
+  "id": "M690_cache_stats_mongo_branch_lost",
+  "file": "visualweaver/routes_redis.py",
+  "find": "        if kind == \"mongodb\":\n            entries = mongo_cache.entries(rc)\n",
+  "replace": "        if False:\n            entries = mongo_cache.entries(rc)\n",
+  "defect": "GET /api/cache/stats reports an empty cache on MongoDB",
+  "expect": "test_the_analytics_routes[mongodb]"
+ },
+ {
+  "id": "M691_cache_delete_entry_mongo_fake_ok",
+  "file": "visualweaver/routes_redis.py",
+  "find": "            return {\"ok\": mongo_cache.delete_entry(rc, entry_id)}\n",
+  "replace": "            return {\"ok\": True}\n",
+  "defect": "Uncache on MongoDB reports success without deleting the entry",
+  "expect": "test_the_analytics_routes[mongodb]"
+ },
+ {
+  "id": "M692_cache_lookup_mongo_qhash_dropped",
+  "file": "visualweaver/cache.py",
+  "find": "                               filters=want, **opened)\n",
+  "replace": "                               filters={\"scope\": want[\"scope\"]}, **opened)\n",
+  "defect": "on MongoDB a drawing request is matched by similarity at distance 1.0 -> a different chart is replayed",
+  "expect": "test_the_exact_partition_matches_only_the_same_question[mongodb]"
+ },
+ {
+  "id": "M693_cache_vectorizer_memo_ignores_model",
+  "file": "visualweaver/cache.py",
+  "find": "    if memo is not None and memo[0] == ident:\n",
+  "replace": "    if memo is not None:\n",
+  "defect": "the shared cache vectorizer survives an embedding-model change -> the cache keeps embedding with the old model",
+  "expect": "test_a_real_model_change_rebuilds_at_the_new_width[redis]"
+ },
+ {
+  "id": "M694_cache_threshold_reset_on_store_switch",
+  "file": "visualweaver/cache.py",
+  "find": "        if _last_built_model != _cache_embedding_model():\n            _reset_threshold_for_new_model()\n",
+  "replace": "        _reset_threshold_for_new_model()\n",
+  "defect": "moving the app data to a store cached under an older model wipes the user's explicit similarity threshold",
+  "expect": "test_moving_to_a_store_cached_under_another_model_keeps_the_threshold"
+ },
+ {
+  "id": "M695_cache_build_retried_every_turn",
+  "file": "visualweaver/cache.py",
+  "find": "            and time.monotonic() - _build_failed[1] < _BUILD_RETRY_S):\n",
+  "replace": "            and False):\n",
+  "defect": "a store that cannot hold the cache is asked again on every question, adding its timeout to each turn",
+  "expect": "test_a_mongodb_without_vector_search_disables_the_cache_quietly"
+ },
+ {
+  "id": "M696_cache_home_ignores_default_type",
+  "file": "visualweaver/cache.py",
+  "find": "    kind, c = appstore.connection_target(name)\n",
+  "replace": "    kind, c = \"redis\", appstore.connection_target(name)[1]\n",
+  "defect": "on a MongoDB-only install the cache is looked for on a built-in Redis that does not exist",
+  "expect": "test_the_default_connection_can_be_mongodb"
+ },
+ {
+  "id": "M720_app_switch_button_enabled_for_current",
+  "file": "visualweaver/index.html",
+  "find": "  btn.disabled=S.storageBusy||!to||to===cur;\n",
+  "replace": "  btn.disabled=S.storageBusy||!to;\n",
+  "defect": "Move app data is pressable with the current storage selected — a no-op move",
+  "expect": "test_storage_that_cannot_hold_app_data_is_listed_disabled_with_the_reason"
+ },
+ {
+  "id": "M721_app_switch_without_asking",
+  "file": "visualweaver/index.html",
+  "find": "onclick=\"confirmStorageApp()\" disabled>Move app data</button>",
+  "replace": "onclick=\"switchStorageApp(document.getElementById('storage-app-select').value)\" disabled>Move app data</button>",
+  "defect": "app data is moved the moment the button is pressed, with no confirmation",
+  "expect": "test_switching_asks_first_then_copies_and_shows_the_counts"
+ },
+ {
+  "id": "M722_app_switch_wrong_body_key",
+  "file": "visualweaver/index.html",
+  "find": "body:JSON.stringify(copy?{connection:to}:{connection:to,copy:false})});",
+  "replace": "body:JSON.stringify(copy?{name:to}:{name:to,copy:false})});",
+  "defect": "POST /api/storage/app sends the wrong field; the server cannot know the target",
+  "expect": "test_switching_asks_first_then_copies_and_shows_the_counts",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M723_app_storage_unusable_selectable",
+  "file": "visualweaver/index.html",
+  "find": "const why=_appStorageReason(c), off=why&&c.name!==cur;",
+  "replace": "const why=_appStorageReason(c), off=false;",
+  "defect": "storage without vector search or unreachable can be chosen for app data",
+  "expect": "test_storage_that_cannot_hold_app_data_is_listed_disabled_with_the_reason"
+ },
+ {
+  "id": "M724_app_switch_refusal_detail_dropped",
+  "file": "visualweaver/index.html",
+  "find": "    toast(detail||`Could not move app data to ${where}`,'error');",
+  "replace": "    toast(`Could not move app data to ${where}`,'error');",
+  "defect": "a refused move hides the server's reason",
+  "expect": "test_a_refused_switch_shows_the_servers_reason_and_changes_nothing",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M725_copied_counts_dropped",
+  "file": "visualweaver/index.html",
+  "find": "const n=c.conversations|0, parts=",
+  "replace": "const n=0, parts=",
+  "defect": "the success message reports 0 conversations whatever was copied",
+  "expect": "test_switching_asks_first_then_copies_and_shows_the_counts"
+ },
+ {
+  "id": "M726_mongo_install_shows_redis_form",
+  "file": "visualweaver/index.html",
+  "find": "  document.getElementById('redis-builtin-form').hidden=!redisDefault;\n",
+  "replace": "  document.getElementById('redis-builtin-form').hidden=false;\n",
+  "defect": "a MongoDB install shows host/port fields for a built-in Redis it does not have",
+  "expect": "test_mongodb_install_never_calls_its_builtin_redis"
+ },
+ {
+  "id": "M727_new_instance_ignores_app_store",
+  "file": "visualweaver/index.html",
+  "find": "  sel.value=o?app:'default';\n",
+  "replace": "  sel.value='default';\n",
+  "defect": "New Instance no longer preselects the storage holding app data",
+  "expect": "test_switching_asks_first_then_copies_and_shows_the_counts"
+ },
+ {
+  "id": "M728_new_instance_default_called_redis",
+  "file": "visualweaver/index.html",
+  "find": "sel.innerHTML=`<option value=\"default\">${escHtml(_connLabel('default'))}</option>`",
+  "replace": "sel.innerHTML=`<option value=\"default\">Built-in Redis</option>`",
+  "defect": "a MongoDB install's New Instance form calls its built-in storage Redis",
+  "expect": "test_mongodb_install_never_calls_its_builtin_redis"
+ },
+ {
+  "id": "M729_builtin_connection_removable",
+  "file": "visualweaver/index.html",
+  "find": "      ${builtin?'':_holdsAppData(ep.name)",
+  "replace": "      ${false?'':_holdsAppData(ep.name)",
+  "defect": "a built-in connection gets a Remove button the server refuses",
+  "expect": "test_an_older_server_renders_storage_as_before_and_about_from_what_it_has",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M730_mongo_install_saves_redis_section",
+  "file": "visualweaver/index.html",
+  "find": "    // No `redis` section: the built-in storage is the installer's, kept by the server on\n    // every save, and shown read-only. A section built from the form once posted the\n    // localhost:6379 fallback and moved the app onto an empty store.\n",
+  "replace": "    ...(true?{redis:{host:getVal('s-redis-host'),port:parseInt(getVal('s-redis-port')),db:parseInt(getVal('s-redis-db')),password:getVal('s-redis-pass'),ssl:getCheck('s-redis-ssl')}}:{}),\n",
+  "defect": "Save Settings writes a built-in Redis section from the read-only fields (on a MongoDB install from hidden ones)",
+  "expect": "test_a_mongodb_install_does_not_save_a_builtin_redis_section",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M731_copy_leaks_host_names",
+  "file": "visualweaver/index.html",
+  "find": "        .replace(/\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.[a-z][a-z0-9-]+(?::\\d+)?\\b/gi,'<host>')   // names with a dot\n",
+  "replace": "",
+  "defect": "the copied version list carries host names (Atlas shards, LAN names) from an error",
+  "expect": "test_copied_errors_leave_out_addresses"
+ },
+ {
+  "id": "M732_version_line_keeps_product_prefix",
+  "file": "visualweaver/index.html",
+  "find": "String(comp.search).replace(/^(Redis|MongoDB)\\s+/,'')",
+  "replace": "String(comp.search)",
+  "defect": "cards read 'Redis 8.8.1 · Redis Query Engine 8.8.1'",
+  "expect": "test_cards_show_server_and_search_versions"
+ },
+ {
+  "id": "M733_about_hides_connection_error",
+  "file": "visualweaver/index.html",
+  "find": "${c.ok===false&&c.error?`<div class=\"about-err\">",
+  "replace": "${false&&c.error?`<div class=\"about-err\">",
+  "defect": "About shows Can't connect without the reason",
+  "expect": "test_about_lists_components_and_an_unreachable_connections_error"
+ },
+ {
+  "id": "M734_storage_404_not_legacy",
+  "file": "visualweaver/index.html",
+  "find": "    if(r.status===404){S.storage=null;S.storageRetry=false;}\n",
+  "replace": "    if(r.status===404){S.storage={app:'default',default_type:'redis',connections:[]};S.storageRetry=false;}\n",
+  "defect": "an older server without /api/storage gets the new layout with an empty app-data selector",
+  "expect": "test_an_older_server_renders_storage_as_before_and_about_from_what_it_has"
+ },
+ {
+  "id": "M737_storage_500_treated_as_older_server",
+  "file": "visualweaver/index.html",
+  "find": "    else S.storageRetry=true;\n  }catch(e){S.storageRetry=true;}\n",
+  "replace": "    else S.storage=null;\n  }catch(e){S.storage=null;}\n",
+  "defect": "a 500 or network error on /api/storage is never retried",
+  "expect": "test_a_failing_storage_route_never_turns_a_mongodb_install_into_redis"
+ },
+ {
+  "id": "M738_builtin_type_ignores_endpoint_type",
+  "file": "visualweaver/index.html",
+  "find": "  const t=S.storage?.default_type||(Array.isArray(S.config?.redis_endpoints)",
+  "replace": "  const t=S.storage?.default_type||'redis'||(Array.isArray(S.config?.redis_endpoints)",
+  "defect": "without /api/storage a MongoDB install is drawn, saved and offered as Redis",
+  "expect": "test_a_failing_storage_route_never_turns_a_mongodb_install_into_redis"
+ },
+ {
+  "id": "M739_startup_waits_for_storage",
+  "file": "visualweaver/index.html",
+  "find": "  loadStorage();   // not awaited: it re-renders what depends on it when it lands\n  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates()]);",
+  "replace": "  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates(),loadStorage()]);",
+  "defect": "page start-up waits for /api/storage, which probes every connection",
+  "expect": "test_start_up_does_not_wait_for_the_storage_route",
+  "note": "replaces the catalogue entry of the same id, whose find text this change removed"
+ },
+ {
+  "id": "M740_dirty_on_late_storage",
+  "file": "visualweaver/index.html",
+  "find": "  if(hadRedisSection!==(_builtinType()==='redis')&&_settingsBaseline!==null){",
+  "replace": "  if(false){",
+  "defect": "Settings opened before /api/storage answered shows Unsaved changes nobody made",
+  "expect": "test_start_up_does_not_wait_for_the_storage_route"
+ },
+ {
+  "id": "M741_app_store_down_not_warned",
+  "file": "visualweaver/index.html",
+  "find": "    const down=!!S.storage&&(S.epOk||{})[app]===false;\n",
+  "replace": "    const down=false;\n",
+  "defect": "the Cache tab is silent when the storage holding the answer cache cannot be reached",
+  "expect": "test_an_unreachable_app_data_store_is_called_out"
+ },
+ {
+  "id": "M735_status_tab_mongo_card_dropped",
+  "file": "visualweaver/index.html",
+  "find": "    if(mongoDefault)return `",
+  "replace": "    if(false)return `",
+  "defect": "the Status tab of a MongoDB install shows an offline Redis card",
+  "expect": "test_mongodb_install_never_calls_its_builtin_redis"
+ },
+ {
+  "id": "M736_analytics_mongo_as_redis",
+  "file": "visualweaver/index.html",
+  "find": "        if(mongo){\n          const vs=(S.searchAvail||{})[srv.name];",
+  "replace": "        if(false){\n          const vs=(S.searchAvail||{})[srv.name];",
+  "defect": "Analytics draws a MongoDB server with Redis INFO fields (undefined everywhere)",
+  "expect": "test_mongodb_install_never_calls_its_builtin_redis"
+ },
+ {
+  "id": "M742_move_dialog_escape_keeps_choice",
+  "file": "visualweaver/index.html",
+  "find": "     {label:'Move app data',cls:'btn-primary',cb:()=>switchStorageApp(to)}],\n    ()=>{sel.value=from;_storageAppSelChanged();});",
+  "replace": "     {label:'Move app data',cls:'btn-primary',cb:()=>switchStorageApp(to)}]);",
+  "defect": "Escape / a click outside the move dialog leaves the other storage selected, unlike Cancel",
+  "expect": "test_escape_or_a_click_outside_undoes_the_choice_like_cancel"
+ },
+ {
+  "id": "M743_cache_ttl_never_shown_expired",
+  "file": "visualweaver/index.html",
+  "find": "  if(t===-1||t==null)return '<span title=\"Kept until the cache is cleared\">never</span>';\n",
+  "replace": "",
+  "defect": "a cache entry kept forever (TTL 0) is shown as expired",
+  "expect": "test_cache_ttl_codes_and_durations_read_as_words"
+ },
+ {
+  "id": "M760_index_unknown_state_raises",
+  "file": "visualweaver/mongo_store.py",
+  "find": "_NOT_QUERYABLE = re.compile(r\"cannot query (?:vector |search )?index .* while in state (\\w+)\"\n                            r\"|Index \\S+ not initialized\")",
+  "replace": "_NOT_QUERYABLE = re.compile(r\"cannot query (?:vector |search )?index .* while in state (INITIAL_SYNC)\")",
+  "defect": "a search right after a collection is created fails (state UNKNOWN / not initialized) instead of returning no rows",
+  "expect": "test_a_search_index_that_is_not_built_yet_answers_with_no_rows"
+ },
+ {
+  "id": "M761_failed_index_hidden",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    return bool(m) and m.group(1) != \"FAILED\"\n",
+  "replace": "    return bool(m)\n",
+  "defect": "a FAILED search index silently returns no results forever instead of surfacing the error",
+  "expect": "test_a_search_index_that_is_not_built_yet_answers_with_no_rows"
+ },
+ {
+  "id": "M762_data_dirs_share_one_mongodb",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    return f\"{PROJECT}-{hashlib.sha1(str(here).encode()).hexdigest()[:8]}\"\n",
+  "replace": "    return PROJECT\n",
+  "defect": "a second data dir on the same machine reuses the first one's MongoDB volumes -> its passwords do not match the stored users and the database is shared",
+  "expect": "test_each_data_dir_gets_its_own_containers_and_volumes"
+ },
+ {
+  "id": "M763_fresh_config_inherits_example_store",
+  "file": "install.sh",
+  "find": "if fresh == \"1\":\n    # A config this run created from the example records no installed store yet.\n    storage.pop(\"default_type\", None)\n",
+  "replace": "",
+  "defect": "a MongoDB-only install starting from the example config records Redis as the built-in store -> the app looks for its data in a Redis that does not exist",
+  "expect": "test_a_mongodb_only_install_from_the_shipped_example_config_has_mongodb_as_default"
+ },
+ {
+  "id": "M764_cross_site_ws_allowed",
+  "file": "visualweaver/appcore.py",
+  "find": "        return navigation, origin, host\n    if origin == \"null\":",
+  "replace": "        return True, origin, host\n    if origin == \"null\":",
+  "defect": "a page on another site can open the chat WebSocket and post writes from the user's browser (no login) -> chats on the stored API keys, config import, deletes",
+  "expect": "test_the_chat_websocket_refuses_another_sites_page"
+ },
+ {
+  "id": "M765_cross_site_no_cors_allowed",
+  "file": "visualweaver/appcore.py",
+  "find": "    if site in (\"cross-site\", \"same-site\") and not navigation:\n        return False,",
+  "replace": "    if False:\n        return False,",
+  "defect": "an <img>/no-cors request from another site reaches state-changing GET endpoints",
+  "expect": "test_background_loads_from_another_site_are_refused_but_links_work"
+ },
+ {
+  "id": "M766_bad_import_500",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if not isinstance(cfg, dict):\n        raise HTTPException(400, \"Not a VisualWeaver config file (expected a JSON object)\")\n",
+  "replace": "",
+  "defect": "importing a JSON file that is not an object crashes with a 500 instead of saying what is wrong",
+  "expect": "test_an_invalid_config_import_is_a_400_not_a_500"
+ },
+ {
+  "id": "M767_sessions_store_order",
+  "file": "visualweaver/routes_misc.py",
+  "find": "    result.sort(key=lambda r: r.get(\"updated\") or 0, reverse=True)\n",
+  "replace": "",
+  "defect": "after a reload the conversation list is in the store's arbitrary key order, not newest first",
+  "expect": "test_titles_and_last_turn_order_survive_a_reload"
+ },
+ {
+  "id": "M768_title_not_persisted",
+  "file": "visualweaver/sessions.py",
+  "find": "    first_user.setdefault(\"meta\", {})[\"title\"] = title\n",
+  "replace": "",
+  "defect": "a conversation's generated title is only sent to the open tab and is lost on reload",
+  "expect": "test_titles_and_last_turn_order_survive_a_reload"
+ },
+ {
+  "id": "M769_dns_rebinding_host_allowed",
+  "file": "visualweaver/appcore.py",
+  "find": "    if (origin or site or mode) and not _host_allowed(host):\n        return False, \"host\", host\n",
+  "replace": "",
+  "defect": "a page on a domain re-pointed at this machine (DNS rebinding) is same-origin with the app and drives the API",
+  "expect": "test_dns_rebinding_host_names_are_refused_for_browsers"
+ },
+ {
+  "id": "M770_instance_colour_unchecked",
+  "file": "visualweaver/routes_instances.py",
+  "find": "    if rag_admin.safe_color(color) != color:\n        raise HTTPException(400, \"A colour must be a hex colour such as #6366f1\")\n",
+  "replace": "",
+  "defect": "an instance colour carrying markup is stored and later written into the page (stored XSS, reachable cross-site)",
+  "expect": "test_an_instance_colour_can_never_carry_markup"
+ },
+ {
+  "id": "M771_cache_model_asks_the_hub",
+  "file": "visualweaver/cache.py",
+  "find": "    model = embeddings._local_snapshot(model) or model\n",
+  "replace": "",
+  "defect": "the answer cache loads its model by repo name, asking huggingface.co first -> with the Hub slow or unreachable the cache stays off for minutes",
+  "expect": "test_the_answer_cache_loads_its_model_from_the_local_cache"
+ },
+ {
+  "id": "M772_docker_mongodb_without_licence",
+  "file": "docker.sh",
+  "find": "  [ \"${STORAGE}\" = redis ] && return 0\n  [ \"$(env_get VISUALWEAVER_ACCEPT_MONGODB_LICENSE)\" = 1 ] && return 0\n",
+  "replace": "  return 0\n",
+  "defect": "./docker.sh downloads MongoDB without showing its licence or asking to accept it",
+  "expect": "test_mongodb_needs_the_licence_before_anything_is_downloaded"
+ },
+ {
+  "id": "M773_docker_busy_port_kept",
+  "file": "docker.sh",
+  "find": "  if port_busy \"${p}\" && ! ours_on \"${p}\"; then",
+  "replace": "  if false; then",
+  "defect": "./docker.sh publishes on a port another program holds, so the stack fails to start",
+  "expect": "test_a_busy_port_moves_to_the_next_free_one"
+ },
+ {
+  "id": "M774_ollama_env_saved",
+  "file": "visualweaver/config.py",
+  "find": "        to_save[\"ollama\"] = {**_o, \"host\": constants.DEFAULT_CONFIG[\"ollama\"][\"host\"],\n",
+  "replace": "        to_save[\"ollama\"] = {**_o, \"host\": _o.get(\"host\"),\n",
+  "defect": "the container's Ollama address from VISUALWEAVER_OLLAMA_URL is written to config.json and then overrides later choices",
+  "expect": "test_an_ollama_url_from_the_environment_applies_to_the_run_only"
+ },
+ {
+  "id": "M775_empty_context_answer_cached",
+  "file": "visualweaver/cache.py",
+  "find": "    return not (rag_instances and not chunks)\n",
+  "replace": "    return True\n",
+  "defect": "an answer given while a knowledge base found nothing (index building, documents not added) is cached and served after the context exists",
+  "expect": "test_an_answer_without_any_retrieved_context_is_not_cached"
+ },
+ {
+  "id": "M800_reset_drops_the_builtin_redis",
+  "file": "visualweaver/index.html",
+  "find": "const _RESET_KEEPS=['redis','storage',",
+  "replace": "const _RESET_KEEPS=['storage',",
+  "defect": "Reset Defaults drops the built-in Redis address -> the form falls back to localhost:6379 and Save moves the app onto an empty store",
+  "expect": "test_reset_keeps_the_builtin_redis_and_save_never_posts_one"
+ },
+ {
+  "id": "M801_redis_section_from_form_fallbacks",
+  "file": "visualweaver/index.html",
+  "find": "    // No `redis` section: the built-in storage is the installer's, kept by the server on\n    // every save, and shown read-only. A section built from the form once posted the\n    // localhost:6379 fallback and moved the app onto an empty store.\n",
+  "replace": "    ...(_builtinType()==='redis'?{redis:{host:getVal('s-redis-host')||'localhost',port:parseInt(getVal('s-redis-port'))||6379,db:parseInt(getVal('s-redis-db'))||0,password:getVal('s-redis-pass'),ssl:getCheck('s-redis-ssl')}}:{}),\n",
+  "defect": "Save posts a Built-in Redis section from the form (localhost:6379 when the config had none) -> the app moves onto an empty store",
+  "expect": "test_no_redis_section_is_posted_or_invented"
+ },
+ {
+  "id": "M802_reset_is_not_an_unsaved_change",
+  "file": "visualweaver/index.html",
+  "find": "       _markSettingsEdited();\n       toast('Settings reset",
+  "replace": "       toast('Settings reset",
+  "defect": "a Reset is not an unsaved change -> closing with the X keeps it with no prompt, contradicting the dialog",
+  "expect": "test_closing_after_a_reset_asks_and_discard_puts_everything_back"
+ },
+ {
+  "id": "M803_discard_keeps_list_edits",
+  "file": "visualweaver/index.html",
+  "find": "  _restoreSettingsSnapshot();\n  _settingsTouched=false;",
+  "replace": "  _settingsTouched=false;",
+  "defect": "Discard changes leaves web sources, watched folders and templates as edited (and a Reset in place)",
+  "expect": "test_list_edits_raise_the_unsaved_badge_and_discard_restores_them"
+ },
+ {
+  "id": "M804_list_edit_not_dirty",
+  "file": "visualweaver/index.html",
+  "find": "  S.config.web_sources=sources;renderWebSources();\n  _markSettingsEdited();",
+  "replace": "  S.config.web_sources=sources;renderWebSources();",
+  "defect": "adding a web source shows no Unsaved changes badge",
+  "expect": "test_list_edits_raise_the_unsaved_badge_and_discard_restores_them"
+ },
+ {
+  "id": "M805_ingest_stream_status_unchecked",
+  "file": "visualweaver/index.html",
+  "find": "    if(!resp.ok)throw new Error(await _respError(resp));\n    const reader=resp.body.getReader();\n    const dec=new TextDecoder();\n    let buf='';\n    while(true){\n      const {done,value}=await reader.read();\n      if(done) break;",
+  "replace": "    const reader=resp.body.getReader();\n    const dec=new TextDecoder();\n    let buf='';\n    while(true){\n      const {done,value}=await reader.read();\n      if(done) break;",
+  "defect": "a 413/400 on the ingest stream is read as an empty stream -> no server reason shown",
+  "expect": "test_a_refused_upload_shows_the_server_reason_and_stops"
+ },
+ {
+  "id": "M806_send_on_a_closed_socket",
+  "file": "visualweaver/index.html",
+  "find": "  _wsSendOrQueue({content,model:S.currentModel,provider:S.provider,...ragPayload,images:S.pendingImages,file_context:fileCtx,system_prompt:systemPrompt,source_filter:S.sourceFilter||''},msgMeta.id,content);",
+  "replace": "  S.ws.send(JSON.stringify({content,model:S.currentModel,provider:S.provider,...ragPayload,images:S.pendingImages,file_context:fileCtx,system_prompt:systemPrompt,source_filter:S.sourceFilter||''}));",
+  "defect": "a message sent during a reconnect is dropped by the closed socket and Thinking... stays forever",
+  "expect": "test_a_message_sent_during_a_reconnect_waits_and_is_delivered"
+ },
+ {
+  "id": "M807_drop_mid_answer_keeps_streaming",
+  "file": "visualweaver/index.html",
+  "find": "    else if(current&&S.streaming&&!_wsQueued){",
+  "replace": "    else if(false){",
+  "defect": "the socket dropping mid-answer leaves the composer locked in streaming",
+  "expect": "test_a_drop_mid_answer_unlocks_the_composer_and_says_so"
+ },
+ {
+  "id": "M808_composer_never_stacks",
+  "file": "visualweaver/index.html",
+  "find": "@container composer (max-width:600px){",
+  "replace": "@container composer (max-width:1px){",
+  "defect": "the narrow composer keeps the template picker in line -> the message box is ~24px wide on a phone",
+  "expect": "test_the_message_box_is_usable_from_320_to_768px"
+ },
+ {
+  "id": "M809_new_instance_not_targeted",
+  "file": "visualweaver/index.html",
+  "find": "  if(made){\n    const key=_ragKey(made);",
+  "replace": "  if(false){\n    const key=_ragKey(made);",
+  "defect": "files dropped right after creating an instance still go to default",
+  "expect": "test_a_new_instance_becomes_the_target_and_the_form_clears"
+ },
+ {
+  "id": "M810_deep_linked_tab_out_of_view",
+  "file": "visualweaver/index.html",
+  "find": "    if(on&&b.offsetParent)b.scrollIntoView({block:'nearest',inline:'nearest'});\n",
+  "replace": "",
+  "defect": "a deep link to About/Analytics leaves the active tab outside the phone-width strip",
+  "expect": "test_a_deep_linked_tab_is_scrolled_into_view_on_a_phone"
+ },
+ {
+  "id": "M811_app_data_connection_removable",
+  "file": "visualweaver/index.html",
+  "find": "      ${builtin?'':_holdsAppData(ep.name)",
+  "replace": "      ${builtin?'':false",
+  "defect": "the connection holding the app data offers a Remove the server refuses",
+  "expect": "test_the_app_data_connection_offers_no_remove_and_says_why"
+ },
+ {
+  "id": "M812_index_listed_per_database",
+  "file": "visualweaver/rag_admin.py",
+  "find": "            if run_id:\n                if (run_id, db) in stores_seen:\n                    continue\n",
+  "replace": "            if False:\n                pass\n",
+  "defect": "a second name for the built-in server and database lists every instance again",
+  "expect": "test_an_index_is_listed_once_not_once_per_database_of_its_server"
+ },
+ {
+  "id": "M813_embedding_model_offered_for_chat",
+  "file": "visualweaver/index.html",
+  "find": "p==='ollama'&&Array.isArray(raw)?raw.filter(m=>!_isEmbeddingModel(m)):raw",
+  "replace": "raw",
+  "defect": "nomic-embed-text is offered as a chat model and picked as the default",
+  "expect": "test_embedding_models_are_not_offered_or_picked_for_chat"
+ },
+ {
+  "id": "M814_no_models_before_lookup",
+  "file": "visualweaver/index.html",
+  "find": "  const looking=!ready&&(S.modelsLoading||!S.modelsLoaded);",
+  "replace": "  const looking=false;",
+  "defect": "the welcome card says no local models were found while the list is still loading",
+  "expect": "test_while_models_load_the_welcome_card_says_it_is_looking"
+ },
+ {
+  "id": "M815_colour_trusted",
+  "file": "visualweaver/index.html",
+  "find": "  if(!m)return fallback;",
+  "replace": "  if(!m)return String(c);",
+  "defect": "an instance colour breaks out of its style attribute and runs script",
+  "expect": "test_no_stored_value_can_inject_markup"
+ },
+ {
+  "id": "M816_created_date_unescaped",
+  "file": "visualweaver/index.html",
+  "find": "${r.created?' · '+escHtml(String(r.created).split('T')[0]):''}",
+  "replace": "${r.created?' · '+r.created.split('T')[0]:''}",
+  "defect": "an instance's created date is written into the card as markup",
+  "expect": "test_no_stored_value_can_inject_markup"
+ },
+ {
+  "id": "M817_image_removed_by_stale_index",
+  "file": "visualweaver/index.html",
+  "find": "  const i=[...row.querySelectorAll('.img-thumb')].indexOf(el);",
+  "replace": "  const i=0;",
+  "defect": "removing an attached image removes a different one from the queue",
+  "expect": "test_removing_attachments_removes_exactly_those"
+ },
+ {
+  "id": "M818_hero_above_reopened_history",
+  "file": "visualweaver/index.html",
+  "find": "  if(msgs.length)document.querySelector('#chat-area .welcome-screen')?.remove();\n",
+  "replace": "",
+  "defect": "a reopened conversation shows the welcome hero and chips above its messages",
+  "expect": "test_a_reopened_conversation_shows_no_welcome_hero"
+ },
+ {
+  "id": "M819_server_order_reversed",
+  "file": "visualweaver/index.html",
+  "find": "  if(!S.sessionsServerOrdered)return rows.reverse();",
+  "replace": "  return rows.reverse();",
+  "defect": "the sidebar reverses the server's newest-first list",
+  "expect": "test_the_sidebar_uses_titles_and_the_server_order"
+ },
+ {
+  "id": "M820_rating_credits_current_model",
+  "file": "visualweaver/index.html",
+  "find": "    provider: answer?.meta?.provider||null, model: answer?.meta?.model||null,",
+  "replace": "    provider: S.provider, model: S.currentModel,",
+  "defect": "a rating records the model selected now, not the one that wrote the answer",
+  "expect": "test_a_rating_credits_the_model_that_wrote_the_answer"
+ },
+ {
+  "id": "M821_default_created_by_every_caller",
+  "file": "visualweaver/index.html",
+  "find": "      _defaultCreate=_defaultCreate||fetch('/api/rag/instances'",
+  "replace": "      _defaultCreate=fetch('/api/rag/instances'",
+  "defect": "two concurrent instance loads both POST default -> a 409 in the console on first load",
+  "expect": "test_default_is_created_once_and_never_when_it_exists"
+ },
+ {
+  "id": "M822_playwright_notice_ignores_health",
+  "file": "visualweaver/index.html",
+  "find": "(forceJs||smartOn)&&jsAvail!==true?'':'none'",
+  "replace": "(forceJs||smartOn)?'':'none'",
+  "defect": "the Playwright notice shows with Smart Mode on although the server has the JS crawler",
+  "expect": "test_the_playwright_notice_follows_what_the_server_reports"
+ },
+ {
+  "id": "M823_no_switch_without_copy",
+  "file": "visualweaver/index.html",
+  "find": "    if(copy&&r.status===400&&/^Could not copy the app data/.test(detail)){",
+  "replace": "    if(false){",
+  "defect": "app data cannot be moved off a store that is gone: only an error naming an API flag",
+  "expect": "test_a_failed_copy_offers_to_switch_without_copying"
+ },
+ {
+  "id": "M824_pin_from_other_conversation_inert",
+  "file": "visualweaver/index.html",
+  "find": "  if(p.sid&&p.sid!==S.sessionId&&S.sessions[p.sid])await switchSession(p.sid);\n",
+  "replace": "",
+  "defect": "clicking a pin from another conversation does nothing",
+  "expect": "test_a_pin_from_another_conversation_opens_it"
+ },
+ {
+  "id": "M825_storage_down_silent",
+  "file": "visualweaver/index.html",
+  "find": "  el.hidden=!down;",
+  "replace": "  el.hidden=true;",
+  "defect": "the chat view gives no sign that the store holding conversations is down",
+  "expect": "test_the_chat_view_says_when_the_app_data_store_is_down"
+ },
+ {
+  "id": "M826_voice_phrases_glued",
+  "file": "visualweaver/index.html",
+  "find": "    inp.value+=(inp.value&&!/\\s$/.test(inp.value)?' ':'')+said;",
+  "replace": "    inp.value+=said;",
+  "defect": "each dictated phrase is glued onto the last word",
+  "expect": "test_voice_input_sets_the_language_spaces_phrases_and_says_where_audio_goes"
+ },
+ {
+  "id": "M827_replaced_socket_reconnects",
+  "file": "visualweaver/index.html",
+  "find": "  if(old){old.onopen=old.onmessage=old.onerror=old.onclose=null;try{old.close();}catch(e){}}",
+  "replace": "  if(old){try{old.close();}catch(e){}}",
+  "defect": "a socket replaced on purpose still schedules a reconnect -> the live socket is replaced every 2 s",
+  "expect": "test_clicking_the_open_conversation_does_not_reconnect"
+ },
+ {
+  "id": "M828_active_conversation_reopened",
+  "file": "visualweaver/index.html",
+  "find": "  if(id&&id===S.sessionId&&S.ws&&!S.sessions[id]?._stub){_closeMobileSidebar();return;}\n",
+  "replace": "",
+  "defect": "clicking the open conversation closes its socket and reloads it",
+  "expect": "test_clicking_the_open_conversation_does_not_reconnect"
+ },
+ {
+  "id": "M829_scroll_per_restored_message",
+  "file": "visualweaver/index.html",
+  "find": "    appendMessage(m.role,m.content,m.meta||{},false);",
+  "replace": "    appendMessage(m.role,m.content,m.meta||{});",
+  "defect": "reopening a conversation forces a layout per message (WebKit: 861 ms for 50 turns)",
+  "expect": "test_reopening_scrolls_once_not_once_per_message"
+ },
+ {
+  "id": "M830_builtin_redis_editable",
+  "file": "visualweaver/index.html",
+  "find": "<input type=\"text\" id=\"s-redis-host\" readonly aria-describedby=\"redis-builtin-note\"/>",
+  "replace": "<input type=\"text\" id=\"s-redis-host\" aria-describedby=\"redis-builtin-note\"/>",
+  "defect": "the Built-in Redis host looks editable although the server keeps the installed value",
+  "expect": "test_the_builtin_redis_is_shown_read_only"
+ },
+ {
+  "id": "M831_switch_without_copy_shows_api_hint",
+  "file": "visualweaver/index.html",
+  "find": "detail.replace(/\\s*To switch without copying, send \"copy\": false\\.?/,'')",
+  "replace": "detail",
+  "defect": "the no-copy dialog repeats the API instruction to send \"copy\": false",
+  "expect": "test_a_failed_copy_offers_to_switch_without_copying"
+ },
+ {
+  "id": "M832_unreachable_connection_holds_nothing",
+  "file": "visualweaver/index.html",
+  "find": "  const list=down&&!affected.length\n",
+  "replace": "  const list=false\n",
+  "defect": "removing an unreachable connection claims it holds no RAG instances",
+  "expect": "test_an_unreachable_connection_does_not_claim_to_hold_nothing"
+ },
+ {
+  "id": "M833_search_note_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  if(r&&typeof r.search_note==='string'&&r.search_note.trim())return ' '+r.search_note.trim();\n",
+  "replace": "",
+  "defect": "a connection test on database 3 tells the user to load the Search module instead of the server's reason",
+  "expect": "test_a_connection_test_shows_the_servers_own_reason_for_no_vector_search"
+ },
+ {
+  "id": "M834_created_instance_asks_on_close",
+  "file": "visualweaver/index.html",
+  "find": "      try{const b=JSON.parse(_settingsBaseline);b.active_rag=made.name;_settingsBaseline=JSON.stringify(b);_renderDirtyBadge();}catch(e){}\n",
+  "replace": "",
+  "defect": "creating an instance leaves Settings asking to discard unsaved changes on close",
+  "expect": "test_a_new_instance_becomes_the_target_and_the_form_clears"
+ },
+ {
+  "id": "M835_redis_info_markup",
+  "file": "visualweaver/index.html",
+  "find": "<strong style=\"color:var(--text0)\">${escHtml(srv.mem_used)}</strong>",
+  "replace": "<strong style=\"color:var(--text0)\">${srv.mem_used}</strong>",
+  "defect": "a Redis server's INFO text is written into Analytics as markup",
+  "expect": "test_no_stored_value_can_inject_markup"
+ },
+ {
+  "id": "M836_index_listed_from_other_database",
+  "file": "visualweaver/rag_admin.py",
+  "find": "            if db == 0:\n                try:\n                    idx_names = [rag._decode(x) for x in rc.execute_command(\"FT._LIST\")]",
+  "replace": "            if True:\n                try:\n                    idx_names = [rag._decode(x) for x in rc.execute_command(\"FT._LIST\")]",
+  "defect": "a connection to database 1 of the built-in server lists every built-in instance as its own",
+  "expect": "test_an_index_is_listed_once_not_once_per_database_of_its_server"
+ },
+ {
+  "id": "M840_crawl_parses_on_the_loop",
+  "file": "visualweaver/crawler.py",
+  "find": "        text, links = await pagetext.extract(html, u)\n",
+  "replace": "        text, links = pagetext.extract_page(html, u)\n",
+  "defect": "a crawl parses every fetched page on the event loop again -> every other session's token stream stalls ~10 ms per page (p95 ~200 ms with ten pages in flight)",
+  "expect": "test_a_crawl_does_not_stall_the_event_loop"
+ },
+ {
+  "id": "M841_crawl_dns_on_the_loop",
+  "file": "visualweaver/crawler.py",
+  "find": "        await _off_loop(assert_public_url, current)\n",
+  "replace": "        assert_public_url(current)\n",
+  "defect": "the SSRF guard's getaddrinfo runs on the event loop for every page and redirect hop -> a slow resolver stalls every session",
+  "expect": "test_a_crawl_does_not_stall_the_event_loop"
+ },
+ {
+  "id": "M842_crawl_log_on_the_loop",
+  "file": "visualweaver/crawler.py",
+  "find": "                await _off_loop(_log_entries, [{\n                    \"ts\": datetime.now(timezone.utc).isoformat(),\n                    \"instance\": instance, \"source\": page_url,\n                    \"chunks\": n, \"status\": \"ok\",",
+  "replace": "                _log_entries([{\n                    \"ts\": datetime.now(timezone.utc).isoformat(),\n                    \"instance\": instance, \"source\": page_url,\n                    \"chunks\": n, \"status\": \"ok\",",
+  "defect": "the crawl rewrites the 500-entry ingestion log on the event loop once per indexed page",
+  "expect": "test_a_crawl_does_not_stall_the_event_loop"
+ },
+ {
+  "id": "M843_smart_mode_parses_twice",
+  "file": "visualweaver/crawler.py",
+  "find": "                        return httpx_html, httpx_links, httpx_text   # sufficient content, done\n",
+  "replace": "                        return httpx_html, httpx_links, None   # sufficient content, done\n",
+  "defect": "smart mode throws away the text it extracted for the word count, so every page is parsed twice",
+  "expect": "test_smart_mode_parses_each_page_once"
+ },
+ {
+  "id": "M844_crashed_page_rerun_in_server",
+  "file": "visualweaver/pagetext.py",
+  "find": "    except BrokenProcessPool:\n        log.warning(f\"Page extraction: {url} crashes the page parser — skipped\")\n        raise RuntimeError(\"the page parser crashed on this page\") from None\n",
+  "replace": "    except BrokenProcessPool:\n        return await asyncio.to_thread(extract_page, html, url, want_links)\n",
+  "defect": "a page that crashed its quarantine worker too is re-parsed inside the server process, where the same crash takes the whole app down",
+  "expect": "test_a_page_that_kills_its_parser_is_an_error_not_a_server_crash"
+ },
+ {
+  "id": "M845_workers_rerun_the_main_script",
+  "file": "visualweaver/pagetext.py",
+  "find": "    main = sys.modules.get(\"__main__\")\n    if main is None:\n",
+  "replace": "    main = None\n    if main is None:\n",
+  "defect": "every extraction worker re-runs the server's main script; under the `visualweaver` console script (the Docker CMD) each loads the whole app with torch (~0.6 GB, ~4 s)",
+  "expect": "test_workers_do_not_rerun_a_script_main"
+ },
+ {
+  "id": "M846_tab_close_unregisters_the_session",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        _ns_ws.mgr.disconnect(sid, ws)\n",
+  "replace": "        _ns_ws.mgr.disconnect(sid)\n",
+  "defect": "closing one tab unregisters every socket of the conversation, including the other tab's",
+  "expect": "test_closing_one_tab_does_not_cancel_the_other_tabs_answer"
+ },
+ {
+  "id": "M847_tab_close_cancels_the_other_tab",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        # Cancel only this socket's turns; another tab on the same conversation keeps\n        # its answer.\n        for task in state._chat_tasks.pop(ws, []):\n",
+  "replace": "        # Cancel only this socket's turns; another tab on the same conversation keeps\n        # its answer.\n        for task in [t for k in list(state._chat_tasks) if getattr(k, 'url', None) and k.url.path == ws.url.path for t in state._chat_tasks.pop(k)]:\n",
+  "defect": "closing one tab cancels every in-flight answer on that conversation (cleanup keyed by session, not by socket)",
+  "expect": "test_closing_one_tab_does_not_cancel_the_other_tabs_answer"
+ },
+ {
+  "id": "M848_stop_cancels_the_other_tab",
+  "file": "visualweaver/routes_chat.py",
+  "find": "            if msg.get(\"type\") == \"abort\":\n                tasks = state._chat_tasks.pop(ws, [])\n",
+  "replace": "            if msg.get(\"type\") == \"abort\":\n                tasks = [t for k in list(state._chat_tasks) if getattr(k, 'url', None) and k.url.path == ws.url.path for t in state._chat_tasks.pop(k)]\n",
+  "defect": "Stop in one tab cancels whichever answer is streaming on the conversation, including another tab's",
+  "expect": "test_stop_in_one_tab_does_not_stop_the_other"
+ },
+ {
+  "id": "M849_second_tab_message_dropped",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if lock.locked():\n            # The UI keeps its typing indicator up on a status frame, so the question\n            # visibly waits instead of seeming lost.\n            await ws.send_json({\"type\": \"status\", \"phase\": \"queued\"})\n",
+  "replace": "        if lock.locked():\n            return\n",
+  "defect": "a question sent from a second tab while the first is answering is dropped without a word",
+  "expect": "test_a_message_from_the_second_tab_waits_its_turn_and_is_answered"
+ },
+ {
+  "id": "M850_turns_on_one_conversation_overlap",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        await lock.acquire()\n        held = True\n",
+  "replace": "        held = False\n",
+  "defect": "two turns on one conversation run at once: each reads a history without the other's exchange and saves a transcript missing it",
+  "expect": "test_a_message_from_the_second_tab_waits_its_turn_and_is_answered"
+ },
+ {
+  "id": "M851_malformed_frame_kills_the_socket",
+  "file": "visualweaver/routes_chat.py",
+  "find": "            try:\n                msg = json.loads(raw)\n            except ValueError:\n                msg = None\n",
+  "replace": "            msg = json.loads(raw)\n",
+  "defect": "a malformed frame raises out of the WebSocket handler: the socket dies and its cleanup is skipped",
+  "expect": "test_a_malformed_frame_is_answered_and_the_socket_keeps_working"
+ },
+ {
+  "id": "M852_same_tab_message_dropped",
+  "file": "visualweaver/routes_chat.py",
+  "find": "            state._chat_tasks.setdefault(ws, []).append(\n                asyncio.create_task(_run_turn(ws, sid, msg)))\n",
+  "replace": "            if state._chat_tasks.get(ws):\n                continue\n            state._chat_tasks.setdefault(ws, []).append(\n                asyncio.create_task(_run_turn(ws, sid, msg)))\n",
+  "defect": "a message sent while the same tab's answer is still streaming (regenerate / re-run clicked mid-answer) is dropped without a word",
+  "expect": "test_a_second_message_from_the_same_tab_queues_behind_its_answer"
+ },
+ {
+  "id": "M853_ollama_client_per_call",
+  "file": "visualweaver/providers.py",
+  "find": "    client = await http_client()\n    async with client.stream(\"POST\", url, json=payload, timeout=120) as resp:\n",
+  "replace": "    client = _new_http_client()\n    async with client.stream(\"POST\", url, json=payload, timeout=120) as resp:\n",
+  "defect": "ollama_stream builds an httpx client (~12 ms of SSL setup on the event loop) for every call, three times on a first turn",
+  "expect": "test_ollama_reuses_one_client_and_follows_a_settings_change"
+ },
+ {
+  "id": "M854_ollama_stream_timeout_dropped",
+  "file": "visualweaver/providers.py",
+  "find": "json=payload, timeout=120) as resp:",
+  "replace": "json=payload) as resp:",
+  "defect": "on the pooled client a generation falls back to the 30 s default timeout instead of Ollama's 120 s: a slow first token (model still loading) fails the answer",
+  "expect": "test_ollama_reuses_one_client_and_follows_a_settings_change"
+ },
+ {
+  "id": "M855_gemini_client_per_call",
+  "file": "visualweaver/providers.py",
+  "find": "        client   = await gemini_client(api_key)\n",
+  "replace": "        client   = _google_genai.Client(api_key=api_key)\n",
+  "defect": "gemini_stream builds a google-genai Client (~25 ms, two HTTP clients) on the event loop for every answer",
+  "expect": "test_gemini_builds_one_client_per_key"
+ },
+ {
+  "id": "M856_embed_progress_bar",
+  "file": "visualweaver/embeddings.py",
+  "find": "    return get_embed_model().encode(prefix + text, normalize_embeddings=True,\n                                    show_progress_bar=False)\n",
+  "replace": "    return get_embed_model().encode(prefix + text, normalize_embeddings=True)\n",
+  "defect": "every query embedding writes a sentence-transformers progress bar into the app log",
+  "expect": "test_embedding_and_reranking_never_draw_progress_bars"
+ },
+ {
+  "id": "M857_rerank_progress_bar",
+  "file": "visualweaver/embeddings.py",
+  "find": "reranker.predict(pairs, show_progress_bar=False)",
+  "replace": "reranker.predict(pairs)",
+  "defect": "every rerank writes a sentence-transformers progress bar into the app log",
+  "expect": "test_embedding_and_reranking_never_draw_progress_bars"
+ },
+ {
+  "id": "M858_system_prompt_not_memoised",
+  "file": "visualweaver/config.py",
+  "find": "        base = _composed_base.get(key)\n",
+  "replace": "        base = None\n",
+  "defect": "a customised base instruction is diffed against the shipped one on every chat turn (~4.4 ms on the event loop)",
+  "expect": "test_a_customised_base_instruction_is_not_rediffed_every_turn"
+ },
+ {
+  "id": "M859_memo_ignores_visual_flag",
+  "file": "visualweaver/config.py",
+  "find": "    key = (type(_bi), _bi, visual, constants.DEFAULT_BASE_INSTRUCTION,\n",
+  "replace": "    key = (type(_bi), _bi, constants.DEFAULT_BASE_INSTRUCTION,\n",
+  "defect": "switching visual blocks off keeps sending the cached prompt with the ~2k-token visual section",
+  "expect": "test_a_customised_base_instruction_is_not_rediffed_every_turn"
+ },
+ {
+  "id": "M860_memo_ignores_shipped_instruction",
+  "file": "visualweaver/config.py",
+  "find": "    key = (type(_bi), _bi, visual, constants.DEFAULT_BASE_INSTRUCTION,\n",
+  "replace": "    key = (type(_bi), _bi, visual,\n",
+  "defect": "an upgrade's new shipped instruction is never diffed against a saved one until restart",
+  "expect": "test_a_customised_base_instruction_is_not_rediffed_every_turn"
+ },
+ {
+  "id": "M861_upload_written_on_the_loop",
+  "file": "visualweaver/routes_ingestion.py",
+  "find": "        await asyncio.to_thread(dest.write_bytes, blob)   # up to 100 MB: not on the loop\n        result = await ingest.ingest_file(instance, dest, safe_name, rc)\n",
+  "replace": "        dest.write_bytes(blob)\n        result = await ingest.ingest_file(instance, dest, safe_name, rc)\n",
+  "defect": "an upload of up to 100 MB is written to disk on the event loop",
+  "expect": "test_uploads_are_written_off_the_loop"
+ },
+ {
+  "id": "M862_config_save_on_the_loop",
+  "file": "visualweaver/config.py",
+  "find": "    await asyncio.to_thread(_write)\n",
+  "replace": "    _write()\n",
+  "defect": "settings saves fsync config.json on the event loop",
+  "expect": "test_config_saves_from_async_routes_run_off_the_loop"
+ },
+ {
+  "id": "M863_older_config_copy_published_last",
+  "file": "visualweaver/config.py",
+  "find": "        if seq < _config_writes[\"written\"]:\n            tmp.unlink(missing_ok=True)   # a newer copy is already on disk\n            return\n",
+  "replace": "",
+  "defect": "two config saves racing in threads publish the older copy over the newer one (a deleted connection comes back)",
+  "expect": "test_concurrent_config_saves_leave_the_newest_on_disk"
+ },
+ {
+  "id": "M864_feedback_write_truncates_first",
+  "file": "visualweaver/config.py",
+  "find": "        _write_json_atomic(constants.FEEDBACK_PATH, list(state._feedback))\n",
+  "replace": "        with open(constants.FEEDBACK_PATH, \"w\") as f:\n            json.dump(list(state._feedback), f)\n",
+  "defect": "the feedback store is rewritten with open(path, 'w'): a failure mid-write loses every rating ever given",
+  "expect": "test_feedback_is_written_off_the_loop_and_atomically"
+ },
+ {
+  "id": "M865_feedback_written_on_the_loop",
+  "file": "visualweaver/routes_misc.py",
+  "find": "    await asyncio.to_thread(config.save_feedback)\n",
+  "replace": "    config.save_feedback()\n",
+  "defect": "every rating rewrites the up-to-2,000-entry feedback store on the event loop",
+  "expect": "test_feedback_is_written_off_the_loop_and_atomically"
+ },
+ {
+  "id": "M866_failed_stack_teardown_ignored",
+  "file": "tests/conftest.py",
+  "find": "            if r.returncode == 0:\n                return True\n",
+  "replace": "            return True\n",
+  "defect": "the MongoDB test fixture ignores a failed `compose down -v`, leaking the stack and its volumes",
+  "expect": "test_a_failed_stack_teardown_is_retried_and_reported"
+ },
+ {
+  "id": "M867_workers_outlive_a_killed_server",
+  "file": "visualweaver/pagetext.py",
+  "find": "    parent = multiprocessing.parent_process()\n    if parent is not None:\n",
+  "replace": "    parent = None\n    if parent is not None:\n",
+  "defect": "extraction workers block on the job queue forever when the server is SIGKILLed — four orphans per restart",
+  "expect": "test_workers_exit_when_the_server_is_killed"
+ },
+ {
+  "id": "M868_in_flight_pages_fail_with_the_worker",
+  "file": "visualweaver/pagetext.py",
+  "find": "    # and here because one did. Never in-process: alone, in the quarantine worker.\n    try:\n",
+  "replace": "    # and here because one did. Never in-process: alone, in the quarantine worker.\n    raise RuntimeError(\"the page parser crashed on this page\")\n    try:\n",
+  "defect": "one worker dying fails every page in flight with it: unlucky pages are never indexed and their links never followed",
+  "expect": "test_a_worker_dying_mid_crawl_costs_no_page_and_no_loop_stall"
+ },
+ {
+  "id": "M869_broken_pool_never_replaced",
+  "file": "visualweaver/pagetext.py",
+  "find": "    global _pool\n    if _pool is not pool:\n        return\n    _pool = None\n",
+  "replace": "    global _pool\n    if _pool is not pool:\n        return\n",
+  "defect": "a pool broken by a dead worker stays installed: every later page takes the slow quarantine path, one at a time",
+  "expect": "test_a_worker_dying_mid_crawl_costs_no_page_and_no_loop_stall"
+ },
+ {
+  "id": "M870_regenerate_after_another_tab_changed_it",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if (any(w is not ws for w in turn[\"writers\"][mark:])\n",
+  "replace": "        if (False and any(w is not ws for w in turn[\"writers\"][mark:])\n",
+  "defect": "a regenerate queued in one tab truncates the transcript at a position another tab just changed, deleting that tab's answer",
+  "expect": "test_a_regenerate_from_a_tab_that_missed_a_change_is_refused"
+ },
+ {
+  "id": "M871_regenerate_refused_after_own_answer",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if (any(w is not ws for w in turn[\"writers\"][mark:])\n",
+  "replace": "        if (any(True for w in turn[\"writers\"][mark:])\n",
+  "defect": "a regenerate clicked while the same tab's next answer streams is refused once that answer lands, leaving the tab's transcript and the server's apart",
+  "expect": "test_a_regenerate_clicked_mid_answer_applies_after_it"
+ },
+ {
+  "id": "M872_failed_turn_silent",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if not released:\n            # After stream_end the answer is complete",
+  "replace": "        if False:\n            # After stream_end the answer is complete",
+  "defect": "a chat turn that raises leaves the tab's typing indicator up forever, with no message",
+  "expect": "test_a_turn_that_fails_says_so"
+ },
+ {
+  "id": "M873_error_frame_after_stream_end",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if not released:\n            # After stream_end the answer is complete",
+  "replace": "        if True:\n            # After stream_end the answer is complete",
+  "defect": "an exception in the title/cache work after stream_end sends an error frame that cuts the tab's next answer short",
+  "expect": "test_a_turn_that_fails_says_so"
+ },
+ {
+  "id": "M874_settings_save_on_the_loop",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    await config.save_config_async(state._config)   # strips env keys before writing to disk\n",
+  "replace": "    config.save_config(state._config)   # strips env keys before writing to disk\n",
+  "defect": "Settings → Save fsyncs config.json on the event loop",
+  "expect": "test_config_saves_from_async_routes_run_off_the_loop"
+ },
+ {
+  "id": "M875_file_ingest_logs_on_the_loop",
+  "file": "visualweaver/ingest.py",
+  "find": "        await asyncio.to_thread(config.append_log, entry)\n        return entry\n\n    except Exception as e:",
+  "replace": "        config.append_log(entry)\n        return entry\n\n    except Exception as e:",
+  "defect": "every ingested file rewrites the 500-entry ingestion log on the event loop",
+  "expect": "test_file_ingest_logs_off_the_loop"
+ },
+ {
+  "id": "M876_smart_mode_dns_on_the_loop",
+  "file": "visualweaver/crawler.py",
+  "find": "                # swallowed into the browser fallback (which would defeat it).\n                await _off_loop(assert_public_url, u)\n",
+  "replace": "                # swallowed into the browser fallback (which would defeat it).\n                assert_public_url(u)\n",
+  "defect": "smart mode (the default crawl) resolves every page's host on the event loop",
+  "expect": "test_smart_mode_parses_each_page_once"
+ },
+ {
+  "id": "M877_gemini_key_check_client_per_call",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    client = await providers.gemini_client(api_key)\n",
+  "replace": "    client = _google_genai.Client(api_key=api_key)\n",
+  "defect": "the Gemini key check (polled by Settings) builds a ~25 ms SDK client on the event loop every time",
+  "expect": "test_the_key_checks_reuse_their_clients"
+ },
+ {
+  "id": "M878_mistral_key_check_client_per_call",
+  "file": "visualweaver/routes_settings.py",
+  "find": "        client = await providers.http_client()\n        res = await client.get(\n            f\"{base_url}/models\",\n            headers={\"Authorization\": f\"Bearer {api_key}\"},\n            timeout=10,\n        )\n        if res.status_code == 200:\n            return {\"ok\": True}\n        try:\n",
+  "replace": "        client = providers._new_http_client()\n        res = await client.get(\n            f\"{base_url}/models\",\n            headers={\"Authorization\": f\"Bearer {api_key}\"},\n            timeout=10,\n        )\n        if res.status_code == 200:\n            return {\"ok\": True}\n        try:\n",
+  "defect": "the Mistral key check builds an httpx client (~12 ms of SSL setup) on the event loop every time",
+  "expect": "test_the_key_checks_reuse_their_clients"
+ },
+ {
+  "id": "M879_sync_config_save_unordered",
+  "file": "visualweaver/config.py",
+  "find": "    seq = getattr(_config_write_seq, \"seq\", None) or _next_config_seq()\n",
+  "replace": "    seq = getattr(_config_write_seq, \"seq\", None) or _config_writes[\"written\"]\n",
+  "defect": "a plain save_config (the sync routes) is not ordered with the threaded saves: an older threaded copy still in flight lands over it",
+  "expect": "test_concurrent_config_saves_leave_the_newest_on_disk"
+ },
+ {
+  "id": "M880_redis_loading_search_unknown",
+  "file": "scripts/common.sh",
+  "find": "    rcli -p \"$1\" INFO persistence 2>/dev/null | tr -d '\\r' | grep -q '^loading:1' || break\n",
+  "replace": "    break\n",
+  "defect": "right after Redis starts with existing data, the install validation shows 'search ?' and says ready before the data is loaded",
+  "expect": "test_the_search_version_is_read_after_redis_has_loaded_its_data"
+ },
+ {
+  "id": "M881_moved_mongodb_port_not_followed",
+  "file": "visualweaver/local_mongo.py",
+  "find": "        if str(c.get(\"uri\", \"\")).startswith(\"mongodb://127.0.0.1:\") and c[\"uri\"] != uri:\n            c[\"uri\"] = uri\n            changed = True\n",
+  "replace": "        pass\n",
+  "defect": "start.sh moves the built-in MongoDB off a port another program took, but the app keeps connecting to the old port",
+  "expect": "test_a_moved_port_is_followed_by_the_app_config"
  }
 ]

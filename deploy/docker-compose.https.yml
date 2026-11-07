@@ -1,7 +1,8 @@
 # VisualWeaver behind Caddy with automatic HTTPS (Let's Encrypt).
 #
 #   1. Point your domain's DNS at this host; open ports 80 and 443.
-#   2. Edit deploy/Caddyfile — replace visualweaver.example.com with your domain.
+#   2. Replace visualweaver.example.com with your domain in deploy/Caddyfile AND in
+#      VISUALWEAVER_ALLOWED_HOSTS below (browsers are only answered for listed names).
 #   3. From the repo root:  docker compose -f deploy/docker-compose.https.yml up -d
 #   4. Open https://your-domain — Caddy fetches the certificate on first request.
 #
@@ -23,6 +24,7 @@ services:
       - VISUALWEAVER_PORT=8420
       - VISUALWEAVER_REDIS_HOST=redis
       - VISUALWEAVER_REDIS_PORT=6379
+      - VISUALWEAVER_ALLOWED_HOSTS=visualweaver.example.com   # your domain, as in the Caddyfile
     depends_on:
       redis:
         condition: service_healthy

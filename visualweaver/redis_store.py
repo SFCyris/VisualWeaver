@@ -7,7 +7,7 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 import logging
 import asyncio
 import redis
-from . import rag, rag_admin, state
+from . import mongo_store, rag, rag_admin, state
 
 log = logging.getLogger(__name__)
 
@@ -30,22 +30,67 @@ def _build_redis_client(cfg: dict) -> redis.Redis:
     )
 
 
-def get_redis(cfg: dict | None = None) -> redis.Redis:
+def default_type() -> str:
+    """What the built-in "default" connection is: "redis" (config.redis) or "mongodb"
+    (config.mongodb), from ``storage.default_type`` (absent = "redis")."""
+    st = state._config.get("storage")
+    return "mongodb" if isinstance(st, dict) and st.get("default_type") == "mongodb" else "redis"
+
+
+def default_cfg() -> dict:
+    """The built-in default connection's stored config, with its ``type``."""
+    if default_type() == "mongodb":
+        return {**(state._config.get("mongodb") or {}), "type": "mongodb"}
+    return {**(state._config.get("redis") or {}), "type": "redis"}
+
+
+def default_label() -> str:
+    return "Built-in MongoDB" if default_type() == "mongodb" else "Built-in Redis"
+
+
+def get_redis(cfg: dict | None = None):
     """
-    Return (and cache) the primary Redis client.
-    Pass cfg to temporarily use a different connection config (e.g. for test).
+    Return (and cache) the client for the built-in "default" connection: a redis.Redis,
+    or a mongo_store.MongoEndpoint when ``storage.default_type`` is "mongodb".
+    Pass cfg to temporarily use a different Redis connection config (e.g. for test).
     """
-    c = cfg or state._config.get("redis", {})
-    client = _build_redis_client(c)
+    if cfg is None and default_type() == "mongodb":
+        client = mongo_store.MongoEndpoint("default", default_cfg())
+    else:
+        client = _build_redis_client(cfg or state._config.get("redis", {}))
+    old = state._redis_clients.get("default")
+    if mongo_store.is_mongo(old) and old is not client:
+        retire_client(old)    # a MongoClient holds a pool and monitor threads
     state._redis_clients["default"] = client
     return client
 
 
-def r_for(endpoint_name: str = "default") -> redis.Redis:
+def endpoint_cfg(endpoint_name: str) -> dict | None:
+    """The stored config of a named connection (None for an unknown name). "default"
+    is the built-in connection (config.redis or config.mongodb, see default_cfg)."""
+    if endpoint_name == "default":
+        return {**default_cfg(), "name": "default", "builtin": True}
+    for ep in state._config.get("redis_endpoints", []) or []:
+        if isinstance(ep, dict) and ep.get("name") == endpoint_name:
+            return ep
+    return None
+
+
+def endpoint_type(endpoint_name: str) -> str:
+    """"redis" or "mongodb"."""
+    if endpoint_name == "default":
+        return default_type()
+    ep = endpoint_cfg(endpoint_name)
+    return "mongodb" if ep and ep.get("type") == "mongodb" else "redis"
+
+
+def r_for(endpoint_name: str = "default"):
     """
-    Return the Redis client for a named endpoint.
-    "default" maps to the primary redis config.
-    Other names are looked up in config["redis_endpoints"].
+    Return the client for a named connection.
+    "default" maps to the built-in connection (Redis or MongoDB, see get_redis).
+    Other names are looked up in config["redis_endpoints"]; a MongoDB connection
+    returns a mongo_store.MongoEndpoint, which every per-instance operation
+    recognises with mongo_store.is_mongo().
     Clients are cached so we reuse connections.
     """
     if endpoint_name in state._redis_clients:
@@ -57,7 +102,8 @@ def r_for(endpoint_name: str = "default") -> redis.Redis:
     # Find the named endpoint in config
     for ep in state._config.get("redis_endpoints", []):
         if ep.get("name") == endpoint_name:
-            client = _build_redis_client(ep)
+            client = (mongo_store.MongoEndpoint(endpoint_name, ep) if ep.get("type") == "mongodb"
+                      else _build_redis_client(ep))
             state._redis_clients[endpoint_name] = client
             return client
 
@@ -66,8 +112,10 @@ def r_for(endpoint_name: str = "default") -> redis.Redis:
     return r()
 
 
-def r() -> redis.Redis:
-    """Shorthand: return the default Redis client, creating it if needed."""
+def r():
+    """Shorthand: the client of the built-in "default" connection, creating it if
+    needed. A MongoEndpoint when the built-in store is MongoDB — app data goes through
+    appstore.current(), RAG paths dispatch on mongo_store.is_mongo()."""
     if "default" not in state._redis_clients:
         return get_redis()
     return state._redis_clients["default"]
@@ -86,11 +134,27 @@ async def _reset_index_markers_for_embedding_change():
             continue
         try:
             rc_i = rag_admin.rc_for_instance(name)
-            await asyncio.to_thread(rc_i.delete, f"rag:{name}:schema_ver")
+            if mongo_store.is_mongo(rc_i):
+                mongo_store.forget_indexes(rc_i.name)   # retargets the vector index on next use
+            else:
+                await asyncio.to_thread(rc_i.delete, f"rag:{name}:schema_ver")
             rag._index_ensured.discard(name)
         except Exception as e:
             log.warning(f"  could not reset index marker for '{name}': {e}")
     rag._dim_mismatch_warned.clear()   # allow the diagnostic to fire again if needed
+
+
+def retire_client(c, delay: float = 600.0) -> None:
+    """Stop handing out a MongoDB client without cutting off work still holding it.
+
+    A crawl, watched-folder scan, export or import keeps the client it started with;
+    closing it on the spot (any settings save rebuilds the cache) failed those jobs
+    mid-way with "Cannot use MongoClient after close". The client is closed later.
+    """
+    import threading
+    t = threading.Timer(delay, c.close)
+    t.daemon = True
+    t.start()
 
 
 def invalidate_redis_clients():
@@ -99,7 +163,11 @@ def invalidate_redis_clients():
     Also resets the SemanticCache so it reconnects with the new client.
     Called after config changes that affect Redis connections.
     """
+    for c in list(state._redis_clients.values()):
+        if mongo_store.is_mongo(c):
+            retire_client(c)
     state._redis_clients.clear()
+    mongo_store.forget_indexes()
     state._semantic_cache = None
 
 
@@ -116,7 +184,7 @@ def _probe_endpoint(ep_name: str) -> bool:
         return True
     except Exception:
         state._endpoint_health[ep_name] = False
-        log.warning(f"Redis endpoint '{ep_name}' is unreachable — RAG instances on it will be marked offline")
+        log.warning(f"Storage connection '{ep_name}' is unreachable — RAG instances on it will be marked offline")
         return False
 
 

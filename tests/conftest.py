@@ -412,3 +412,72 @@ def data_dir():
     """An isolated directory for tests that write config or session files."""
     with tempfile.TemporaryDirectory(prefix="visualweaver-case-") as d:
         yield Path(d)
+
+
+# ── MongoDB with vector search ───────────────────────────────────────────────
+
+def _mongo_skip_or_fail(msg: str):
+    if os.environ.get("VISUALWEAVER_REQUIRE_MONGO_TESTS") == "1":
+        pytest.fail(msg + " — required because VISUALWEAVER_REQUIRE_MONGO_TESTS=1")
+    pytest.skip(msg)
+
+
+@pytest.fixture(scope="session")
+def mongo_uri(tmp_path_factory):
+    """A MongoDB with vector search: VISUALWEAVER_TEST_MONGO_URI, else the built-in MongoDB
+    exactly as the installer sets it up (visualweaver.local_mongo), in a throwaway data
+    dir and compose project, removed with its volumes afterwards. Session-scoped: one
+    server (~12 s to start) for every module; each test uses its own database.
+    Without either the test is skipped — unless VISUALWEAVER_REQUIRE_MONGO_TESTS=1."""
+    import socket
+    import subprocess
+    uri = os.environ.get("VISUALWEAVER_TEST_MONGO_URI")
+    if uri:
+        yield uri
+        return
+    from visualweaver import local_mongo
+    cmd, why = local_mongo.runtime()
+    if not cmd:
+        _mongo_skip_or_fail(f"no MongoDB for the test (set VISUALWEAVER_TEST_MONGO_URI): {why}")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    base = tmp_path_factory.mktemp("local-mongo")
+    st = local_mongo.init(port=port, base=base, project=f"vwtest-mongo-{os.getpid()}")
+    try:
+        try:
+            local_mongo.up(base=base, timeout=300)
+        except local_mongo.LocalMongoError as e:
+            _mongo_skip_or_fail(f"could not start the built-in MongoDB: {str(e)[:300]}")
+        yield local_mongo.admin_uri(st)
+    finally:
+        _compose_down(cmd, st["project"], local_mongo.state_dir(base) / "compose.yml")
+
+
+def _compose_down(cmd: list, project: str, compose_file: Path, tries: int = 3) -> bool:
+    """`compose down -v` for a throwaway test stack: retried, and loud if it still fails.
+
+    Its result used to be ignored, so a teardown that failed (a busy daemon, a timeout)
+    left the stack and its volumes running unnoticed — on a small VM, until the next
+    one could not start. Returns whether the stack is gone.
+    """
+    import subprocess
+    import time
+    import warnings
+    last = ""
+    for attempt in range(1, tries + 1):
+        try:
+            r = subprocess.run(cmd + ["-p", project, "-f", str(compose_file), "down", "-v"],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                return True
+            last = (r.stderr or r.stdout or "").strip()[-400:] or f"exit status {r.returncode}"
+        except (subprocess.TimeoutExpired, OSError) as e:
+            last = f"{type(e).__name__}: {e}"
+        if attempt < tries:
+            time.sleep(5 * attempt)
+    msg = (f"MongoDB test stack '{project}' was NOT removed after {tries} attempts ({last}). "
+           f"Remove it by hand: {' '.join(cmd)} -p {project} down -v")
+    sys.stderr.write(f"\n{msg}\n")
+    warnings.warn(msg)
+    return False

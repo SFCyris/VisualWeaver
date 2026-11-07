@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# VisualWeaver — start the dedicated local Redis, then the app.
+# VisualWeaver — start the installed stores (the dedicated local Redis and/or the
+# built-in MongoDB), then the app.
 #
-# Idempotent: if either is already running it is left alone. The app binds to
+# Idempotent: whatever is already running is left alone. The app binds to
 # all interfaces (0.0.0.0) by default and warns so on every start — there is no
 # built-in auth, so on an untrusted network set VISUALWEAVER_HOST=127.0.0.1; do NOT
 # expose the port to a network without a reverse proxy / auth in front. Override
@@ -13,21 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/scripts/common.sh"
 
 [ -n "${1:-}" ] && APP_PORT="$1"   # optional: ./start.sh 9000
-RPORT="$(redis_port)"
 
-mkdir -p "${LOG_DIR}" "${REDIS_DIR}" "${REDIS_DATA}"
+mkdir -p "${LOG_DIR}"
 
 # ── Preconditions ─────────────────────────────────────────────────────────────
-if ! load_redis_env; then
-  c_err "Redis not provisioned (no ${REDIS_ENV_FILE}) — run ./install.sh first."
-  exit 1
-fi
-if [ ! -f "${REDIS_CONF}" ]; then
-  c_err "No Redis config at ${REDIS_CONF} — run ./install.sh first."
-  exit 1
-fi
-if [ ! -x "${REDIS_SERVER}" ] && ! command -v "${REDIS_SERVER}" >/dev/null 2>&1; then
-  c_err "Resolved redis-server '${REDIS_SERVER}' is missing — re-run ./install.sh."
+STORE_REDIS=0; have_redis && STORE_REDIS=1
+STORE_MONGO=0; have_mongo && STORE_MONGO=1
+if [ "${STORE_REDIS}" = 0 ] && [ "${STORE_MONGO}" = 0 ]; then
+  c_err "No storage installed for ${DATA_DIR} (no Redis config, no built-in MongoDB) — run ./install.sh first."
   exit 1
 fi
 if [ ! -x "$(venv_python)" ] && [ ! -x "${REPO_DIR}/venv/bin/python" ]; then
@@ -37,40 +31,79 @@ fi
 PY="${REPO_DIR}/venv/bin/python"
 [ -x "${PY}" ] || PY="$(venv_python)"
 
-# ── 1. Redis ──────────────────────────────────────────────────────────────────
-# DYLD_FALLBACK_LIBRARY_PATH points at the vendored libunwind shim on macOS; it
-# is empty (and ignored) on Linux.
-if rcli -p "${RPORT}" ping >/dev/null 2>&1; then
-  c_info "Redis already responding on 127.0.0.1:${RPORT}."
-else
-  c_info "Starting dedicated Redis on 127.0.0.1:${RPORT} (${REDIS_SOURCE:-local})…"
-  # Launch DIRECTLY (not via nohup): macOS SIP strips DYLD_* when exec'ing the
-  # protected /usr/bin/nohup, which would break the vendored libunwind shim.
-  # Redis self-daemonizes (daemonize yes) and writes its own pidfile; the log
-  # goes to the logfile set in the conf.
-  DYLD_FALLBACK_LIBRARY_PATH="${REDIS_DYLD_FALLBACK:-}" "${REDIS_SERVER}" "${REDIS_CONF}" \
-    || { c_err "redis-server failed to launch. Last log lines:"; tail -n 20 "${REDIS_LOG}" >&2 || true; exit 1; }
-  # Wait for it to accept connections (a module-load failure aborts the daemon,
-  # so the ping never succeeds and we surface the log below).
-  up=0
-  for _ in $(seq 1 30); do
-    if rcli -p "${RPORT}" ping >/dev/null 2>&1; then up=1; break; fi
-    sleep 0.5
-  done
-  if [ "${up}" != "1" ]; then
-    c_err "Redis did not come up (search module may have failed to load). Last log lines:"
-    tail -n 20 "${REDIS_LOG}" >&2 || true
+# A store the app cannot work without (the built-in `default` connection, or
+# the one holding app data) stops the start when it fails; the other one only
+# warns, so e.g. a stopped container runtime does not keep a Redis-first
+# install from starting.
+read -r DEFAULT_TYPE _ <<<"$(storage_roles)"
+APP_STORE="$(app_store_type)"
+store_required() { [ "${DEFAULT_TYPE}" = "$1" ] || [ "${APP_STORE}" = "$1" ]; }
+store_failed() {   # $1 = redis|mongodb, $2 = what is unavailable without it
+  if store_required "$1"; then
     exit 1
   fi
-  c_ok "Redis up (pid $(cat "${REDIS_PID}" 2>/dev/null || echo '?'))."
+  c_warn "Continuing without it: $2 until it runs (./start.sh again starts it)."
+}
+
+# ── 1. Redis ──────────────────────────────────────────────────────────────────
+REDIS_OK=0
+if [ "${STORE_REDIS}" = 1 ]; then
+  RPORT="$(redis_port)"
+  mkdir -p "${REDIS_DIR}" "${REDIS_DATA}"
+  if ! load_redis_env; then
+    c_err "Redis not provisioned (no ${REDIS_ENV_FILE}) — run ./install.sh first."
+    store_failed redis "RAG instances on the built-in Redis are unavailable"
+  elif redis_up "${RPORT}"; then
+    REDIS_OK=1
+  else
+    store_failed redis "RAG instances on the built-in Redis are unavailable"
+  fi
+  # Confirm the Query Engine (search) is loaded — the app needs FT.* / vectors.
+  if [ "${REDIS_OK}" = 1 ]; then
+    if rcli -p "${RPORT}" FT._LIST >/dev/null 2>&1; then
+      c_ok "Query Engine (search) available."
+    else
+      c_warn "Redis is up but the search module did not load — FT.* will fail."
+      c_warn "Re-run ./install.sh (it locates and loads redisearch.so)."
+    fi
+  fi
 fi
 
-# Confirm the Query Engine (search) is loaded — the app needs FT.* / vectors.
-if rcli -p "${RPORT}" FT._LIST >/dev/null 2>&1; then
-  c_ok "Query Engine (search) available."
-else
-  c_warn "Redis is up but the search module did not load — FT.* will fail."
-  c_warn "Re-run ./install.sh (it locates and loads redisearch.so)."
+# ── 1b. Built-in MongoDB ──────────────────────────────────────────────────────
+# `local_mongo up` starts the containers (or finds them running) and returns
+# once mongod accepts the app user AND search indexes can be managed. On a
+# failure its message says why: the runtime is not running (and how to start
+# it), or the containers' last log lines.
+MONGO_OK=0
+if [ "${STORE_MONGO}" = 1 ]; then
+  # Another program may have taken the port since the install: move to the next free
+  # one and point the app's connection at it (before the app starts and reads it).
+  _avoid=(--avoid "${APP_PORT}"); [ -n "${RPORT:-}" ] && _avoid+=(--avoid "${RPORT}")
+  _pj="$(lm ensure-port "${_avoid[@]}" --config "${DATA_DIR}/config.json" 2>&1)" || _pj=""
+  _from="$(printf '%s' "${_pj}" | json_field moved_from)"
+  if [ -n "${_from}" ]; then
+    _holder="$(printf '%s' "${_pj}" | json_field holder)"
+    c_warn "MongoDB port ${_from} is in use by ${_holder:-another program} — using $(printf '%s' "${_pj}" | json_field port) (recorded; the app follows it)."
+  fi
+  MPORT="$(mongo_port)"
+  c_info "Starting the built-in MongoDB on 127.0.0.1:${MPORT} (containers)…"
+  _rc=0
+  _out="$(lm up 2>&1)" || _rc=$?
+  if [ "${_rc}" = 0 ]; then
+    _secs="$(printf '%s' "${_out}" | sed -nE 's/.*"total_seconds":[[:space:]]*([0-9.]+).*/\1/p' | tail -n1)"
+    if [ "$(printf '%s' "${_out}" | json_field already_running)" = "True" ]; then
+      c_info "MongoDB already running, vector search ready."
+    else
+      c_ok "MongoDB up, vector search ready (${_secs:-?} s)."
+    fi
+    _dw="$(printf '%s' "${_out}" | json_field disk_warning)"
+    [ -n "${_dw}" ] && [ "${_dw}" != "None" ] && c_warn "${_dw}"
+    MONGO_OK=1
+  else
+    c_err "The built-in MongoDB did not start:"
+    printf '%s\n' "${_out}" | tail -n 30 >&2
+    store_failed mongodb "RAG instances on the built-in MongoDB are unavailable"
+  fi
 fi
 
 # ── 2. App ────────────────────────────────────────────────────────────────────
@@ -92,6 +125,13 @@ elif port_in_use "${APP_PORT}"; then
   fi
 else
   c_info "Starting VisualWeaver on http://${APP_HOST}:${APP_PORT}…"
+  # VISUALWEAVER_STORAGE in .visualweaver.env records install.sh's choice; the
+  # app reads it as the container deployment's storage switch, so it is not
+  # passed on here — config.json describes a local install.
+  [ -n "${VISUALWEAVER_MONGODB_URI:-}" ] || unset VISUALWEAVER_STORAGE
+  # Likewise VISUALWEAVER_REDIS_HOST/PORT would give a MongoDB-first install a
+  # built-in Redis it does not have.
+  [ "${DEFAULT_TYPE}" = "mongodb" ] && unset VISUALWEAVER_REDIS_HOST VISUALWEAVER_REDIS_PORT
   # --app-dir puts the repo on sys.path so `main:app` imports without a cd — and
   # without a wrapping subshell, so $! is the uvicorn process itself. (The subshell
   # form captured the wrapper's PID, so stop.sh killed the wrapper and orphaned the
@@ -156,9 +196,36 @@ c_info ""
 c_ok "══ VisualWeaver v${APP_VERSION} is running ══"
 c_info "  Web UI:   ${APP_URLS[0]}"
 for _u in "${APP_URLS[@]:1}"; do c_info "            ${_u}"; done
-c_info "  Redis:    127.0.0.1:${RPORT} (dedicated, AOF everysec)"
+_role() { [ "${APP_STORE}" = "$1" ] && printf ' — app data & answer cache'; return 0; }
+if [ "${STORE_REDIS}" = 1 ]; then
+  if [ "${REDIS_OK}" = 1 ]; then c_info "  Redis:    127.0.0.1:${RPORT} (built-in, AOF everysec)$(_role redis)"
+  else c_warn "  Redis:    NOT running (127.0.0.1:${RPORT})"; fi
+fi
+if [ "${STORE_MONGO}" = 1 ]; then
+  if [ "${MONGO_OK}" = 1 ]; then c_info "  MongoDB:  127.0.0.1:${MPORT} (built-in, vector search, containers)$(_role mongodb)"
+  else c_warn "  MongoDB:  NOT running (127.0.0.1:${MPORT})"; fi
+fi
+# Versions in use: the app as it reports itself, its Python, Redis and its search
+# module as the running server reports them, MongoDB's server version as it
+# reports it, and MongoDB Search's from the pinned (digest-locked) image.
+_pyver="$("${PY}" -c 'import platform; print(platform.python_version())' 2>/dev/null || echo '?')"
+c_info "  Versions: VisualWeaver ${APP_VERSION} · Python ${_pyver}"
+if [ "${STORE_REDIS}" = 1 ] && [ "${REDIS_OK}" = 1 ]; then
+  read -r _rv _sv <<<"$(redis_versions "${RPORT}")"
+  c_info "            Redis ${_rv} · search ${_sv}"
+fi
+if [ "${STORE_MONGO}" = 1 ] && [ "${MONGO_OK}" = 1 ]; then
+  _mv="$(printf '%s' "${_out}" | json_field version)"; [ -n "${_mv}" ] || _mv="$(printf '%s' "${_out}" | json_field server)"
+  _ms="$(printf '%s' "${_out}" | json_field search)"
+  _rt="$(printf '%s' "${_out}" | json_field runtime) $(printf '%s' "${_out}" | json_field runtime_version)"
+  c_info "            MongoDB ${_mv:-?} · search ${_ms:-?} · ${_rt% }"
+fi
 c_info "  App log:  ${APP_LOG}"
-c_info "  Redis log:${REDIS_LOG}"
+[ "${STORE_REDIS}" = 1 ] && c_info "  Redis log:${REDIS_LOG}"
+if [ "${STORE_MONGO}" = 1 ]; then
+  _lmenv=""; [ -n "${VISUALWEAVER_DATA_DIR:-}" ] && _lmenv="VISUALWEAVER_DATA_DIR=\"${DATA_DIR}\" "
+  c_info "  MongoDB log: cd \"${REPO_DIR}\" && ${_lmenv}venv/bin/python -m visualweaver.local_mongo logs"
+fi
 c_info "  Stop:     ${REPO_DIR}/stop.sh"
 # The guard for an unauthenticated service on all interfaces: say exactly which
 # address other devices can reach, and how to restrict it, every single start.
@@ -166,10 +233,10 @@ case "${APP_HOST}" in
   0.0.0.0|::|"")
     c_warn "  NOTE: reachable from other devices on your network at ${APP_URLS[1]:-the LAN address above} — VisualWeaver has NO built-in auth."
     c_warn "        On an untrusted network run it localhost-only:  VISUALWEAVER_HOST=127.0.0.1 ./start.sh"
-    c_warn "        (or put VISUALWEAVER_HOST=127.0.0.1 in .visualweaver.env to make that permanent)."
+    c_warn "        (or run ./changeAccess.sh local to make that permanent)."
     ;;
   127.0.0.1|localhost)
-    c_info "  Only reachable from this machine (VISUALWEAVER_HOST=${APP_HOST}); unset it for LAN access."
+    c_info "  Only reachable from this machine (VISUALWEAVER_HOST=${APP_HOST}); run ./changeAccess.sh lan for LAN access."
     ;;
   *)
     c_warn "  NOTE: bound to ${APP_HOST} — VisualWeaver has NO built-in auth; put a reverse proxy with auth in front before exposing it."

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VisualWeaver — restart: stop the app + dedicated Redis, then start them again.
+# VisualWeaver — restart: stop the app + its stores (Redis and/or MongoDB), then start them again.
 # Any arguments (e.g. a port) are forwarded to start.sh.
 set -euo pipefail
 

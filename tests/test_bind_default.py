@@ -60,7 +60,7 @@ def test_start_banner_warns_and_says_how_to_restrict():
     assert "reachable from other devices on your network" in guard
     assert "NO built-in auth" in guard
     assert "VISUALWEAVER_HOST=127.0.0.1 ./start.sh" in guard
-    assert ".visualweaver.env" in guard
+    assert "./changeAccess.sh local" in guard          # the permanent switch
     # and the loopback branch tells the user why nothing else can reach it
     assert "Only reachable from this machine" in guard
 
@@ -69,4 +69,4 @@ def test_docs_no_longer_promise_a_loopback_default():
     for doc in ("readme.md", "DOCS.md", "TUTORIAL.md"):
         s = (_ROOT / doc).read_text(encoding="utf-8")
         assert not re.search(r"binds to `127\.0\.0\.1`", s), f"{doc} still promises a loopback default"
-        assert "VISUALWEAVER_HOST=127.0.0.1" in s, f"{doc} must say how to restrict the app"
+        assert "./changeAccess.sh local" in s, f"{doc} must say how to restrict the app"

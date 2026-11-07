@@ -33,8 +33,8 @@ async def api_feedback(payload: dict):
     entry["ts"] = datetime.now(timezone.utc).isoformat()
     state._feedback.append(entry)
     del state._feedback[:-config._MAX_FEEDBACK]        # bound memory as well as the file
-    with open(constants.FEEDBACK_PATH, "w") as f:
-        json.dump(state._feedback, f)
+    # Up to 2,000 entries rewritten per rating: in a thread, and atomically.
+    await asyncio.to_thread(config.save_feedback)
     return {"ok": True}
 
 
@@ -61,17 +61,11 @@ def api_feedback_list(limit: int = 200, value: str | None = None):
 
 @appcore.app.get("/api/sessions")
 def api_sessions():
-    # In-memory sessions (active connections)
-    result = []
-    for sid, msgs in state._sessions.items():
-        preview = ""
-        for m in reversed(msgs):
-            if m.get("role") == "assistant":
-                preview = m.get("content", "")[:60]
-                break
-        result.append({"id": sid, "messages": len(msgs), "preview": preview})
-    # Merge in Redis-persisted sessions not currently loaded in memory
+    # In-memory sessions (active connections), then the stored ones not loaded here,
+    # newest first — the store's own key order is arbitrary.
+    result = [sessions.session_summary(sid, msgs) for sid, msgs in list(state._sessions.items())]
     result.extend(sessions.list_sessions_from_redis())
+    result.sort(key=lambda r: r.get("updated") or 0, reverse=True)
     return result
 
 @appcore.app.get("/api/sessions/{sid}")
@@ -155,7 +149,7 @@ def api_templates():
 @appcore.app.post("/api/templates")
 async def api_save_templates(payload: list):
     state._config["prompt_templates"] = payload
-    config.save_config(state._config)
+    await config.save_config_async(state._config)
     return {"ok": True}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

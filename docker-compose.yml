@@ -1,40 +1,118 @@
-# VisualWeaver — simplest self-host. `docker compose up -d`, then open :8420.
+# VisualWeaver — simplest self-host. `./docker.sh up` (asks Redis / MongoDB / both,
+# starts everything, waits until it is ready and prints the address), or plain
+# `docker compose up -d`, then open :8420.
 #
-#   1. docker compose up -d
+#   1. ./docker.sh up            (or: docker compose up -d)
 #   2. Open http://<host>:8420
-#   3. Settings → Providers: add an LLM (or point Ollama at your host), then
-#      Web Sources / upload files to build a knowledge base.
+#   3. Ollama running on this host is used automatically; for a cloud model add its
+#      key in Settings → Providers. Then upload files / add web sources.
 #
 # There is no built-in auth, so only publish the port on a trusted network.
 # For automatic HTTPS over the internet, see deploy/docker-compose.https.yml.
+#
+# ── Storage ──────────────────────────────────────────────────────────────────
+# Pick it with COMPOSE_PROFILES (in the environment, or in a `.env` file next to
+# this file — then every `docker compose …` command uses it):
+#
+#   (unset) or redis   Redis 8 with search                      docker compose up -d
+#   mongodb            MongoDB with vector search, no Redis      COMPOSE_PROFILES=mongodb docker compose up -d
+#   both               Redis holds app data and the answer cache; MongoDB is available for RAG
+#                                                                COMPOSE_PROFILES=both docker compose up -d
+#
+# Use COMPOSE_PROFILES rather than `--profile`: the app reads the same value to
+# know which stores it has. The MongoDB profiles need Docker Compose 2.23.1+.
+#
+# MongoDB runs as MongoDB's official Community images (server + search), pulled
+# from MongoDB's Docker Hub namespace only when a mongodb profile is chosen.
+# They are licensed by MongoDB, Inc. under the Server Side Public License v1
+# (https://www.mongodb.com/licensing/server-side-public-license) and are not part
+# of VisualWeaver. MongoDB is reachable only inside this compose project's
+# network (no published port); its passwords are generated on first start and
+# kept in the visualweaver-mongodb-secrets volume.
+
+x-mongodb-server-image: &mongodb-server-image mongodb/mongodb-community-server:9.0.4-ubi9-slim@sha256:92ac2e5cde7e6cb0a60bf12c5d822b51f5412d47736e57a7781e21210e3076ac
+x-mongodb-search-image: &mongodb-search-image mongodb/mongodb-community-search:1.78.0@sha256:68b89d6cfc31edc0056b7ef54e7a2b9fa7299422f6399d9a937203dafbb88756
 
 services:
   visualweaver:
-    # Prebuilt multi-arch image (linux/amd64 + linux/arm64) from GitHub's registry.
+    # Prebuilt multi-arch image (linux/amd64 + linux/arm64) from GitHub's registry,
+    # pulled when not present. `docker compose up -d --build` (or `./docker.sh up
+    # --build`) builds it from this checkout instead; so does a pull that fails.
     image: ghcr.io/sfcyris/visualweaver:latest
-    # ── Developers: build from source instead of pulling — comment `image:` above
-    #    and uncomment `build:` below, then run `docker compose up -d --build`. ──
-    # build: .
+    build: .
     container_name: visualweaver
     ports:
-      - "8420:8420"
+      # VISUALWEAVER_WEB_BIND=127.0.0.1 (in .env) publishes it to this machine only.
+      - "${VISUALWEAVER_WEB_BIND:-0.0.0.0}:${VISUALWEAVER_WEB_PORT:-8420}:8420"
+    # Ollama on this machine is reachable from the container as host.docker.internal
+    # (built into Docker Desktop, Colima and OrbStack; this line adds it on Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - visualweaver-data:/data        # config, uploads, logs, history (back this up)
+      - visualweaver-mongodb-secrets:/run/visualweaver-mongodb:ro   # MongoDB app password (mongodb profiles)
     environment:
       - VISUALWEAVER_DATA_DIR=/data
       - VISUALWEAVER_HOST=0.0.0.0
       - VISUALWEAVER_PORT=8420
+      - VISUALWEAVER_STORAGE=${COMPOSE_PROFILES:-redis}
       - VISUALWEAVER_REDIS_HOST=redis   # the redis service below
       - VISUALWEAVER_REDIS_PORT=6379
+      - VISUALWEAVER_MONGODB_URI=mongodb://mongodb:27017/?authSource=admin   # the mongodb service below
+      - VISUALWEAVER_MONGODB_USERNAME=visualweaver
+      - VISUALWEAVER_MONGODB_DATABASE=visualweaver
+      # Ollama on this host, used until another address is chosen in Settings.
+      - VISUALWEAVER_OLLAMA_URL=${VISUALWEAVER_OLLAMA_URL:-http://host.docker.internal:11434}
+      # Host names browsers may use besides IP addresses, localhost and .local/.lan
+      # names (e.g. this machine's DNS name, a reverse proxy's domain).
+      - VISUALWEAVER_ALLOWED_HOSTS=${VISUALWEAVER_ALLOWED_HOSTS:-}
       # Optional provider keys (else set them in Settings):
       # - ANTHROPIC_API_KEY=
       # - OPENAI_API_KEY=
       # - GEMINI_API_KEY=
       # - GROQ_API_KEY=
       # - TZ=Europe/Berlin
+    # Reads the storage choice (redis | mongodb | both; a COMPOSE_PROFILES list
+    # naming redis and mongodb counts as both), passes on only the chosen stores'
+    # settings and the generated MongoDB password as VISUALWEAVER_MONGODB_PASSWORD,
+    # then runs the app.
+    command:
+      - sh
+      - -c
+      - |
+        s="$$(printf '%s' "$${VISUALWEAVER_STORAGE}" | tr 'A-Z' 'a-z' | tr -d ' ')"
+        case ",$${s}," in
+          *,both,*|*,mongodb,*redis*|*,redis,*mongodb*) s=both ;;
+          *,mongodb,*) s=mongodb ;;
+          *) s=redis ;;
+        esac
+        export VISUALWEAVER_STORAGE="$${s}"
+        case "$${s}" in
+          mongodb) unset VISUALWEAVER_REDIS_HOST VISUALWEAVER_REDIS_PORT ;;
+          both) ;;
+          *) unset VISUALWEAVER_MONGODB_URI VISUALWEAVER_MONGODB_USERNAME VISUALWEAVER_MONGODB_DATABASE ;;
+        esac
+        if [ -n "$${VISUALWEAVER_MONGODB_URI:-}" ] && [ -z "$${VISUALWEAVER_MONGODB_PASSWORD:-}" ]; then
+          VISUALWEAVER_MONGODB_PASSWORD="$$(cat /run/visualweaver-mongodb/app-password)" || exit 1
+          export VISUALWEAVER_MONGODB_PASSWORD
+        fi
+        exec visualweaver
     depends_on:
       redis:
         condition: service_healthy
+        required: false
+      mongodb-search:
+        condition: service_healthy
+        required: false
+    # The image's check, polled every 2 s while starting so `docker compose up --wait`
+    # returns as soon as the app answers.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8420/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+      start_interval: 2s
     restart: unless-stopped
 
   # Redis 8 "Open Source" bundles the Query Engine (vector/text search) that
@@ -46,6 +124,8 @@ services:
   redis:
     image: redis:8
     container_name: visualweaver-redis
+    # Runs when COMPOSE_PROFILES is unset (the default) or names redis or both.
+    profiles: ["${COMPOSE_PROFILES:+redis}", "${COMPOSE_PROFILES:+both}"]
     # maxmemory bounds the vector index so Redis cannot grow until the host
     # OOM-kills it, which takes the whole corpus offline with no warning.
     # noeviction is deliberate: the index IS the data, so a write must fail
@@ -63,6 +143,154 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── MongoDB with vector search (profiles mongodb, both) ─────────────────────
+  # A one-member replica set (mongod) plus MongoDB's search process (mongot).
+  # This one-shot service generates the replica-set keyfile and the passwords
+  # once; each file belongs to the one process that reads it, mode 0400 (mongot
+  # refuses a password file others can read).
+  mongodb-secrets:
+    image: *mongodb-server-image
+    container_name: visualweaver-mongodb-secrets
+    profiles: [mongodb, both]
+    user: "0:0"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -eu
+        umask 077
+        mkdir -p /secrets/mongod
+        gen() { [ -s "$$1" ] || head -c "$$2" /dev/urandom | od -An -vtx1 | tr -d ' \n' > "$$1"; }
+        gen /secrets/mongod/keyfile 384
+        gen /secrets/mongod/admin-password 24
+        gen /secrets/mongod/search-password 24
+        gen /secrets/mongod/app-password 24
+        cp /secrets/mongod/search-password /secrets/mongot-password
+        cp /secrets/mongod/app-password /secrets/app-password
+        chown -R 1000:1000 /secrets/mongod && chmod 0700 /secrets/mongod && chmod 0400 /secrets/mongod/*
+        chown 0:0 /secrets/mongot-password && chmod 0400 /secrets/mongot-password
+        chown 10001:10001 /secrets/app-password && chmod 0400 /secrets/app-password
+    volumes:
+      - visualweaver-mongodb-secrets:/secrets
+    restart: "no"
+
+  mongodb:
+    image: *mongodb-server-image
+    container_name: visualweaver-mongodb
+    profiles: [mongodb, both]
+    # The image's entrypoint initiates the replica set, creates the root user and
+    # runs /docker-entrypoint-initdb.d/*.js once, on an empty data volume. It does
+    # not pass SIGTERM on to mongod, so this wrapper does: `docker compose stop`
+    # then shuts mongod down cleanly instead of killing it after 10 s.
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        /usr/local/bin/docker-entrypoint "$$@" & ep=$$!;
+        fwd() { for p in /proc/[0-9]*; do [ "$$(cat "$$p/comm" 2>/dev/null)" = mongod ] && kill -TERM "$${p#/proc/}" 2>/dev/null; done; };
+        trap fwd TERM INT;
+        while kill -0 "$$ep" 2>/dev/null; do wait "$$ep"; rc=$$?; done; exit "$${rc:-0}"
+      - vw-mongod
+    command: ["--config", "/etc/mongod.conf", "--replSetMember=mongodb:27017"]
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: vwadmin
+      MONGODB_INITDB_ROOT_PASSWORD_FILE: /secrets/mongod/admin-password
+    configs:
+      - {source: mongod_conf, target: /etc/mongod.conf}
+      - {source: mongodb_users, target: /docker-entrypoint-initdb.d/10-users.js}
+    volumes:
+      - visualweaver-mongodb:/data/db                # the database (back this up)
+      - visualweaver-mongodb-secrets:/secrets:ro
+    depends_on:
+      mongodb-secrets:
+        condition: service_completed_successfully
+    # Healthy only once the app user can sign in to the writable primary — not
+    # while the entrypoint's temporary first-start server is still creating users.
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet -u visualweaver -p \"$$(cat /secrets/mongod/app-password)\" --authenticationDatabase admin --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 120s
+      start_interval: 1s
+    restart: unless-stopped
+
+  mongodb-search:
+    image: *mongodb-search-image
+    container_name: visualweaver-mongodb-search
+    profiles: [mongodb, both]
+    configs:
+      - {source: mongot_conf, target: /mongot-community/config.default.yml}
+    volumes:
+      - visualweaver-mongodb-search:/data/mongot     # search indexes (rebuilt from mongod if lost)
+      - visualweaver-mongodb-secrets:/secrets:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 120s
+      start_interval: 1s
+    restart: unless-stopped
+
+configs:
+  mongod_conf:
+    content: |
+      net:
+        port: 27017
+        bindIpAll: true
+      replication:
+        replSetName: rs0
+      security:
+        authorization: enabled
+        keyFile: /secrets/mongod/keyfile
+      setParameter:
+        searchIndexManagementHostAndPort: mongodb-search:27028
+        mongotHost: mongodb-search:27028
+        skipAuthenticationToSearchIndexManagementServer: false
+        useGrpcForSearch: true
+        searchTLSMode: disabled
+  mongot_conf:
+    content: |
+      syncSource:
+        replicaSet:
+          hostAndPort: "mongodb:27017"
+          scramAuth:
+            username: "mongotUser"
+            passwordFile: "/secrets/mongot-password"
+            authSource: "admin"
+            tls:
+              enabled: false
+        replicationReader:
+          readPreference: "primaryPreferred"
+      storage:
+        dataPath: "/data/mongot"
+      server:
+        grpc:
+          address: "0.0.0.0:27028"
+          tls:
+            mode: "disabled"
+      metrics:
+        enabled: false
+        address: "0.0.0.0:9946"
+      healthCheck:
+        address: "0.0.0.0:8080"
+      logging:
+        verbosity: INFO
+  mongodb_users:
+    content: |
+      const fs = require("fs");
+      const secret = (name) => fs.readFileSync("/secrets/mongod/" + name, "utf8").trim();
+      const admin = db.getSiblingDB("admin");
+      admin.createUser({user: "mongotUser", pwd: secret("search-password"), roles: ["searchCoordinator"]});
+      admin.createUser({user: "visualweaver", pwd: secret("app-password"),
+                        roles: [{role: "readWrite", db: "visualweaver"}, {role: "clusterMonitor", db: "admin"}]});
+
 volumes:
   visualweaver-data:
   visualweaver-redis:
+  visualweaver-mongodb:
+  visualweaver-mongodb-search:
+  visualweaver-mongodb-secrets:

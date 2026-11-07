@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 import redis
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from . import appcore, config, crawler, rag, rag_admin, routes_ingestion, state
+from . import appcore, config, crawler, mongo_store, rag, rag_admin, routes_ingestion, state
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ def _scan_unique_sources(rc: redis.Redis, prefix: str) -> set[str]:
 def api_rag_sources(instance: str, endpoint: str | None = None):
     """Return all unique source identifiers stored in a RAG instance."""
     rc     = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        return mongo_store.sources(rc, instance)
     prefix = rag.rag_prefix(instance)
     idx_name = f"{prefix}:idx"
     # One server-side aggregation over the index: GROUPBY the source field returns
@@ -74,6 +76,11 @@ def api_rag_documents(instance: str, endpoint: str | None = None):
     One FT.AGGREGATE groups by source and counts — no keyspace scan.
     """
     rc = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        docs = [{**d, "doc_id": rag.doc_id_for(d["source"])} for d in mongo_store.documents(rc, instance)
+                if d["source"]]
+        docs.sort(key=lambda x: x["source"])
+        return {"total": len(docs), "documents": docs}
     idx_name = f"{rag.rag_prefix(instance)}:idx"
     try:
         rows = rag.aggregate_all(
@@ -119,6 +126,22 @@ def api_delete_document(instance: str, source: str, endpoint: str | None = None)
     if not source:
         raise HTTPException(400, "source is required")
     rc       = rag_admin._rc_for(instance, endpoint)
+    if mongo_store.is_mongo(rc):
+        try:
+            deleted, texts = mongo_store.delete_document(rc, instance, source)
+            mongo_store.remove_hashes(rc, instance, [
+                hashlib.sha256(f"{source}\x00{' '.join(t.lower().split())}".encode()).hexdigest()
+                for t in texts if t])
+            mongo_store.clear_urls(rc, instance, source)
+        except Exception as e:
+            log.warning(f"api_delete_document failed for '{instance}' / {source!r}: {e}")
+            raise HTTPException(500, f"Could not delete document: {e}")
+        try:
+            config.append_log({"ts": datetime.now(timezone.utc).isoformat(), "instance": instance,
+                               "source": source, "chunks": -deleted, "status": "deleted"})
+        except Exception as le:
+            log.warning(f"delete succeeded but could not be logged: {le}")
+        return {"ok": True, "source": source, "deleted": deleted}
     prefix   = rag.rag_prefix(instance)
     idx_name = f"{prefix}:idx"
     esc      = rag._TAG_ESCAPE_RE.sub(r"\\\1", source)
@@ -214,7 +237,7 @@ async def api_add_scheduled_source(payload: dict):
         "last_crawled": 0,
     })
     state._config["scheduled_sources"] = sources
-    config.save_config(state._config)
+    await config.save_config_async(state._config)
     return {"ok": True}
 
 
@@ -224,7 +247,7 @@ async def api_delete_scheduled_source(url: str):
     state._config["scheduled_sources"] = [
         s for s in state._config.get("scheduled_sources", []) if s.get("url") != url
     ]
-    config.save_config(state._config)
+    await config.save_config_async(state._config)
     return {"ok": True}
 
 
@@ -245,7 +268,7 @@ async def api_trigger_recrawl():
         asyncio.create_task(crawler.crawl_url(instance, url, depth, rc=rag_admin.rc_for_instance(instance)))
         src["last_crawled"] = now
         triggered += 1
-    config.save_config(state._config)
+    await config.save_config_async(state._config)
     return {"ok": True, "triggered": triggered}
 
 

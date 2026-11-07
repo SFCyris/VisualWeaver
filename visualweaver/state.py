@@ -30,13 +30,18 @@ _search_available: dict[str, bool | None] = {}
 
 _config: dict = {}
 
-# Redis client pool: "default" key → primary client; other keys → named endpoints
-_redis_clients: dict[str, redis.Redis] = {}
+# Client pool: "default" key → the built-in connection's client (a redis.Redis, or a
+# mongo_store.MongoEndpoint when storage.default_type is "mongodb"); other keys →
+# named connections.
+_redis_clients: dict[str, Any] = {}
 
 # Runtime reachability of each configured Redis endpoint.
 # Keys are endpoint names ("default", "RAG", …); value is True/False.
 # Unknown endpoints are treated as reachable (optimistic default).
 _endpoint_health: dict[str, bool] = {}
+# The instance names last listed on each connection. A connection that is down is
+# skipped by list_rag_instances, so a name check needs its last known names.
+_known_instance_names: dict[str, set] = {}
 
 _embed_model: Optional[Any] = None  # SentenceTransformer, lazily loaded
 _embed_model_name: str = ""
@@ -394,9 +399,17 @@ def _record_rag_stats(
         s["chunks_total"] += len(results)
         s["score_sum"]    += results[0]["score"]   # top-1 cosine similarity (post-filter)
     _rag_stats_dirty.add(instance)
-# Active streaming task per session — used to cancel mid-stream when the client
-# sends {"type":"abort"}.  Keyed by session id.
-_chat_tasks: dict[str, asyncio.Task] = {}
+# Chat turns per open WebSocket (the one answering, then any queued behind it) — used
+# to cancel them when that socket sends {"type":"abort"} or closes. Keyed by the SOCKET,
+# not the session id: the UI resumes the last conversation, so two tabs routinely share
+# one, and keyed by session a tab closing cancelled the other tab's answer mid-stream.
+_chat_tasks: dict = {}
+# Turns on one conversation run one after another: its history is read when a turn
+# starts and appended and saved whole when it ends, so two at once would each save a
+# transcript missing the other's exchange. sid -> {"lock": asyncio.Lock, "turns": turns
+# holding or waiting for it, "writers": the socket of each turn that changed the
+# transcript}; dropped when no turn holds or waits for it.
+_session_turns: dict[str, dict] = {}
 
 # API keys sourced from environment variables — never persisted to disk
 _env_key: str = ""          # ANTHROPIC_API_KEY
@@ -405,9 +418,19 @@ _qwen_env_key: str = ""     # DASHSCOPE_API_KEY
 _mistral_env_key: str = ""  # MISTRAL_API_KEY
 _groq_env_key: str = ""     # GROQ_API_KEY
 _gemini_env_key: str = ""   # GEMINI_API_KEY
+_mongodb_env_password: str = ""   # VISUALWEAVER_MONGODB_PASSWORD (built-in MongoDB)
+# What VISUALWEAVER_STORAGE / VISUALWEAVER_MONGODB_* replaced in the config, so a save
+# writes the file's own values back (startup.apply_storage_env, config.save_config):
+# {"default_type": value|None, "mongodb": section|None, "endpoint": (name, entry|None)}
+_storage_env_overlay: dict = {}
+_ollama_env_url: str = ""          # VISUALWEAVER_OLLAMA_URL applied this run (not saved)
 
 _config_load_error: str = ""
 _shared_http_client: httpx.AsyncClient | None = None
+# Pooled client for provider calls (Ollama, key checks) — kept apart from the crawler's,
+# whose pool a large crawl can fill, and bound to the event loop that created it.
+_provider_http_client: httpx.AsyncClient | None = None
+_provider_http_loop = None
 _ollama_models_cache: list[dict] = []
 _ollama_models_ts: float = 0.0
 _rag_meta_gen = 0

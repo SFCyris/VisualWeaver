@@ -16,7 +16,7 @@ import redis
 from redisvl.index import SearchIndex
 from redisvl.query import VectorQuery
 from redisvl.schema import IndexSchema
-from . import rag_admin, redis_store, state, textutil
+from . import mongo_store, rag_admin, redis_store, state, textutil
 from . import embeddings as _ns_embeddings
 
 log = logging.getLogger(__name__)
@@ -196,6 +196,10 @@ def _migrate_vector_batch(rc: redis.Redis, keys: list, field: str) -> int:
     return n
 
 
+def _embedding_dims() -> int:
+    return int(_ns_embeddings.get_embed_model().get_sentence_embedding_dimension())
+
+
 def ensure_rag_index(instance: str, rc: redis.Redis | None = None):
     """
     Ensure the RediSearch index for a RAG instance exists with the CURRENT schema.
@@ -210,9 +214,13 @@ def ensure_rag_index(instance: str, rc: redis.Redis | None = None):
 
     In-process `_index_ensured` short-circuits repeat calls within one process.
     """
+    rc = rc or redis_store.r_for("default")
+    if mongo_store.is_mongo(rc):
+        # Shared collection: one index pair per connection, retargeted on a model change.
+        mongo_store.ensure_indexes(rc, _ns_embeddings.vector_field_for(), _embedding_dims())
+        return
     if instance in _index_ensured:
         return
-    rc = rc or redis_store.r()
     ver_key = f"rag:{instance}:schema_ver"
     # _index_ensured is only set at the END, so concurrent first-callers all ran
     # the slow path. Harmless when it was just FT.CREATE; not harmless now that
@@ -268,7 +276,9 @@ def next_chunk_id(instance: str, reserve: int = 1, rc: redis.Redis | None = None
     Returns the first ID in the reserved range, so caller can use
     [start, start+1, ..., start+reserve-1].
     """
-    rc = rc or redis_store.r()
+    rc = rc or redis_store.r_for("default")
+    if mongo_store.is_mongo(rc):
+        return mongo_store.reserve_ids(rc, instance, reserve)
     counter_key = f"rag:{instance}:chunk_counter"
     new_val = int(rc.incrby(counter_key, reserve))
     return new_val - reserve   # return the start of the reserved range
@@ -285,13 +295,17 @@ def add_chunks(instance: str, chunks: list[dict], rc: redis.Redis | None = None)
     if not chunks:
         return
 
-    rc = rc or redis_store.r()
+    rc = rc or redis_store.r_for("default")
     ensure_rag_index(instance, rc)
     prefix = rag_prefix(instance)
 
     # Batch embed — one model call for the entire chunk list
     texts = [ch["text"] for ch in chunks]
     embeddings = _ns_embeddings.embed_batch(texts)   # shape: (N, dim)
+    if mongo_store.is_mongo(rc):
+        mongo_store.add_chunks(rc, instance, chunks, _ns_embeddings.vector_field_for(), embeddings,
+                               _ns_embeddings.embedding_id_for(), doc_id_for)
+        return
 
     pipe = rc.pipeline(transaction=False)
     for ch, emb in zip(chunks, embeddings):
@@ -575,6 +589,83 @@ def warn_if_vectors_are_from_another_model(instance: str, rc: redis.Redis) -> No
         log.warning("=" * 70)
 
 
+def _fuse_and_gate(instance: str, vec_rows: list[dict], bm25_rows: list[dict], top_k: int,
+                   threshold: float, backfill) -> tuple[list[dict], list[dict]]:
+    """Fuse the vector and keyword legs (RRF), give keyword-only hits a real cosine via
+    ``backfill(missing_rows)``, and apply the threshold. Backend-neutral: Redis and MongoDB
+    both hand their legs here, so every instance is ranked and gated identically.
+    Returns (results, raw_results) — raw is pre-threshold, for the retrieval stats."""
+    # ── 3. RRF merge and re-rank ─────────────────────────────────────────
+    K_RRF  = 60
+    bm25_keys = {row["_key"] for row in bm25_rows}   # chunks that matched lexically
+    scores: dict[str, dict] = {}
+    for rank, row in enumerate(vec_rows):
+        key = row["_key"]
+        scores.setdefault(key, {"row": row, "rrf": 0.0})
+        scores[key]["rrf"] += 1.0 / (K_RRF + rank + 1)
+
+    for rank, row in enumerate(bm25_rows):
+        key = row["_key"]
+        if key in scores:
+            scores[key]["rrf"] += 1.0 / (K_RRF + rank + 1)
+        else:
+            scores[key] = {"row": row, "rrf": 1.0 / (K_RRF + rank + 1)}
+
+    ranked = sorted(scores.values(), key=lambda x: x["rrf"], reverse=True)[:top_k]
+
+    # A keyword-only hit has no vector_distance, so RediSearch reports nothing
+    # for it and it used to display as "0.0%". Fetch its stored embedding and
+    # compute the real cosine against the query, so every chunk is scored on
+    # ONE scale. Normalising BM25 instead is not comparable: its top hit is
+    # always 1.0, which buries every vector hit beneath it.
+    missing = [r for r in bm25_rows if not r.get("_vec_score")]
+    if missing:
+        try:
+            backfill(missing)
+        except Exception as ve:
+            log.debug(f"cosine backfill for lexical hits failed: {ve}")
+
+    raw_results = [
+        {
+            "text":    item["row"].get("text", ""),
+            "source":  item["row"].get("source", ""),
+            "score":   float(item["row"].get("_vec_score", 0.0)),
+            "bm25":    float(item["row"].get("_bm25", 0.0)),
+            # Combined RRF rank score — the authoritative ordering (see below).
+            # search_rag_parallel fuses across instances on this, not on the
+            # cosine `score`, so keyword-only hits (cosine 0) aren't buried.
+            "_fused":  float(item["rrf"]),
+            "lexical": item["row"]["_key"] in bm25_keys,
+        }
+        for item in ranked
+    ]
+
+    # Threshold gates the cosine score — but a chunk that matched the BM25
+    # leg was selected lexically, so keep it regardless. Without this, every
+    # keyword-only hit (cosine score 0) is dropped and hybrid collapses to
+    # vector-only. source_filter is already applied in-query (both legs).
+    # A lexical hit is exempt from the cosine threshold because it was selected
+    # by term match, not by distance — but the exemption used to be unbounded,
+    # so the BM25 tail (a single common term in an unrelated document) arrived
+    # with cosine 0.0 and went straight into the prompt. Require a real share of
+    # the best keyword score instead.
+    # Lexical hits are still exempt from the full cosine threshold — they were
+    # selected by term match, and a keyword answer can sit just under it. But
+    # the exemption is now bounded by a real cosine floor, so the BM25 tail (a
+    # single common term in an unrelated document) no longer reaches the prompt.
+    lex_floor = threshold * _LEXICAL_FLOOR_RATIO
+    kept = [
+        c for c in raw_results
+        if c["score"] >= threshold or (c["lexical"] and c["score"] >= lex_floor)
+    ]
+    for c in kept:
+        c["relevance"] = round(c["score"], 4)
+    kept.sort(key=lambda c: (c["relevance"], c.get("_fused", 0.0)), reverse=True)
+    results = [{k: v for k, v in c.items() if k != "lexical"} | {"lexical": c["lexical"]}
+               for c in kept]
+    return results, raw_results
+
+
 def search_rag(
     instance: str,
     query: str,
@@ -611,10 +702,12 @@ def search_rag(
 
     When ``hybrid=False`` only the vector search is performed.
     """
-    # redis_store.r(), not a bare r(): `r` is a loop variable further down this same
+    # redis_store.r_for(), not a bare r(): `r` is a loop variable further down this same
     # function, which makes Python treat it as local for the whole body — so the bare
     # call raised UnboundLocalError on every caller that left `rc` unset.
-    rc     = rc or redis_store.r()
+    rc     = rc or redis_store.r_for("default")
+    if mongo_store.is_mongo(rc):
+        return _search_mongo(instance, query, top_k, threshold, rc, hybrid, query_vec, source_filter)
     prefix = rag_prefix(instance)
     idx_name = f"{prefix}:idx"
     # Make sure the index exists with the current schema (source as TAG) before
@@ -704,87 +797,24 @@ def search_rag(
                             f"degrading to vector-only search: {te}"
                         )
 
-        # ── 3. RRF merge and re-rank ─────────────────────────────────────────
-        K_RRF  = 60
-        bm25_keys = {row["_key"] for row in bm25_rows}   # chunks that matched lexically
-        scores: dict[str, dict] = {}
-        for rank, row in enumerate(vec_rows):
-            key = row["_key"]
-            scores.setdefault(key, {"row": row, "rrf": 0.0})
-            scores[key]["rrf"] += 1.0 / (K_RRF + rank + 1)
+        def _redis_backfill(missing):
+            pipe = rc.pipeline(transaction=False)
+            for r in missing:
+                pipe.hget(r["_key"], _ns_embeddings.vector_field_for())
+            blobs = pipe.execute()
+            qv = np.asarray(q_emb, dtype=np.float32)
+            qn = float(np.linalg.norm(qv)) or 1.0
+            for r, blob in zip(missing, blobs):
+                if not blob:
+                    continue
+                cv = np.frombuffer(blob, dtype=np.float32)
+                if cv.size != qv.size:
+                    continue
+                cn = float(np.linalg.norm(cv)) or 1.0
+                r["_vec_score"] = round(float(np.dot(qv, cv)) / (qn * cn), 4)
 
-        for rank, row in enumerate(bm25_rows):
-            key = row["_key"]
-            if key in scores:
-                scores[key]["rrf"] += 1.0 / (K_RRF + rank + 1)
-            else:
-                scores[key] = {"row": row, "rrf": 1.0 / (K_RRF + rank + 1)}
-
-        ranked = sorted(scores.values(), key=lambda x: x["rrf"], reverse=True)[:top_k]
-
-        # A keyword-only hit has no vector_distance, so RediSearch reports nothing
-        # for it and it used to display as "0.0%". Fetch its stored embedding and
-        # compute the real cosine against the query, so every chunk is scored on
-        # ONE scale. Normalising BM25 instead is not comparable: its top hit is
-        # always 1.0, which buries every vector hit beneath it.
-        missing = [r for r in bm25_rows if not r.get("_vec_score")]
-        if missing:
-            try:
-                pipe = rc.pipeline(transaction=False)
-                for r in missing:
-                    pipe.hget(r["_key"], _ns_embeddings.vector_field_for())
-                blobs = pipe.execute()
-                qv = np.asarray(q_emb, dtype=np.float32)
-                qn = float(np.linalg.norm(qv)) or 1.0
-                for r, blob in zip(missing, blobs):
-                    if not blob:
-                        continue
-                    cv = np.frombuffer(blob, dtype=np.float32)
-                    if cv.size != qv.size:
-                        continue
-                    cn = float(np.linalg.norm(cv)) or 1.0
-                    r["_vec_score"] = round(float(np.dot(qv, cv)) / (qn * cn), 4)
-            except Exception as ve:
-                log.debug(f"cosine backfill for lexical hits failed: {ve}")
-
-        raw_results = [
-            {
-                "text":    item["row"].get("text", ""),
-                "source":  item["row"].get("source", ""),
-                "score":   float(item["row"].get("_vec_score", 0.0)),
-                "bm25":    float(item["row"].get("_bm25", 0.0)),
-                # Combined RRF rank score — the authoritative ordering (see below).
-                # search_rag_parallel fuses across instances on this, not on the
-                # cosine `score`, so keyword-only hits (cosine 0) aren't buried.
-                "_fused":  float(item["rrf"]),
-                "lexical": item["row"]["_key"] in bm25_keys,
-            }
-            for item in ranked
-        ]
-
-        # Threshold gates the cosine score — but a chunk that matched the BM25
-        # leg was selected lexically, so keep it regardless. Without this, every
-        # keyword-only hit (cosine score 0) is dropped and hybrid collapses to
-        # vector-only. source_filter is already applied in-query (both legs).
-        # A lexical hit is exempt from the cosine threshold because it was selected
-        # by term match, not by distance — but the exemption used to be unbounded,
-        # so the BM25 tail (a single common term in an unrelated document) arrived
-        # with cosine 0.0 and went straight into the prompt. Require a real share of
-        # the best keyword score instead.
-        # Lexical hits are still exempt from the full cosine threshold — they were
-        # selected by term match, and a keyword answer can sit just under it. But
-        # the exemption is now bounded by a real cosine floor, so the BM25 tail (a
-        # single common term in an unrelated document) no longer reaches the prompt.
-        lex_floor = threshold * _LEXICAL_FLOOR_RATIO
-        kept = [
-            c for c in raw_results
-            if c["score"] >= threshold or (c["lexical"] and c["score"] >= lex_floor)
-        ]
-        for c in kept:
-            c["relevance"] = round(c["score"], 4)
-        kept.sort(key=lambda c: (c["relevance"], c.get("_fused", 0.0)), reverse=True)
-        results = [{k: v for k, v in c.items() if k != "lexical"} | {"lexical": c["lexical"]}
-                   for c in kept]
+        results, raw_results = _fuse_and_gate(instance, vec_rows, bm25_rows, top_k, threshold,
+                                              _redis_backfill)
         state._record_rag_stats(instance, results, raw_results)
         return results
 
@@ -844,6 +874,36 @@ def search_rag(
                 )
         else:
             log.warning(f"RAG search skipped for '{instance}': {e}")
+        state.record_rag_failure(instance)
+        return []
+
+
+def _search_mongo(instance, query, top_k, threshold, ep, hybrid, query_vec, source_filter):
+    """search_rag for an instance stored on MongoDB: same legs, same fusion, same gate."""
+    field = _ns_embeddings.vector_field_for()
+    try:
+        ensure_rag_index(instance, ep)
+        q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query, is_query=True).astype(np.float32)
+        fetch_k = top_k * 2 if hybrid else top_k
+        kws = textutil._keywords_for_bm25(query) if hybrid else []
+        vec_rows, bm25_rows = mongo_store.search_legs(ep, instance, q_emb, kws, fetch_k, field, hybrid, source_filter)
+
+        def _mongo_backfill(missing):
+            vecs = mongo_store.vectors_for(ep, [r["_key"] for r in missing], field)
+            qv = np.asarray(q_emb, dtype=np.float32)
+            qn = float(np.linalg.norm(qv)) or 1.0
+            for r in missing:
+                cv = vecs.get(r["_key"])
+                if cv is None or cv.size != qv.size:
+                    continue
+                cn = float(np.linalg.norm(cv)) or 1.0
+                r["_vec_score"] = round(float(np.dot(qv, cv)) / (qn * cn), 4)
+
+        results, raw_results = _fuse_and_gate(instance, vec_rows, bm25_rows, top_k, threshold, _mongo_backfill)
+        state._record_rag_stats(instance, results, raw_results)
+        return results
+    except Exception as e:
+        log.warning(f"RAG search skipped for '{instance}' (MongoDB '{ep.name}'): {e}")
         state.record_rag_failure(instance)
         return []
 

@@ -1,4 +1,7 @@
 {
+  "storage": {
+    "app": "default"
+  },
   "redis": {
     "host": "localhost",
     "port": 6379,

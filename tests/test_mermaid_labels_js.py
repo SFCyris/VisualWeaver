@@ -570,3 +570,236 @@ def test_escaping_is_idempotent():
 
 def test_the_timeline_header_is_never_rewritten():
     assert _timeline("timeline\n2024 : x").startswith("timeline\n")
+
+
+# ── words inside labels are not node ids ──────────────────────────────────────
+# A node id stands only where a statement or link target begins. The shape passes used to
+# accept any non-word character before an id, so a `word(..)` INSIDE a label — or the `n`
+# of a `\n(..)` line break — was read as a round node and quoted in place, breaking a label
+# that mermaid parsed perfectly well.
+_BEETHOVEN = (
+    'graph LR\n'
+    '    A["♩♩♩ Three short Gs\\n(anacrusis — unstressed)"] -->|"rhythmic tension"| B["𝅗𝅥 One long E♭\\n(downbeat — IMPACT)"]\n'
+    '    B -->|"sequence repeats\\na step lower"| C["♩♩♩ Three short Gs\\n(again)"]\n'
+    '    C -->|"deeper fall"| D["𝅗𝅥 One long F\\n(subdominant)"]\n'
+    '    D -->|"development\\nover 30 minutes"| E["🎺 C Major Finale\\nTriumph over Fate"]')
+
+
+def test_a_quoted_label_with_a_line_break_before_a_paren_is_left_intact():
+    """The reported diagram: every label is quoted and valid; only the \\n line breaks
+    change (to <br>, which mermaid draws as a real break)."""
+    assert _transform(_BEETHOVEN) == _BEETHOVEN.replace("\\n", "<br>")
+
+
+@pytest.mark.parametrize("src", [
+    'graph LR\n A["Call f(x) now"] --> B',
+    'graph LR\n A>"flag f(x)"] --> B',
+    'graph LR\n A["x f{y} z"] --> B',
+    'graph LR\n A["see note([1])"] --> B',
+    'graph LR\n A["see [[1]] and [(2)] and [/3/]"] --> B',
+    'graph LR\n A["a --> b(c)"] --> B',
+    'graph LR\n A["Q & A(1)"] --> B',
+    'graph LR\n A["x; y(z)"] --> B',
+    'graph LR\n subgraph S["Group f(x)"]\n A\n end',
+    'graph LR\n subgraph "Group f(x)"\n A\n end',
+    'graph LR\n A -- "call f(x)" --> B',
+    'graph LR\n subgraph "Load --> parse(x)"\n A\n end',
+])
+def test_a_quoted_label_that_contains_shape_syntax_is_never_rewritten(src):
+    assert _transform(src) == src
+
+
+@pytest.mark.parametrize("src,want", [
+    ('graph LR\n A[total cost(usd)] --> B',          'graph LR\n A["total cost(usd)"] --> B'),
+    ('graph LR\n A[O(n log n) sort] --> B',          'graph LR\n A["O(n log n) sort"] --> B'),
+    ('graph LR\n A{is f(x) > 0?} --> B',             'graph LR\n A{"is f(x) > 0?"} --> B'),
+])
+def test_a_word_followed_by_parens_inside_an_unquoted_label_is_rescued_whole(src, want):
+    assert _transform(src) == want
+
+
+@pytest.mark.parametrize("src,want", [
+    ('graph LR\n A-->|go|B(x (y))',                 'graph LR\n A-->|"go"|B("x (y)")'),
+    ('graph LR;A-->B(x (y));C(z (w))-->D',          'graph LR;A-->B("x (y)");C("z (w)")-->D'),
+    ('graph LR\n A & B(x (y)) --> C',                'graph LR\n A & B("x (y)") --> C'),
+    ('graph LR\n A ~~~ B{{hex (x)}}',                'graph LR\n A ~~~ B{{"hex (x)"}}'),
+    ('graph LR\n A -.-> B([stad (x)])',              'graph LR\n A -.-> B(["stad (x)"])'),
+    ('graph LR\n A <--> B((c (x)))',                 'graph LR\n A <--> B(("c (x)"))'),
+    ('graph LR\n A -- t --> B(x (y))',               'graph LR\n A -- t --> B("x (y)")'),
+])
+def test_a_node_after_every_kind_of_statement_start_is_still_rescued(src, want):
+    assert _transform(src) == want
+
+
+# ── line breaks ───────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("tag", ["<br>", "<br/>", "<br />", "<BR>"])
+@pytest.mark.parametrize("tmpl", [
+    'graph LR\n A["a{t}b"] --> B',
+    'graph LR\n A -->|"a{t}b"| B',
+    'graph LR\n subgraph S["a{t}b"]\n A\n end',
+])
+def test_a_br_tag_stays_a_line_break(tmpl, tag):
+    """mermaid draws <br> as a line break in node, edge and subgraph labels; rewriting its
+    '<' (to ＜ or #lt;) put the literal tag text in the label instead."""
+    src = tmpl.replace("{t}", tag)
+    assert _transform(src) == src
+
+
+def test_a_br_tag_in_an_unquoted_label_is_kept_when_the_label_is_quoted():
+    assert _transform('graph LR\n A[a<br>b] --> B(c<br/>d)') == 'graph LR\n A["a<br>b"] --> B("c<br/>d")'
+
+
+def test_a_br_tag_is_not_mistaken_for_an_asymmetric_shape():
+    """`br>...]` matches the asymmetric-shape pattern; with any non-word character allowed
+    before an id, every <br> in a label broke the diagram."""
+    assert _transform('graph LR\n A["one<br>two"]') == 'graph LR\n A["one<br>two"]'
+
+
+@pytest.mark.parametrize("src,want", [
+    ('graph LR\n A["one\\ntwo"]',                   'graph LR\n A["one<br>two"]'),
+    ('graph LR\n A(one\\ntwo (x))',                  'graph LR\n A("one<br>two (x)")'),
+    ('graph LR\n A -->|"one\\ntwo"| B',              'graph LR\n A -->|"one<br>two"| B'),
+    ('graph LR\n A -->|one\\ntwo| B',                'graph LR\n A -->|"one<br>two"| B'),
+    ('graph LR\n A -- "one\\ntwo" --> B',            'graph LR\n A -- "one<br>two" --> B'),
+    ('graph LR\n A -- one\\ntwo --> B',              'graph LR\n A -- one<br>two --> B'),
+    ('graph LR\n subgraph S["one\\ntwo"]\n A\n end', 'graph LR\n subgraph S["one<br>two"]\n A\n end'),
+])
+def test_a_literal_backslash_n_becomes_a_line_break(src, want):
+    """mermaid draws a literal \\n as the two characters; models mean a line break."""
+    assert _transform(src) == want
+
+
+@pytest.mark.parametrize("src", [
+    'graph LR\n A["`one\\ntwo`"] --> B',
+    'graph LR\n A["$$\\nabla f \\neq 0$$"] --> B',
+])
+def test_markdown_and_math_labels_keep_their_backslash_n(src):
+    assert _transform(src) == src
+
+
+def test_br_and_newline_handling_is_idempotent():
+    once = _transform(_BEETHOVEN)
+    assert _transform(once) == once
+
+
+# ── cases found by rendering ~2,000 model-style flowcharts through real mermaid 11.12 ──
+# Each expected output below was itself rendered by mermaid 11.12 (htmlLabels off, as the
+# app runs it) and drew the labels a reader would expect.
+_RENDERED_CASES = {
+    'spaced_pipe': ("graph LR\n A --> |Yes| B(Call (x))",
+        "graph LR\n A --> |\"Yes\"| B(\"Call (x)\")"),
+    'spaced_pipe_specials': ("graph LR\n A --> |cost (usd)| B",
+        "graph LR\n A --> |\"cost (usd)\"| B"),
+    'tilde_pipe': ("graph LR\n A ~~~|a (b)| B",
+        "graph LR\n A ~~~|\"a (b)\"| B"),
+    'hyphen_id': ("graph LR\n my-node(a (b)) --> v1.2(c (d))",
+        "graph LR\n my-node(\"a (b)\") --> v1.2(\"c (d)\")"),
+    'unicode_id': ("graph LR\n Größe(x (y)) --> 开始(输入 (x))",
+        "graph LR\n Größe(\"x (y)\") --> 开始(\"输入 (x)\")"),
+    'nbsp_indent': ("graph LR\n  A(x (y))",
+        "graph LR\n  A(\"x (y)\")"),
+    'tight_inline_not_id': ("graph LR\nA--f(x)-->B",
+        "graph LR\nA--f(x)-->B"),
+    'quoted_close_delim': ("graph LR\n A(\"a)\") --> B([\"[a]\"]) --> C>\"a]\"]",
+        "graph LR\n A(\"a)\") --> B([\"[a]\"]) --> C>\"a]\"]"),
+    'quoted_padded': ("graph LR\n A[ \"[b]\" ] --> B",
+        "graph LR\n A[\"[b]\"] --> B"),
+    'quoted_multiline': ("graph TD\n A[\"a\nf(x)\"] --> B(c (d))",
+        "graph TD\n A[\"a\nf(x)\"] --> B(\"c (d)\")"),
+    'inch_mark': ("graph LR\n A[5\"] --> B(a (b))",
+        "graph LR\n A[\"5”\"] --> B(\"a (b)\")"),
+    'nested_brackets': ("graph TD\n A[arr[i] + dist[src]] --> B{x in {1,2}?}",
+        "graph TD\n A[\"arr[i] + dist[src]\"] --> B{\"x in {1,2}?\"}"),
+    'frontmatter': ("---\ntitle: T\n---\nflowchart LR\n    A[f (x)]",
+        "---\ntitle: T\n---\nflowchart LR\n    A[\"f (x)\"]"),
+    'style_prefixed_id': ("flowchart LR\n    Styles[a (b)] --> clickHandler(c (d))",
+        "flowchart LR\n    Styles[\"a (b)\"] --> clickHandler(\"c (d)\")"),
+    'subgraph_bare_title': ("flowchart TB\n    subgraph Data Layer (AWS)\n    A\n    end",
+        "flowchart TB\n    subgraph \"Data Layer (AWS)\"\n    A\n    end"),
+    'subgraph_trailing_ws': ("flowchart TB\n    subgraph s1 [Title (x)] \n    A\n    end",
+        "flowchart TB\n    subgraph s1 [\"Title (x)\"]\n    A\n    end"),
+    'br_variants': ("graph TD\n A[\"one</br>two\"] --> B[\"one<br/ >two\"]",
+        "graph TD\n A[\"one</br>two\"] --> B[\"one<br/ >two\"]"),
+    'gt_amp_with_br': ("graph TD\n A[\"a > b & c\\nnext\"] -->|\"x > y\\nz\"| B",
+        "graph TD\n A[\"a ＞ b ＆ c<br>next\"] -->|\"x #gt; y<br>z\"| B"),
+    'escaped_backslash_n': ("graph LR\n A -->|path\\\\nodes| B",
+        "graph LR\n A -->|\"path\\\\nodes\"| B"),
+    'code_newline': ("graph TD\n A[\"Read until '\\n'\"]",
+        "graph TD\n A[\"Read until '\\n'\"]"),
+    'inline_label_shapes': ("graph LR\n A -- x[0] --> B\n B -- R&D(x) --> C\n C == a;f(x) ==> D",
+        "graph LR\n A -- x[0] --> B\n B -- R&D(x) --> C\n C == a;f(x) ==> D"),
+    'inline_quoted_dashes': ("graph LR\n A -- \"a -- b\" --> B",
+        "graph LR\n A -- \"a -- b\" --> B"),
+    'quoted_pipe_syntax': ("graph TD\n A[\"x -->|y| z\"]",
+        "graph TD\n A[\"x -->|y| z\"]"),
+    'amp_in_rect': ("graph LR\n A[Q&A(FAQ)] --> B[a; b(c)]",
+        "graph LR\n A[\"Q&A(FAQ)\"] --> B[\"a; b(c)\"]"),
+    'amp_in_round': ("graph LR\n A(R&D{x})",
+        "graph LR\n A(\"R&D{x}\")"),
+    'quotes_inside': ("graph LR\n A(\"a\" or \"b\")",
+        "graph LR\n A(\"“a” or “b”\")"),
+}
+
+_RENDERED_CASES.update({
+    'circle_cross_links': ("graph LR\n A --o B(Bee (b)) --> C[Sea (c)]\n D --x E[Box (x)] --> F\n G o--o H(Hat (h))",
+        "graph LR\n A --o B(\"Bee (b)\") --> C[\"Sea (c)\"]\n D --x E[\"Box (x)\"] --> F\n G o--o H(\"Hat (h)\")"),
+    'unpaired_quote_stays_on_its_line': ("graph TD\n A[Screen 6.1 \" OLED] --> B[Phone]\n B --> C(Battery (4000 mAh))\n D -->|yes (stop)| E[Done]",
+        "graph TD\n A[\"Screen 6.1 ” OLED\"] --> B[\"Phone\"]\n B --> C(\"Battery (4000 mAh)\")\n D -->|\"yes (stop)\"| E[\"Done\"]"),
+    'windows_path_and_inline_math': ("graph LR\n A[\"C:\\Users\\name\\notes.txt\"] --> B[\"$\\nabla f$\"] --> C[\"one\\ntwo\"]",
+        "graph LR\n A[\"C:\\Users\\name\\notes.txt\"] --> B[\"$\\nabla f$\"] --> C[\"one<br>two\"]"),
+    'long_arrow': ("graph LR\n A ------------------------> B(x (y))",
+        "graph LR\n A ------------------------> B(\"x (y)\")"),
+    'subgraph_id_kept_when_linked': ("flowchart LR\n  subgraph sg1 (Inputs)\n    A[a]\n  end\n  sg1 --> B[b]",
+        "flowchart LR\n  subgraph sg1[\"sg1 (Inputs)\"]\n    A[\"a\"]\n  end\n  sg1 --> B[\"b\"]"),
+    'subgraph_title_only_when_unlinked': ("flowchart LR\n  subgraph Data Layer (AWS)\n    A[a]\n  end\n  A --> B[b]",
+        "flowchart LR\n  subgraph \"Data Layer (AWS)\"\n    A[\"a\"]\n  end\n  A --> B[\"b\"]"),
+})
+_RENDERED_CASES.update({
+    'stray_quote_in_round_label': ("graph LR\n    A(He said \"hi) --> B(x (y))",
+        "graph LR\n    A(\"He said ”hi\") --> B(\"x (y)\")"),
+    'stray_quote_in_inline_label': ("graph LR\n    A -- say \"hi --> B(x (y))",
+        "graph LR\n    A -- \"say ”hi\" --> B(\"x (y)\")"),
+    'pipe_label_after_long_arrow': ("graph LR\n    A ------------------------>|go (now)| B",
+        "graph LR\n    A ------------------------>|\"go (now)\"| B"),
+    'percent_signs_in_a_quoted_label': ("graph LR\n    A[\"50%% off\"] --> B\n    C(x (y)) --> D[\"z\"]",
+        "graph LR\n    A[\"50%% off\"] --> B\n    C(\"x (y)\") --> D[\"z\"]"),
+    'inch_mark_with_a_later_quote': ("graph LR\n A[27\" monitor] --> B(a (b)) --> C[\"x\"]",
+        "graph LR\n A[\"27\u201d monitor\"] --> B(\"a (b)\") --> C[\"x\"]"),
+    'tight_circle_link': ("graph LR\n    A--oB(Bee (b))-->C",
+        "graph LR\n    A--oB(\"Bee (b)\")-->C"),
+})
+
+@pytest.mark.parametrize("name", list(_RENDERED_CASES))
+def test_rendered_cases(name):
+    src, want = _RENDERED_CASES[name]
+    assert _transform(src) == want
+
+
+_PHOTOSYNTHESIS = "graph LR\n    P680[\"PSII\\nP680\\n(Photosystem II)\"] -->|\"absorbs photon\\nhν\"| EX1[\"Excited e⁻\"]\n    EX1 -->|\"electron transport\"| PQ[\"Plastoquinone\\nPQ\"]\n    WATER2[\"H₂O → 2H⁺ + ½O₂ + 2e⁻\\n(Water splitting / OEC)\"] -->|\"donates e⁻\"| P680\n    PQ -->|\"Qcycle\"| CYT[\"Cytochrome b6f\\nComplex\"]\n    CYT -->|\"pumps H⁺\\ninto lumen\"| GRAD[\"Proton Gradient\\nΔψ + ΔpH = pmf\"]\n    CYT -->|\"passes e⁻\"| PC[\"Plastocyanin\\nPC\"]\n    PC --> P700[\"PSI\\nP700\\n(Photosystem I)\"]\n    P700 -->|\"absorbs photon\\nhν\"| EX2[\"Re-excited e⁻\"]\n    EX2 --> FD[\"Ferredoxin\\nFd\"]\n    FD -->|\"FNR enzyme\"| NADPH[\"NADPH\"]\n    GRAD -->|\"drives\"| ATP[\"ATP Synthase\\n(CF₀CF₁)\\n→ ATP\"]\n"
+
+
+def test_the_photosynthesis_report_keeps_its_quoted_labels_and_gains_line_breaks():
+    """Second reported diagram: `\\n(Photosystem II)` in quoted labels broke the parse."""
+    assert _transform(_PHOTOSYNTHESIS) == _PHOTOSYNTHESIS.replace("\\n", "<br>")
+
+
+@pytest.mark.parametrize("run", ["-", "=", "~"])
+def test_a_long_dash_run_stays_fast(run):
+    """A long divider in a label was retried from every position by the link patterns."""
+    if not shutil.which("node"):
+        pytest.skip("node not available")
+    src = 'graph TD\n  A["' + run * 10000 + '"] --> B(x (y))\n  C ' + run * 10000 + ' D'
+    js = (_fn() + "\nconst s=" + json.dumps(src) + ";const t=Date.now();const o=_mermaidSafeLabels(s);"
+          "console.log(JSON.stringify({ms:Date.now()-t,ok:o.includes(" + json.dumps('B("x (y)")') + ")}));")
+    r = run_node(js, timeout=60)
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    assert res["ok"] and res["ms"] < 150, res
+
+
+
+def test_click_and_style_strings_are_not_given_label_rewrites():
+    """A click/style line is held whole: its strings are a URL, a callback argument or a
+    tooltip, not a label, so neither the line-break nor the '<' rewrite may touch them."""
+    src = ('graph LR\n A --> B\n click A call fn("a\\nb", "x<y")\n'
+           ' click B "https://x.org/a(1)" "Open <docs>"\n style B fill:#f9f,stroke:#333')
+    assert _transform(src) == src

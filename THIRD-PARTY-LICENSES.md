@@ -11,7 +11,7 @@ _Generated on 2026-07-26 from the resolved dependency closure of a development i
 | License | Packages |
 |---|---|
 | **MIT** | `PyYAML`, `annotated-doc`, `annotated-types`, `anthropic`, `anyio`, `beautifulsoup4`, `brotli`, `cffi`, `charset-normalizer`, `docstring_parser`, `et_xmlfile`, `fastapi`, `fastapi-cli`, `filelock`, `h11`, `jiter`, `markdown-it-py`, `mdurl`, `openpyxl`, `pydantic`, `pydantic_core`, `python-docx`, `python-ulid`, `pytz`, `redis`, `redisvl`, `rich`, `rich-toolkit`, `setuptools`, `six`, `soupsieve`, `tqdm`, `typer`, `typing-inspection`, `tzlocal`, `urllib3`, `zipp` |
-| **Apache-2.0** | `aiofiles`, `courlan`, `cryptography`, `distro`, `google-auth`, `google-genai`, `groq`, `hf-xet`, `htmldate`, `huggingface_hub`, `importlib_metadata`, `jsonpath-ng`, `ml_dtypes`, `openai`, `orjson`, `packaging`, `python-dateutil`, `python-multipart`, `requests`, `safetensors`, `sentence-transformers`, `sniffio`, `tenacity`, `tokenizers`, `trafilatura`, `transformers`, `uvloop` |
+| **Apache-2.0** | `aiofiles`, `courlan`, `cryptography`, `distro`, `google-auth`, `google-genai`, `groq`, `hf-xet`, `htmldate`, `huggingface_hub`, `importlib_metadata`, `jsonpath-ng`, `ml_dtypes`, `openai`, `orjson`, `packaging`, `pymongo`, `python-dateutil`, `python-multipart`, `requests`, `safetensors`, `sentence-transformers`, `sniffio`, `tenacity`, `tokenizers`, `trafilatura`, `transformers`, `uvloop` |
 | **BSD** | `Jinja2`, `MarkupSafe`, `Pygments`, `babel`, `click`, `dateparser`, `fsspec`, `httpcore`, `httpx`, `idna`, `joblib`, `jusText`, `lxml`, `mpmath`, `networkx`, `numpy`, `pyasn1`, `pyasn1_modules`, `pycparser`, `scikit-learn`, `scipy`, `starlette`, `sympy`, `threadpoolctl`, `torch`, `uvicorn`, `websockets` |
 | **AGPL-3.0** | `PyMuPDF`, `PyMuPDFb` |
 | **ISC** | `dnspython`, `shellingham` |
@@ -62,8 +62,20 @@ These are **not** bundled with VisualWeaver or included in the Docker image. `vi
 | [abcjs](https://www.abcjs.net) | `abc` sheet music | MIT |
 | [vis-network](https://github.com/visjs/vis-network) | `network` force-directed graphs | Apache-2.0 or MIT |
 | [highlight.js](https://highlightjs.org) | code syntax highlighting | BSD-3-Clause |
+| [Noto Music](https://github.com/notofonts/music) font (via [@fontsource/noto-music](https://fontsource.org/fonts/noto-music) 5.3.0) | music notation symbols (𝅗𝅥 𝅘𝅥𝅮 𝄞 …) in chat text and `mermaid` diagrams; fetched only when such a symbol appears | OFL-1.1 |
 
 **Graphviz / EPL-2.0.** `@viz-js/viz` is MIT-licensed but embeds Graphviz — version **15.1.1** in the `@viz-js/viz@3.29.0` build loaded here (the `graphvizVersion` string compiled into `viz-global.js`). Graphviz relicensed to the **Eclipse Public License 2.0** at **14.1.4** (early 2026; it was the Common Public License 1.0 before that, which downstream tools often labelled EPL-1.0), so every 14.1.4-or-later build — including the 15.1.1 embedded here — is EPL-2.0, a license the FSF still regards as GPL-incompatible. EPL-2.0 adds a "Secondary Licenses" mechanism that can grant GPL compatibility, but Graphviz did not elect it: Exhibit A of its `COPYING` is left as the unfilled `{name license(s)…}` boilerplate, so the GPL-incompatibility conclusion holds. Because VisualWeaver neither bundles nor conveys it (the browser loads it from a CDN at runtime), it does not form a combined work with this AGPL codebase. Anyone who chooses to **vendor** the browser libraries into a distributed build should review that themselves; the `dot` lane can simply be dropped if that is a concern. Note that EPL-2.0 §3.3 forbids stripping the `Copyright (c) Michael Daines … Graphviz, Expat` header from `viz-global.js` if the file is ever copied into a build.
+
+## Optional components downloaded at install time
+
+Chosen during `./install.sh` (storage *MongoDB* or *Both*) or with the `mongodb` / `both` Docker Compose profile. They are **not distributed with VisualWeaver**: the container runtime on your machine downloads them directly from MongoDB's own Docker Hub namespace, pinned by tag and digest. `./install.sh` shows their licence and asks you to accept it before downloading; with Docker Compose, choosing a `mongodb` or `both` profile downloads them under the same licence.
+
+| Component | Image | Licence |
+|---|---|---|
+| [MongoDB Community Server](https://www.mongodb.com/products/self-managed/community-edition) 9.0.4 (`mongod`) | `mongodb/mongodb-community-server:9.0.4-ubi9-slim` | [Server Side Public License v1](https://www.mongodb.com/licensing/server-side-public-license) (SSPL), MongoDB, Inc. |
+| [MongoDB Search](https://github.com/mongodb/mongot) 1.78.0 (`mongot`) | `mongodb/mongodb-community-search:1.78.0` | [Server Side Public License v1](https://www.mongodb.com/licensing/server-side-public-license) (SSPL), MongoDB, Inc. |
+
+VisualWeaver talks to MongoDB over its network protocol through `pymongo` (Apache-2.0, listed above); MongoDB runs as separate processes in its own containers and is not linked into this program. The SSPL is not an OSI-approved open-source licence, and some organisations' policies do not allow it — check yours before choosing MongoDB. MongoDB is a trademark of MongoDB, Inc.; VisualWeaver is an independent project and is not endorsed by MongoDB, Inc.
 
 ## Services
 

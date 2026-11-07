@@ -5,10 +5,12 @@ Split out mechanically for maintainability; cross-module references are
 module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
+import asyncio
 import copy
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 try:
@@ -51,6 +53,7 @@ def load_config() -> dict:
                 cfg = json.load(f)
             if not isinstance(cfg, dict):
                 raise ValueError(f"expected a JSON object, got {type(cfg).__name__}")
+            normalise_mongo_credentials(cfg)
             merged = {**constants.DEFAULT_CONFIG, **cfg}
             # Shallow-merge each nested dict so we pick up new sub-keys
             for k, v in constants.DEFAULT_CONFIG.items():
@@ -85,7 +88,25 @@ def load_config() -> dict:
                       f"{constants.DEFAULT_CONFIG['redis']['host']}:{constants.DEFAULT_CONFIG['redis']['port']}).")
             log.error("Restore the quarantined file or re-enter settings before ingesting.")
             log.error("=" * 70)
-    return dict(constants.DEFAULT_CONFIG)
+    # A deep copy: the nested sections are changed in place later (environment
+    # overrides, a storage switch), which must not rewrite the defaults themselves.
+    return copy.deepcopy(constants.DEFAULT_CONFIG)
+
+
+# Every config write is numbered when its copy is taken and lands in that order: a write
+# that reaches the disk after a NEWER one is dropped instead of published over it. Saves
+# run in threads now (save_config_async, and the sync routes FastAPI runs in its pool),
+# so without this a slow older copy could bring back, say, a connection just deleted.
+_config_writes = {"issued": 0, "written": 0}
+_config_seq_lock = threading.Lock()     # held only to take a number — safe on the loop
+_config_write_lock = threading.Lock()   # held for the write itself — never on the loop
+_config_write_seq = threading.local()   # the number save_config_async took for its copy
+
+
+def _next_config_seq() -> int:
+    with _config_seq_lock:
+        _config_writes["issued"] += 1
+        return _config_writes["issued"]
 
 
 def save_config(cfg: dict):
@@ -93,7 +114,10 @@ def save_config(cfg: dict):
     Persist config to disk.
     API keys that were loaded from environment variables are always stripped
     before writing so they never end up on disk.
+
+    Blocking (an fsync'd write): async code calls save_config_async instead.
     """
+    seq = getattr(_config_write_seq, "seq", None) or _next_config_seq()
     to_save = copy.deepcopy(cfg)
     if state._env_key and to_save.get("claude", {}).get("api_key") == state._env_key:
         to_save.setdefault("claude", {})["api_key"] = ""
@@ -107,6 +131,43 @@ def save_config(cfg: dict):
         to_save.setdefault("groq", {})["api_key"] = ""
     if state._gemini_env_key and to_save.get("gemini", {}).get("api_key") == state._gemini_env_key:
         to_save.setdefault("gemini", {})["api_key"] = ""
+    # VISUALWEAVER_OLLAMA_URL applies to the run only: while the setting still holds the
+    # address it set, the file keeps the shipped default.
+    _o = to_save.get("ollama")
+    if state._ollama_env_url and isinstance(_o, dict) and \
+            f"{_o.get('host')}:{_o.get('port')}" == state._ollama_env_url:
+        to_save["ollama"] = {**_o, "host": constants.DEFAULT_CONFIG["ollama"]["host"],
+                             "port": constants.DEFAULT_CONFIG["ollama"]["port"]}
+    # Storage set by VISUALWEAVER_STORAGE / VISUALWEAVER_MONGODB_* applies to the run,
+    # not to the file: what config.json held before is written back.
+    ov = state._storage_env_overlay
+    if ov:
+        if isinstance(to_save.get("storage"), dict):
+            if "default_type" in ov:
+                if ov["default_type"] is None:
+                    to_save["storage"].pop("default_type", None)
+                else:
+                    to_save["storage"]["default_type"] = ov["default_type"]
+        if "mongodb" in ov:
+            if ov["mongodb"] is None:
+                to_save.pop("mongodb", None)
+            else:
+                to_save["mongodb"] = copy.deepcopy(ov["mongodb"])
+        if "endpoint" in ov and isinstance(to_save.get("redis_endpoints"), list):
+            name, before = ov["endpoint"]
+            eps = [e for e in to_save["redis_endpoints"] if not (isinstance(e, dict) and e.get("name") == name)]
+            if before is not None:
+                eps.append(copy.deepcopy(before))
+            to_save["redis_endpoints"] = eps
+    # VISUALWEAVER_MONGODB_PASSWORD: the built-in MongoDB (or the "local-mongodb"
+    # connection) got it from the environment, so it stays there.
+    if state._mongodb_env_password:
+        if (to_save.get("mongodb") or {}).get("password") == state._mongodb_env_password:
+            to_save["mongodb"]["password"] = ""
+        for ep in to_save.get("redis_endpoints") or []:
+            if (isinstance(ep, dict) and ep.get("builtin")
+                    and ep.get("password") == state._mongodb_env_password):
+                ep["password"] = ""
     # Atomic write: serialise fully, fsync, then rename over the target. A plain
     # open(path,"w") truncates first, so a crash / full disk / OOM mid-write leaves
     # a half-written file that parses as garbage on the next boot (see load_config).
@@ -117,17 +178,71 @@ def save_config(cfg: dict):
                                       prefix=f".{constants.CONFIG_PATH.name}.", suffix=".tmp")
     os.close(_fd)
     tmp = Path(_tmp_name)
+    _config_write_lock.acquire()
     try:
+        if seq < _config_writes["written"]:
+            tmp.unlink(missing_ok=True)   # a newer copy is already on disk
+            return
         with open(tmp, "w") as f:
             json.dump(to_save, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, constants.CONFIG_PATH)      # atomic on POSIX and Windows
+        _config_writes["written"] = seq
         # A good file is on disk now, so /api/health must stop reporting "degraded".
         state._config_load_error = ""
     except Exception:
         try:
             tmp.unlink(missing_ok=True)   # never leave a stray temp behind
+        except Exception:
+            pass
+        raise
+    finally:
+        _config_write_lock.release()
+
+
+async def save_config_async(cfg: dict) -> None:
+    """save_config, without blocking the event loop (it fsyncs; on a slow or network
+    disk that is tens of milliseconds every other session waits through).
+
+    The copy is taken here, on the loop, so a request that changes the config while the
+    write is in flight cannot be caught half-copied; it is numbered here too, so it is
+    ordered by when it was asked for, not by which thread reaches the disk first.
+    """
+    snap = copy.deepcopy(cfg)
+    seq = _next_config_seq()
+
+    def _write():
+        _config_write_seq.seq = seq
+        try:
+            save_config(snap)     # the module attribute, so a test's stand-in applies
+        finally:
+            _config_write_seq.seq = None
+
+    await asyncio.to_thread(_write)
+
+
+def _write_json_atomic(path: Path, obj) -> None:
+    """Write JSON to ``path`` the way save_config does: a unique temp file beside it,
+    fsync, then rename over the target — so a crash or a full disk mid-write leaves the
+    previous file intact instead of a truncated one."""
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w") as f:
+            # mkstemp makes the file 0600; keep the mode the file had (0644 when new).
+            if hasattr(os, "fchmod"):                       # POSIX
+                try:
+                    os.fchmod(f.fileno(), path.stat().st_mode & 0o777)
+                except FileNotFoundError:
+                    os.fchmod(f.fileno(), 0o644)
+            f.write(json.dumps(obj))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
         except Exception:
             pass
         raise
@@ -141,13 +256,23 @@ def save_config(cfg: dict):
 _provider_clients: dict = {}
 
 def _cached_client(kind: str, api_key: str, base_url: str):
-    """Return a pooled SDK client for (kind, key, base_url), creating it on first use."""
+    """Return a pooled SDK client for (kind, key, base_url), creating it on first use.
+
+    ``kind`` is "anthropic", "openai" (every OpenAI-compatible provider) or "gemini"
+    (google-genai; it has no base URL setting, so pass ""). A google-genai Client builds
+    two HTTP clients and their SSL contexts — ~25 ms — which gemini_stream, the model
+    list and the key check each paid on every call.
+    """
     ck = (kind, api_key, base_url)
     c = _provider_clients.get(ck)
     if c is None:
-        c = (_anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
-             if kind == "anthropic" else
-             _AsyncOpenAI(api_key=api_key, base_url=base_url))
+        if kind == "anthropic":
+            c = _anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+        elif kind == "gemini":
+            from . import providers   # late: providers imports this module
+            c = providers._google_genai.Client(api_key=api_key)
+        else:
+            c = _AsyncOpenAI(api_key=api_key, base_url=base_url)
         _provider_clients[ck] = c
     return c
 
@@ -313,6 +438,16 @@ def _visual_lane_supplement(base: str) -> str:
     return "\n".join([header] + ([routing] if routing else []) + bullets)
 
 
+# The composed base of the system prompt, keyed on everything it is computed from. A
+# saved instruction that differs from the shipped one is diffed against it on every
+# composition (_visual_lane_supplement → base_instruction_drift: a dozen regex passes
+# over ~20 KB) — 4.4 ms of event-loop time per chat turn, for a result that changes only
+# when Settings is saved or the app is upgraded. Small and bounded: a handful of
+# distinct keys exist over a process's life.
+_composed_base: dict = {}
+_COMPOSED_BASE_MAX = 16
+
+
 def compose_system_prompt(client_system: str | None) -> str:
     """
     Build the effective system prompt for a chat turn.
@@ -321,11 +456,38 @@ def compose_system_prompt(client_system: str | None) -> str:
     always prepended; a selected template's system prompt is added on top of it
     (templates are additive to the base). If both are empty we fall back to a
     plain default so the model still gets a system message.
+
+    The base part is memoised (see _composed_base) on every input it depends on —
+    the stored instruction (its type too, so 1 and True stay apart), the visual-blocks
+    flag, the shipped instruction, its section marker, the renderable fences and the
+    two functions that diff them — so a change to any of them is a new key, never a
+    stale prompt.
     """
+    _bi = state._config.get("base_instruction")
+    visual = bool(state._config.get("visual_instructions", True))
+    key = (type(_bi), _bi, visual, constants.DEFAULT_BASE_INSTRUCTION,
+           getattr(constants, "VISUAL_SECTION_MARKER", None), constants.RENDERABLE_FENCES,
+           _visual_lane_supplement, base_instruction_drift)
+    try:
+        base = _composed_base.get(key)
+    except TypeError:            # an unhashable value (a hand-edited list): just compute it
+        key, base = None, None
+    if base is None:
+        base = _compose_base(_bi, visual)
+        if key is not None:
+            if len(_composed_base) >= _COMPOSED_BASE_MAX:
+                _composed_base.clear()
+            _composed_base[key] = base
+    client = (client_system or "").strip()
+    parts  = [p for p in (base, client) if p]
+    return "\n\n".join(parts) if parts else "You are a helpful assistant."
+
+
+def _compose_base(_bi, visual: bool) -> str:
+    """The base-instruction part of compose_system_prompt (uncached)."""
     # isinstance, not `or ""`. Hardening only the config route moved the
     # symptom from "Settings will not open" to "the app answers nothing",
     # which is worse: this runs on every chat turn.
-    _bi = state._config.get("base_instruction")
     base   = (_bi if isinstance(_bi, str) else "").strip()
     # Drop the large chart/diagram authoring section on text-only deployments
     # (config visual_instructions=False) to save ~2k billed tokens per turn. The
@@ -333,7 +495,7 @@ def compose_system_prompt(client_system: str | None) -> str:
     # VISUAL_SECTION_MARKER, so cutting there keeps the core answer-style guidance.
     # Limitation: a customised base instruction that appends its own text AFTER that
     # marker loses it when gated off — the marker is treated as the start of a suffix.
-    if not state._config.get("visual_instructions", True):
+    if not visual:
         cut = base.find(constants.VISUAL_SECTION_MARKER)
         if cut != -1:
             base = base[:cut].rstrip()
@@ -343,9 +505,7 @@ def compose_system_prompt(client_system: str | None) -> str:
         supp = _visual_lane_supplement(base)
         if supp:
             base = (base + "\n\n" + supp).strip() if base else supp
-    client = (client_system or "").strip()
-    parts  = [p for p in (base, client) if p]
-    return "\n\n".join(parts) if parts else "You are a helpful assistant."
+    return base
 
 
 # ── Secret redaction ──────────────────────────────────────────────────────────
@@ -366,6 +526,8 @@ def _redact_secrets(cfg: dict) -> dict:
             red[p]["api_key"] = _SECRET_SENTINEL
     if isinstance(red.get("redis"), dict) and red["redis"].get("password"):
         red["redis"]["password"] = _SECRET_SENTINEL
+    if isinstance(red.get("mongodb"), dict) and red["mongodb"].get("password"):
+        red["mongodb"]["password"] = _SECRET_SENTINEL
     if isinstance(red.get("security"), dict) and red["security"].get("password"):
         red["security"]["password"] = _SECRET_SENTINEL
     # isinstance, not `or []`: a non-list here (5, or a bare string) either
@@ -386,12 +548,95 @@ def _unredact_secrets(new_cfg: dict, old_cfg: dict) -> None:
             new_cfg[p]["api_key"] = (old_cfg.get(p) or {}).get("api_key", "")
     if isinstance(new_cfg.get("redis"), dict) and new_cfg["redis"].get("password") == _SECRET_SENTINEL:
         new_cfg["redis"]["password"] = (old_cfg.get("redis") or {}).get("password", "")
+    if isinstance(new_cfg.get("mongodb"), dict) and new_cfg["mongodb"].get("password") == _SECRET_SENTINEL:
+        new_cfg["mongodb"]["password"] = (old_cfg.get("mongodb") or {}).get("password", "")
     if isinstance(new_cfg.get("security"), dict) and new_cfg["security"].get("password") == _SECRET_SENTINEL:
         new_cfg["security"]["password"] = (old_cfg.get("security") or {}).get("password", "")
     old_eps = {e.get("name"): e for e in (old_cfg.get("redis_endpoints") or []) if isinstance(e, dict)}
     for ep in new_cfg.get("redis_endpoints", []) or []:
         if isinstance(ep, dict) and ep.get("password") == _SECRET_SENTINEL:
             ep["password"] = (old_eps.get(ep.get("name")) or {}).get("password", "")
+
+
+# ── Installed storage ─────────────────────────────────────────────────────────
+# ``storage`` (what the built-in "default" connection is, and which connection holds
+# the app data), the built-in MongoDB (``mongodb``) and the built-in entries of
+# ``redis_endpoints`` describe what was installed on this machine. They change only
+# through the installer and POST /api/storage/app, never through a settings save or
+# a config import.
+
+_INSTALLED_KEYS = ("storage", "mongodb")
+
+
+def normalise_mongo_credentials(cfg: dict) -> dict:
+    """In place: move a user:password pasted into a MongoDB connection string into the
+    username/password fields, which are redacted for the browser and exports. A URI
+    edited into config.json by hand, or imported, would otherwise carry its password
+    to every client that reads the config."""
+    from . import mongo_store
+    targets = [cfg.get("mongodb")] + list(cfg.get("redis_endpoints") or [])
+    for c in targets:
+        if not isinstance(c, dict) or (c is not cfg.get("mongodb") and c.get("type") != "mongodb"):
+            continue
+        uri = c.get("uri")
+        if not isinstance(uri, str) or "@" not in uri:
+            continue
+        clean, user, pw = mongo_store.split_uri_credentials(uri)
+        if clean != uri:
+            c["uri"] = clean
+            if user and not c.get("username"):
+                c["username"] = user
+            if pw and not c.get("password"):
+                c["password"] = pw
+    return cfg
+
+
+def keep_installed_storage(new_cfg: dict, old_cfg: dict) -> None:
+    """In place: give new_cfg the installed-storage sections of old_cfg.
+
+    Built-in connections are kept exactly as they are — on a Redis-first install that
+    includes ``redis`` itself, which IS the built-in store (an imported config from
+    another machine would otherwise move every conversation, the answer cache and the
+    default instances onto its Redis). The connection holding the app data is kept too:
+    edits to it are accepted, but it cannot be dropped or change type (the app data
+    would silently land on another store)."""
+    keys = list(_INSTALLED_KEYS)
+    st_old = old_cfg.get("storage") if isinstance(old_cfg.get("storage"), dict) else {}
+    if st_old.get("default_type") != "mongodb" and isinstance(old_cfg.get("redis"), dict):
+        keys.append("redis")
+    for k in keys:
+        if k in old_cfg:
+            new_cfg[k] = copy.deepcopy(old_cfg[k])
+        else:
+            new_cfg.pop(k, None)
+    normalise_mongo_credentials(new_cfg)
+    eps = new_cfg.get("redis_endpoints")
+    if not isinstance(eps, list):
+        return
+    old_eps = [e for e in (old_cfg.get("redis_endpoints") if isinstance(old_cfg.get("redis_endpoints"), list)
+                           else []) if isinstance(e, dict) and e.get("name")]
+    builtin = {e["name"]: e for e in old_eps if e.get("builtin")}
+    st = old_cfg.get("storage") if isinstance(old_cfg.get("storage"), dict) else {}
+    app = st.get("app") or "default"
+    app_ep = next((e for e in old_eps if e["name"] == app and not e.get("builtin")), None)
+    out = []
+    for e in eps:
+        if not isinstance(e, dict):
+            out.append(e)
+            continue
+        if e.get("name") in builtin:
+            out.append(copy.deepcopy(builtin.pop(e["name"])))
+            continue
+        e = {k: v for k, v in e.items() if k != "builtin"}
+        if app_ep is not None and e.get("name") == app:
+            if (e.get("type") or "redis") != (app_ep.get("type") or "redis"):
+                e = copy.deepcopy(app_ep)
+            app_ep = None
+        out.append(e)
+    out += [copy.deepcopy(e) for e in builtin.values()]   # dropped by the payload: kept
+    if app_ep is not None:
+        out.append(copy.deepcopy(app_ep))
+    new_cfg["redis_endpoints"] = out
 
 
 # Retention caps for the two append-only JSON stores. Both are held in memory
@@ -434,10 +679,38 @@ def load_feedback():
             log.warning(f"Could not read {constants.FEEDBACK_PATH.name} ({e}) — starting with empty feedback")
 
 
+_logs_lock = threading.Lock()
+_feedback_lock = threading.Lock()
+
+
 def append_log(entry: dict):
-    """Append an ingestion event and keep the last _MAX_LOGS entries."""
-    state._ingestion_logs.append(entry)
-    del state._ingestion_logs[:-_MAX_LOGS]          # trim in memory, not just on disk
-    with open(constants.LOGS_PATH, "w") as f:
-        json.dump(state._ingestion_logs, f)
+    """Append an ingestion event and keep the last _MAX_LOGS entries.
+
+    Blocking — it rewrites the whole file — so async callers run it in a thread.
+    """
+    append_logs([entry])
+
+
+def append_logs(entries: list[dict]):
+    """append_log for several events with ONE rewrite of the file (a crawl's batch).
+
+    Serialised: crawl pages, file ingests and resets log from several threads at once,
+    and two writers interleaving in one open(..., "w") leave a corrupt file.
+    """
+    with _logs_lock:
+        state._ingestion_logs.extend(entries)
+        del state._ingestion_logs[:-_MAX_LOGS]      # trim in memory, not just on disk
+        data = json.dumps(state._ingestion_logs)    # the C encoder; json.dump streams in Python
+        with open(constants.LOGS_PATH, "w") as f:
+            f.write(data)
+
+
+def save_feedback() -> None:
+    """Persist the feedback store — atomically, and off the event loop (call it in a
+    thread). It is rewritten whole on every rating, and a plain open(path, "w")
+    truncated it first: a crash mid-write lost every rating ever given. Serialised, and
+    each write takes the list as it is at that moment, so the last write always holds
+    every rating appended before it."""
+    with _feedback_lock:
+        _write_json_atomic(constants.FEEDBACK_PATH, list(state._feedback))
 

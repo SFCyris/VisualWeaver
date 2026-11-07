@@ -64,7 +64,7 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
-from . import appcore, cache, config, constants, embeddings, providers, rag_admin, redis_store, state
+from . import appcore, cache, config, constants, embeddings, mongo_store, providers, rag_admin, redis_store, state
 
 log = logging.getLogger(__name__)
 
@@ -173,6 +173,11 @@ async def api_save_config(payload: dict):
                     + (f" (affects: {', '.join(populated)})" if populated else ""))
         await redis_store._reset_index_markers_for_embedding_change()
 
+    # What the installer set up (storage, the built-in MongoDB, built-in connections) is
+    # not a setting: a page holding a config read before a storage switch would
+    # otherwise switch the app data back with its next save, without copying it.
+    config.keep_installed_storage(payload, state._config)
+
     _computed = _computed_config_keys()      # once, not once per key: each call
     state._config.update({k: v for k, v in payload.items()   # rebuilds the whole
                           if k not in _computed})            # drift report
@@ -201,10 +206,12 @@ async def api_save_config(payload: dict):
     if state._gemini_env_key:
         state._config.setdefault("gemini", {})["api_key"] = state._gemini_env_key
 
-    config.save_config(state._config)      # strips env keys before writing to disk
+    # Drop the clients built from the old settings BEFORE the write is awaited: during
+    # the await other requests run, and must not use them with the new config.
     redis_store.invalidate_redis_clients()
     config.invalidate_provider_clients()   # keys/base URLs may have changed
     state._embed_model = None       # force model reload on next request
+    await config.save_config_async(state._config)   # strips env keys before writing to disk
 
     log.info(
         f"Config saved — provider={state._config.get('provider')} "
@@ -240,7 +247,12 @@ def api_export_config():
 @appcore.app.post("/api/config/import")
 async def api_import_config(file: UploadFile = File(...)):
     content = await file.read()
-    cfg = json.loads(content)
+    try:
+        cfg = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(400, f"Not a VisualWeaver config file (invalid JSON: {e})")
+    if not isinstance(cfg, dict):
+        raise HTTPException(400, "Not a VisualWeaver config file (expected a JSON object)")
     # Sentinel secrets in an exported file mean "keep what's already stored".
     config._unredact_secrets(cfg, state._config)
     merged = {**constants.DEFAULT_CONFIG, **cfg}
@@ -265,11 +277,15 @@ async def api_import_config(file: UploadFile = File(...)):
     # computes; they are not settings and must not be written to disk.
     for _k in _computed_config_keys():
         merged.pop(_k, None)
+    # A config from another machine (or an older backup) must not re-point the
+    # built-in store or the app-data connection installed here.
+    config.keep_installed_storage(merged, state._config)
     state._config = merged
-    config.save_config(state._config)
-    # Endpoints, provider keys and the embedding model may all have changed.
+    # Endpoints, provider keys and the embedding model may all have changed. Dropped
+    # before the write is awaited, so no request in between uses the old clients.
     redis_store.invalidate_redis_clients()
     config.invalidate_provider_clients()
+    await config.save_config_async(state._config)
     return {"ok": True}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -314,18 +330,36 @@ def api_health():
     }
 
 
-def probe_search(rc: redis.Redis, ep_name: str = "default") -> bool:
-    """
-    Check whether a Redis connection has the Search module (RediSearch) loaded.
+# When a "no Search" verdict was reached, per endpoint: it is checked again after
+# _SEARCH_RECHECK_S (a module loaded later, a server restarted with it) instead of
+# blocking that connection for the life of the process.
+_search_probed_at: dict = {}
+_SEARCH_RECHECK_S = 60.0
 
-    The result is cached in ``_search_available`` so we only probe once per
-    endpoint per server lifetime — subsequent calls return instantly.
 
-    Returns True if FT commands are available, False otherwise.
+def probe_search(rc: redis.Redis, ep_name: str = "default", fresh: bool = False) -> bool:
     """
+    Check whether a Redis connection can hold vector indexes: the Search module
+    (RediSearch) is loaded and the connection uses database 0 — Redis creates search
+    indexes in db 0 only ("Cannot create index on db != 0").
+
+    A True result is cached in ``_search_available`` for the life of the process; a
+    False one is checked again after _SEARCH_RECHECK_S, and ``fresh`` (the Test
+    button) always checks again.
+    """
+    import time as _time
     cached = state._search_available.get(ep_name)
-    if cached is not None:
+    if cached is not None and not fresh and (
+            cached or _time.monotonic() - _search_probed_at.get(ep_name, 0.0) < _SEARCH_RECHECK_S):
         return cached
+    _search_probed_at[ep_name] = _time.monotonic()
+    try:
+        db = int((getattr(rc, "connection_pool", None).connection_kwargs or {}).get("db") or 0)
+    except Exception:
+        db = 0
+    if db != 0:
+        state._search_available[ep_name] = False
+        return False
     try:
         # FT.INFO on a non-existent index raises "Unknown index name" (not
         # "unknown command") when Search IS available — so any response other
@@ -344,9 +378,24 @@ def probe_search(rc: redis.Redis, ep_name: str = "default") -> bool:
 
 @appcore.app.get("/api/status/redis")
 def api_redis_status():
-    """Ping the primary Redis, refresh endpoint health, and return server info."""
+    """Ping the built-in default connection, refresh endpoint health, and return server
+    info. On a built-in MongoDB: ``type: "mongodb"``, its version and vector search."""
     # Refresh health for all endpoints on every status poll (called every 30 s by the UI)
     redis_store.refresh_endpoint_health()
+    if redis_store.default_type() == "mongodb":
+        # The cached client: a fresh MongoClient per 30 s poll would be a new pool each time.
+        try:
+            p = mongo_store.probe(redis_store.endpoint_cfg("default"), ep=redis_store.r_for("default"))
+        except Exception as e:     # a malformed connection string: MongoClient refuses it
+            p = {"ok": False, "error": str(e)[:300]}
+        state._endpoint_health["default"] = bool(p["ok"])
+        state._search_available["default"] = bool(p.get("vector_search")) if p["ok"] else None
+        out = {"ok": p["ok"], "type": "mongodb", "version": p.get("version"),
+               "search_available": p.get("vector_search", False),
+               "endpoint_health": dict(state._endpoint_health)}
+        if p.get("error"):
+            out["error"] = p["error"]
+        return out
     try:
         rc = redis_store.get_redis()
         info = rc.info()
@@ -358,6 +407,7 @@ def api_redis_status():
             "connected_clients": info.get("connected_clients"),
             "uptime_days":       info.get("uptime_in_days"),
             "mode":              info.get("redis_mode", "standalone"),
+            "type":              "redis",
             "search_available":  probe_search(rc, "default"),
             "endpoint_health":   dict(state._endpoint_health),
         }
@@ -367,7 +417,15 @@ def api_redis_status():
 
 @appcore.app.get("/api/status/redis/{endpoint_name}")
 def api_redis_endpoint_status(endpoint_name: str):
-    """Ping a named Redis endpoint and return Search module availability."""
+    """Ping a named storage connection and return whether it can search vectors
+    (RediSearch on Redis, $vectorSearch on MongoDB)."""
+    if redis_store.endpoint_type(endpoint_name) == "mongodb":
+        p = mongo_store.probe(redis_store.endpoint_cfg(endpoint_name), ep=redis_store.r_for(endpoint_name))
+        state._endpoint_health[endpoint_name] = bool(p["ok"])
+        # Unreachable says nothing about search: unknown, so the next check probes again.
+        state._search_available[endpoint_name] = bool(p.get("vector_search")) if p["ok"] else None
+        return {"ok": p["ok"], "type": "mongodb", "version": p.get("version"),
+                "search_available": p.get("vector_search", False), "error": p.get("error")}
     try:
         rc = redis_store.r_for(endpoint_name)
         info = rc.info()
@@ -423,24 +481,26 @@ async def api_claude_status(request: Request):
     if not api_key:
         return {"ok": False, "configured": False, "error": "No API key configured"}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            res = await client.post(
-                f"{base_url}/v1/messages/count_tokens",
-                json={"model": "claude-haiku-4-5-20251001", "messages": [{"role": "user", "content": "hi"}]},
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            )
-            if res.status_code == 200:
-                return {"ok": True}
-            if res.status_code == 401:
-                return {"ok": False, "error": res.json().get("error", {}).get("message", "Unauthorized")}
-            # Fallback
-            res2 = await client.get(
-                f"{base_url}/v1/models",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-            )
-            if res2.status_code == 200:
-                return {"ok": True}
-            return {"ok": False, "error": res2.json().get("error", {}).get("message", f"HTTP {res2.status_code}")}
+        client = await providers.http_client()   # pooled: no per-check SSL setup on the loop
+        res = await client.post(
+            f"{base_url}/v1/messages/count_tokens",
+            json={"model": "claude-haiku-4-5-20251001", "messages": [{"role": "user", "content": "hi"}]},
+            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return {"ok": True}
+        if res.status_code == 401:
+            return {"ok": False, "error": res.json().get("error", {}).get("message", "Unauthorized")}
+        # Fallback
+        res2 = await client.get(
+            f"{base_url}/v1/models",
+            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            timeout=10,
+        )
+        if res2.status_code == 200:
+            return {"ok": True}
+        return {"ok": False, "error": res2.json().get("error", {}).get("message", f"HTTP {res2.status_code}")}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -473,15 +533,16 @@ async def api_qwen_status(request: Request):
     if not api_key:
         return {"ok": False, "configured": False, "error": "No API key configured. Get a free key at qwen.ai"}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            res = await client.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            if res.status_code == 200:
-                return {"ok": True}
-            body = res.json()
-            return {"ok": False, "error": body.get("message", f"HTTP {res.status_code}")}
+        client = await providers.http_client()
+        res = await client.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return {"ok": True}
+        body = res.json()
+        return {"ok": False, "error": body.get("message", f"HTTP {res.status_code}")}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -502,29 +563,30 @@ async def api_mistral_status(request: Request, probe: bool = False):
     if not api_key:
         return {"ok": False, "configured": False, "error": "No API key configured. Get a free key at console.mistral.ai"}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            res = await client.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+        client = await providers.http_client()
+        res = await client.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return {"ok": True}
+        try:
+            body = res.json()
+            msg = body.get("message") or body.get("error") or f"HTTP {res.status_code}"
+        except Exception:
+            msg = f"HTTP {res.status_code}"
+        if not probe or not _OPENAI_SDK_AVAILABLE:
+            return {"ok": False, "error": msg}
+        try:
+            model = state._config.get("mistral", {}).get("model") or providers.MISTRAL_MODELS_STATIC[0]["id"]
+            client2 = config._cached_client("openai", api_key, base_url)
+            await client2.chat.completions.create(
+                model=model, messages=[{"role": "user", "content": "hi"}], max_tokens=1,
             )
-            if res.status_code == 200:
-                return {"ok": True}
-            try:
-                body = res.json()
-                msg = body.get("message") or body.get("error") or f"HTTP {res.status_code}"
-            except Exception:
-                msg = f"HTTP {res.status_code}"
-            if not probe or not _OPENAI_SDK_AVAILABLE:
-                return {"ok": False, "error": msg}
-            try:
-                model = state._config.get("mistral", {}).get("model") or providers.MISTRAL_MODELS_STATIC[0]["id"]
-                client2 = config._cached_client("openai", api_key, base_url)
-                await client2.chat.completions.create(
-                    model=model, messages=[{"role": "user", "content": "hi"}], max_tokens=1,
-                )
-                return {"ok": True}
-            except Exception as e2:
-                return {"ok": False, "error": f"Mistral error: {e2}"}
+            return {"ok": True}
+        except Exception as e2:
+            return {"ok": False, "error": f"Mistral error: {e2}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -563,7 +625,7 @@ async def api_gemini_status(request: Request, probe: bool = False):
         return {"ok": False, "configured": False, "error": "No API key configured. Get a free key at aistudio.google.com"}
     if not _GENAI_AVAILABLE:
         return {"ok": False, "error": "google-genai not installed. Run: pip install google-genai"}
-    client = _google_genai.Client(api_key=api_key)
+    client = await providers.gemini_client(api_key)
     try:
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: next(iter(client.models.list()), None))
@@ -606,12 +668,14 @@ async def api_ollama_pull(payload: dict):
         # server-side inside Ollama either way).
         try:
             try:
-                async with httpx.AsyncClient(timeout=None) as client:
-                    async with client.stream("POST", f"{providers.ollama_base()}/api/pull",
-                                             json={"model": name, "stream": True}) as resp:
-                        async for line in resp.aiter_lines():
-                            if line.strip():
-                                yield line + "\n"
+                client = await providers.http_client()
+                # No timeout: a multi-GB pull streams progress for as long as it takes.
+                async with client.stream("POST", f"{providers.ollama_base()}/api/pull",
+                                         json={"model": name, "stream": True},
+                                         timeout=None) as resp:
+                    async for line in resp.aiter_lines():
+                        if line.strip():
+                            yield line + "\n"
             except Exception as e:
                 yield json.dumps({"error": str(e)}) + "\n"
         finally:
@@ -628,9 +692,9 @@ async def api_ollama_delete(name: str):
     contain '/' and ':'). Sends both key spellings; Ollama accepted "name"
     historically and "model" on newer versions."""
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            res = await client.request("DELETE", f"{providers.ollama_base()}/api/delete",
-                                       json={"model": name, "name": name})
+        client = await providers.http_client()
+        res = await client.request("DELETE", f"{providers.ollama_base()}/api/delete",
+                                   json={"model": name, "name": name}, timeout=30)
         state._ollama_models_ts = 0.0   # invalidate the cached list
         if res.status_code == 200:
             return {"ok": True}
@@ -658,13 +722,13 @@ async def api_mistral_models():
     if not api_key:
         return providers.stamp_vision(providers.MISTRAL_MODELS_STATIC)
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            res = await client.get(f"{base_url}/models",
-                                   headers={"Authorization": f"Bearer {api_key}"})
-            if res.status_code == 200:
-                models = providers.filter_mistral_models(res.json().get("data", []))
-                if models:
-                    return models
+        client = await providers.http_client()
+        res = await client.get(f"{base_url}/models",
+                               headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
+        if res.status_code == 200:
+            models = providers.filter_mistral_models(res.json().get("data", []))
+            if models:
+                return models
     except Exception:
         pass
     return providers.stamp_vision(providers.MISTRAL_MODELS_STATIC)

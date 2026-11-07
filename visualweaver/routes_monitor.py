@@ -6,7 +6,7 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
 import redis
-from . import appcore, rag_admin, redis_store, routes_settings, state
+from . import appcore, mongo_store, rag_admin, redis_store, routes_settings, state
 
 log = logging.getLogger(__name__)
 
@@ -15,10 +15,28 @@ log = logging.getLogger(__name__)
 # ROUTES — REDIS MEMORY MONITOR
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _human_bytes(n: int) -> str:
+    """Bytes as Redis's *_human fields show them (1.50M)."""
+    x = float(n)
+    for unit in ("B", "K", "M", "G"):
+        if x < 1024:
+            return f"{int(x)}B" if unit == "B" else f"{x:.2f}{unit}"
+        x /= 1024
+    return f"{x:.2f}T"
+
+
 @appcore.app.get("/api/redis/memory")
 def api_redis_memory():
+    """Memory of the built-in default connection. On a built-in MongoDB, the database's
+    storage size (``type: "mongodb"``; MongoDB has no peak or maximum to report)."""
     try:
-        info = redis_store.r().info("memory")
+        rc = redis_store.r_for("default")
+        if mongo_store.is_mongo(rc):
+            st = mongo_store.stats(rc)
+            return {"type": "mongodb", "used": st["storage_size"], "used_human": _human_bytes(st["storage_size"]),
+                    "data": st["data_size"], "data_human": _human_bytes(st["data_size"]),
+                    "peak": 0, "peak_human": "—", "max": 0, "max_human": "—"}
+        info = rc.info("memory")
         return {
             "used":       info.get("used_memory", 0),
             "used_human": info.get("used_memory_human", "?"),
@@ -165,14 +183,33 @@ def _collect_redis_server_stats(ep_name: str, rc: redis.Redis, ep_cfg: dict) -> 
     return base
 
 
+def _collect_mongo_stats(ep_name: str, ep, cfg: dict) -> dict:
+    """The analytics card for a MongoDB connection: reachability, size, its instances."""
+    base = {"name": ep_name, "type": "mongodb", "host": mongo_store.display_host(cfg.get("uri", "")),
+            "database": cfg.get("database") or mongo_store.DEFAULT_DB, "ok": False}
+    try:
+        base.update(mongo_store.stats(ep))
+        base["version"] = ep.client.server_info().get("version")
+        base["ok"] = True
+        base["instances"] = [{"name": i["name"], "chunks": i["chunks"], "enabled": i.get("enabled", True)}
+                             for i in mongo_store.list_instances(ep)]
+    except Exception as e:
+        base["error"] = str(e)[:300]
+    return base
+
+
 @appcore.app.get("/api/redis/all-stats")
 def api_redis_all_stats():
     """
     Return comprehensive stats for all configured Redis endpoints
     (default + any extras).  Used by the analytics panel.
     """
-    primary_cfg = {**state._config.get("redis", {}), "name": "default"}
-    endpoints_to_check = [("default", redis_store.r(), primary_cfg)]
+    primary_cfg = redis_store.endpoint_cfg("default")
+    try:
+        primary = redis_store.r_for("default")
+    except Exception:
+        primary = None
+    endpoints_to_check = [("default", primary, primary_cfg)]
     for ep in state._config.get("redis_endpoints", []):
         ep_name = ep.get("name", "")
         if ep_name and ep_name != "default":
@@ -184,8 +221,12 @@ def api_redis_all_stats():
     results = []
     for ep_name, rc, cfg in endpoints_to_check:
         if rc is None:
-            results.append({"name": ep_name, "ok": False, "error": "Could not connect"})
+            results.append({"name": ep_name, "type": cfg.get("type") or "redis", "ok": False,
+                            "error": "Could not connect"})
+        elif mongo_store.is_mongo(rc):
+            results.append(_collect_mongo_stats(ep_name, rc, cfg))
         else:
             results.append(_collect_redis_server_stats(ep_name, rc, cfg))
+        results[-1]["builtin"] = bool(cfg.get("builtin"))
     return results
 

@@ -21,7 +21,15 @@ _INSTALL = _ROOT / "install.sh"
 
 def _block() -> str:
     t = _INSTALL.read_text(encoding="utf-8")
-    return t[t.index("# ── 6. Network exposure"):t.index('c_ok "══ Install complete ══"')]
+    return t[t.index("# ── 6. Network exposure"):t.index("# ── 7. Validation")]
+
+
+def _envfile_helpers() -> str:
+    """envfile_set / envfile_get exactly as scripts/common.sh defines them."""
+    t = (_ROOT / "scripts" / "common.sh").read_text(encoding="utf-8")
+    start = t.index("envfile_set() {")
+    end = t.index("\n}\n", t.index("envfile_get() {")) + 3
+    return t[start:end] + "\n"
 
 
 def _harness(tmp_path, existing=None) -> tuple:
@@ -30,6 +38,7 @@ def _harness(tmp_path, existing=None) -> tuple:
         (repo / ".visualweaver.env").write_text(existing)
     h = tmp_path / "h.sh"
     h.write_text('set -euo pipefail\nc_info(){ echo "INFO $*"; }; c_ok(){ echo "OK $*"; }; c_warn(){ echo "WARN $*"; }\n'
+                 + _envfile_helpers() +
                  f'REPO_DIR="{repo}"; APP_HOST="0.0.0.0"; APP_PORT=8420\n' + _block() + 'echo "APP_HOST=${APP_HOST}"\n')
     return h, repo
 
@@ -93,6 +102,17 @@ def test_a_recorded_choice_is_respected_and_not_asked_again(tmp_path):
     assert "already set in .visualweaver.env" in out
     assert "Choose [1/2]" not in out, "must not re-prompt when a choice is recorded"
     assert "APP_HOST=127.0.0.1" in out and _host_in(repo) == "127.0.0.1"
+
+
+def test_an_export_line_counts_as_a_recorded_choice(tmp_path):
+    """common.sh honours `export VISUALWEAVER_HOST=…`; the installer must see it too, or it
+    asks again and the answer it appends is ignored (the first line wins)."""
+    for line in ("export VISUALWEAVER_HOST=0.0.0.0\n", "  export   VISUALWEAVER_HOST=\"0.0.0.0\"\n"):
+        out, repo = _run_tty(tmp_path, "1", existing="# mine\n" + line)
+        assert "Choose [1/2]" not in out and "already set in .visualweaver.env" in out, line
+        assert "APP_HOST=0.0.0.0" in out
+        text = (repo / ".visualweaver.env").read_text()
+        assert text.count("VISUALWEAVER_HOST") == 1, text
 
 
 def test_non_interactive_runs_are_not_asked_and_keep_the_default(tmp_path):

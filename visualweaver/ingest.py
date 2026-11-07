@@ -27,7 +27,7 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
-from . import config, rag, redis_store, state, textutil
+from . import config, mongo_store, rag, redis_store, state, textutil
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,19 @@ log = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DOCUMENT INGESTION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _add_hashes(rc, instance: str, hashes: list[str]) -> list[bool]:
+    """Record dedup hashes; per hash, True if it was not seen before (SADD's 1/0)."""
+    if mongo_store.is_mongo(rc):
+        # Index first: on a server that cannot hold an instance this raises before any
+        # dedup hash is written (a stray hash would mark the text as already stored).
+        rag.ensure_rag_index(instance, rc)
+        return mongo_store.add_hashes(rc, instance, hashes)
+    pipe = rc.pipeline(transaction=False)
+    for h in hashes:
+        pipe.sadd(f"rag:{instance}:chunk_hashes", h)
+    return [bool(x) for x in pipe.execute()]   # one round-trip
+
 
 def ingest_text(
     instance: str,
@@ -58,8 +71,7 @@ def ingest_text(
     if not chunks:
         return 0
 
-    rc = rc or redis_store.r()
-    hash_set_key = f"rag:{instance}:chunk_hashes"
+    rc = rc or redis_store.r_for("default")
 
     # Deduplicate: compute all hashes, then check + add in a single pipeline.
     # This turns N round-trips into one network operation.
@@ -72,10 +84,7 @@ def ingest_text(
         hashlib.sha256(f"{source}\x00{' '.join(c.lower().split())}".encode()).hexdigest()
         for c in chunks
     ]
-    pipe = rc.pipeline(transaction=False)
-    for h in chunk_hashes:
-        pipe.sadd(hash_set_key, h)
-    results = pipe.execute()          # one round-trip; returns [1 or 0, ...]
+    results = _add_hashes(rc, instance, chunk_hashes)
     new_chunks: list[str] = [c for c, added in zip(chunks, results) if added]
 
     if not new_chunks:
@@ -117,7 +126,6 @@ def _prepare_chunks(
     if not chunks:
         return []
 
-    hash_set_key = f"rag:{instance}:chunk_hashes"
     # Scoped per source. A global content hash stores an identical chunk once,
     # so deleting the document that happened to be ingested first also removed
     # content the other document still needed — and released the shared hash, so
@@ -127,10 +135,7 @@ def _prepare_chunks(
         hashlib.sha256(f"{source}\x00{' '.join(c.lower().split())}".encode()).hexdigest()
         for c in chunks
     ]
-    pipe = rc.pipeline(transaction=False)
-    for h in chunk_hashes:
-        pipe.sadd(hash_set_key, h)
-    results = pipe.execute()
+    results = _add_hashes(rc, instance, chunk_hashes)
 
     if force_reindex:
         # Allow all chunks through; hashes were already updated above
@@ -256,7 +261,7 @@ async def ingest_file(
                 "status": "error",
                 "error": "No extractable text (an image-only/scanned document needs OCR)",
             }
-            config.append_log(entry)
+            await asyncio.to_thread(config.append_log, entry)   # rewrites the log file
             return entry
 
         n = await asyncio.to_thread(ingest_text, instance, text, source, rc)
@@ -267,7 +272,7 @@ async def ingest_file(
             "chunks": n,
             "status": "ok",
         }
-        config.append_log(entry)
+        await asyncio.to_thread(config.append_log, entry)
         return entry
 
     except Exception as e:
@@ -279,6 +284,6 @@ async def ingest_file(
             "status": "error",
             "error": str(e),
         }
-        config.append_log(entry)
+        await asyncio.to_thread(config.append_log, entry)
         return entry
 

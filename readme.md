@@ -155,7 +155,7 @@ Answers cite the passages they came from, so any claim can be traced back to the
   <img src="screenshots/rendering/citations-scope.png" alt="An answer with [1] and [2] citation markers, the matched-chunk inspector, and a source-scope chip above the composer" width="88%">
 </p>
 
-When retrieval finds nothing above the threshold, the answer says so and is badged **📭 No KB match** — rather than quietly answering from general knowledge as though it were grounded.
+When retrieval finds nothing above the threshold, the answer says so and is badged **📭 No KB match** (or **📭 “name” is empty** when the knowledge base has no documents yet) — rather than quietly answering from general knowledge as though it were grounded.
 
 <p align="center">
   <img src="screenshots/rendering/no-kb-match.png" alt="An answer badged No KB match" width="88%">
@@ -173,36 +173,58 @@ Each knowledge base is browsable: see what's indexed, scope a question to one do
 
 ### Docker (simplest)
 
-VisualWeaver runs as two containers: the **app** (a prebuilt multi-arch image — `linux/amd64` + `linux/arm64` — published to GitHub's Container Registry) and **Redis 8** with the query engine (from Docker Hub). Both are defined in [`docker-compose.yml`](docker-compose.yml).
-
-**Requires** Docker Engine with the Compose v2 plugin — verify with `docker compose version`.
-
-**1. Pull the images** (app from GitHub, Redis from Docker Hub):
+**Requires** Docker with the Compose plugin — Docker Desktop, Colima, OrbStack, Rancher Desktop, or Docker Engine on Linux. Check with `docker compose version`; MongoDB needs Compose 2.23.1 or newer.
 
 ```bash
-docker compose pull
+./docker.sh up
 ```
 
-*(or pull them individually: `docker pull ghcr.io/sfcyris/visualweaver:latest` and `docker pull redis:8`.)*
+It asks which storage to use (and remembers the answer), downloads what is needed, starts everything, waits until it is ready, and prints the address and the versions in use. Then open **http://localhost:8420**.
 
-**2. Start:**
+| Storage | What runs | Command |
+|---|---|---|
+| **Redis** (default) | the app + Redis 8 with search | `./docker.sh up redis` |
+| **MongoDB** | the app + MongoDB with vector search (database + search process), no Redis | `./docker.sh up mongodb` |
+| **Both** | the app + Redis (app data and the answer cache) + MongoDB, available for RAG instances | `./docker.sh up both` |
+
+Done for you, inside the containers and by `docker.sh`:
+
+- **MongoDB**: its passwords and replica-set keyfile are generated on first start and kept in a Docker volume; the replica set, its users and the search process are set up automatically; it is reachable only inside the compose network. Before anything is downloaded, `docker.sh` shows MongoDB's licence (SSPL v1) and asks you to accept it (`VISUALWEAVER_ACCEPT_MONGODB_LICENSE=1` for unattended runs).
+- **Start order**: the app starts once its storage is healthy, and `docker.sh up` returns once the app answers.
+- **Models**: an Ollama running on the same machine is used automatically. For a cloud model, add its key in **Settings → Providers**.
+- **Port**: if 8420 is taken, the next free port is used and remembered (`VISUALWEAVER_WEB_PORT`).
+- **Host names**: this machine's DNS name is allowed for browsers (`VISUALWEAVER_ALLOWED_HOSTS`, see [Security](#security)).
+- **Disk space**: MongoDB's search stops building indexes when its disk is over 85 % full (it resumes below 80 %), and new documents are then not found. That disk is Docker's own (on macOS and Windows, the Docker VM's disk, which images fill up); `./docker.sh up` and `status` warn from 80 %. Free space with `docker image prune` / `docker builder prune`, or give the VM a larger disk.
+
+Everyday commands:
+
+| Command | Does |
+|---|---|
+| `./docker.sh status` | what is running, the address and versions |
+| `./docker.sh logs [service]` | follow the logs (`visualweaver`, `redis`, `mongodb`, `mongodb-search`) |
+| `./docker.sh stop` / `./docker.sh up` | stop and start again; everything is kept |
+| `./docker.sh up both` | change the storage choice (data already stored stays where it is) |
+| `./docker.sh backup [folder]` | save the app data and every store (they stop for a few seconds) |
+| `./docker.sh restore <folder>` | replace the data with a backup, then start |
+| `./docker.sh down` | remove the containers; the data volumes are kept |
+| `./docker.sh up --build` | build the app image from this checkout instead of pulling it (later `up` runs keep building; `--pull` goes back to the published image) |
+
+To upgrade: `docker compose pull && ./docker.sh up`.
+
+**Without the helper**, the same choices are Compose profiles, read from `COMPOSE_PROFILES` (put the line `COMPOSE_PROFILES=mongodb` in a `.env` file next to `docker-compose.yml` to make every command use it):
 
 ```bash
-docker compose up -d
+docker compose up -d                              # Redis
+COMPOSE_PROFILES=mongodb docker compose up -d     # MongoDB
+COMPOSE_PROFILES=both docker compose up -d        # both
+docker compose stop                               # stop, everything is kept
 ```
 
-Then open **http://localhost:8420** and add an LLM provider in **Settings → Providers**.
+Use `COMPOSE_PROFILES` rather than the `--profile` flag: the app reads the same value to know which stores it has. Settings `docker.sh` keeps in `.env` are listed in [`.env.example`](.env.example).
 
-**3. Stop:**
+MongoDB runs as MongoDB's official Community images (server and search, licensed by MongoDB, Inc. under the [SSPL v1](https://www.mongodb.com/licensing/server-side-public-license)), pulled from Docker Hub only when a MongoDB choice is made; they are not part of VisualWeaver.
 
-```bash
-docker compose stop     # stop the containers, keep them and your data
-docker compose down     # stop and remove the containers (the data volume persists)
-```
-
-Your state lives in **two** named Docker volumes, both of which survive restarts and re-pulls: **`visualweaver-data`** (config, uploads, logs, ingestion history) and **`visualweaver-redis`** (the ingested, embedded knowledge base and its vector index — the AOF/RDB persistence). To upgrade, `docker compose pull && docker compose up -d`. **A full backup must capture both volumes** — saving only `visualweaver-data` loses the entire index, forcing a full re-ingest.
-
-> **Building from source instead:** comment the `image:` line and uncomment `build:` in `docker-compose.yml`, then `docker compose up -d --build`.
+Your data lives in Docker volumes that survive restarts, upgrades and `down`: the app's config, uploads and history, and the data of each store you run. `./docker.sh backup` saves all of them.
 
 #### CPU embeddings, and optional GPU
 
@@ -219,15 +241,29 @@ Add `--gpus all` (or a `deploy.resources` reservation in compose) so the contain
 ### Local (macOS / Linux)
 
 ```bash
-./install.sh     # Python venv + a self-contained Redis 8 in ./.redis
-./start.sh       # starts Redis, then the app
+./install.sh     # Python venv + the storage you choose (asked once)
+./start.sh       # starts the installed storage, then the app
 ```
 
-Open **http://localhost:8420**. Stop everything (app + its Redis) with `./stop.sh`; `./restart.sh` restarts.
+Open **http://localhost:8420**. Stop everything (app + its storage) with `./stop.sh`; `./restart.sh` restarts. Your data is kept across stops and restarts. Ports, logs, upgrades, backups and troubleshooting: [DOCS.md → Running and Maintenance](DOCS.md#running-and-maintenance).
 
-`install.sh` vendors a private Redis 8 into `./.redis` and runs it on a dedicated loopback port (6389 by default), so it never touches or conflicts with any Redis you already run. On Linux, if you already have a Redis with the search module it is reused instead.
+`install.sh` asks where VisualWeaver keeps knowledge bases, conversations and the answer cache:
 
-**Requirements:** Python 3.11 or 3.12 (`install.sh` picks the newest supported one it finds, or the one in `PYTHON=`), and on macOS Homebrew (for `openssl@3`) + Xcode Command Line Tools.
+| Choice | What is installed |
+|---|---|
+| **1 · Redis 8 with search** (default) | A private Redis 8 vendored into `./.redis` (macOS) or reused / installed from packages.redis.io (Linux), on a dedicated loopback port (6389 by default) — it never touches any Redis you already run. |
+| **2 · MongoDB with vector search** | MongoDB Community Server 9.0 and MongoDB Search, MongoDB's official container images, run by the container runtime already on your machine, on a loopback port (27019 by default). |
+| **3 · Both** | Both of the above. Redis holds app data and the answer cache; MongoDB is available for RAG instances. |
+
+Without a terminal (CI, scripts) set `VISUALWEAVER_STORAGE=redis|mongodb|both`; the default is `redis`. The choice is recorded in `.visualweaver.env`. Re-running `./install.sh` keeps what is installed and offers to add the other store; it never removes one.
+
+**MongoDB needs a container runtime** that is already running — Colima, Podman, Rancher Desktop, OrbStack or Docker Desktop (Docker Engine on Linux). `install.sh` does not install one. Docker Desktop needs a paid subscription for companies with 250 or more employees or US$10 million or more in annual revenue; Colima, Podman and Rancher Desktop are free and open source. If no runtime is running, the installer says how to start one and offers to continue with Redis.
+
+**MongoDB's licence:** MongoDB Community Server and MongoDB Search are licensed by MongoDB, Inc. under the [Server Side Public License v1](https://www.mongodb.com/licensing/server-side-public-license). They are downloaded from MongoDB at install time (about 1.9 GB on disk) and are not distributed with VisualWeaver. The installer shows the licence and asks you to accept it; a non-interactive install needs `VISUALWEAVER_ACCEPT_MONGODB_LICENSE=1`.
+
+`install.sh` checks every port it needs — the web UI (8420), Redis and MongoDB. A port taken by another program is reported with what holds it, and the next free one is used and recorded. It ends with a validation table (✓/✗ with address and version for the Python environment, each store and the web UI port) and leaves the stores running, so `./start.sh` starts the app straight away. `./start.sh` prints the versions in use: VisualWeaver, Python, Redis and its search module, MongoDB and MongoDB Search, and the container runtime.
+
+**Requirements:** Python 3.11 or 3.12 (`install.sh` picks the newest supported one it finds, or the one in `PYTHON=`), and on macOS Homebrew (for `openssl@3`) + Xcode Command Line Tools. For MongoDB: a running container runtime with Compose (`docker compose` or `podman compose`).
 
 ---
 
@@ -251,13 +287,13 @@ export DASHSCOPE_API_KEY=...    # Qwen
 export MISTRAL_API_KEY=...      # Mistral
 ```
 
-**Ports:** the web UI is **8420**; the dedicated Redis is **6389** (loopback only). Override the app port with `VISUALWEAVER_PORT`, or `./start.sh 9000`.
+**Ports:** the web UI is **8420**; the dedicated Redis is **6389** and the built-in MongoDB **27019** (both loopback only). `install.sh` moves any of them to the next free port when another program holds it. Override the app port with `VISUALWEAVER_PORT`, or `./start.sh 9000`.
 
 ---
 
 ## Features
 
-**💬 Chat** — token-by-token streaming over WebSocket; [rich inline rendering](#what-answers-can-render) (diagrams, charts, graphs, maps, molecules, music, math); image attachments for vision models (drag/drop, paste); voice input; regenerate in place with a version switcher to compare attempts; **Copy, Rerun, or Force rerun** (cache-bypassing) any earlier question from its hover action bar; conversations persisted in Redis and restored on reload; **keep an answer** — index one into a knowledge base so it outlives the cache and the conversation, after editing it and its cited sources; **search across conversations** (Shift+⌘/Ctrl+F), including the retrieved source passages, with match counts — plain ⌘/Ctrl+F is left to the browser; pin messages; rate answers (👍/👎); auto-generated session titles; a top-bar token count split into input/output/total, using the provider's own billed figures; export as text.
+**💬 Chat** — token-by-token streaming over WebSocket; [rich inline rendering](#what-answers-can-render) (diagrams, charts, graphs, maps, molecules, music, math); image attachments for vision models (drag/drop, paste); voice input (the browser's own speech recognition — some browsers send the audio to their vendor's online service, which the 🎤 tooltip says); regenerate in place with a version switcher to compare attempts; **Copy, Rerun, or Force rerun** (cache-bypassing) any earlier question from its hover action bar; conversations persisted in Redis and restored on reload; **keep an answer** — index one into a knowledge base so it outlives the cache and the conversation, after editing it and its cited sources; **search across conversations** (Shift+⌘/Ctrl+F), including the retrieved source passages, with match counts — plain ⌘/Ctrl+F is left to the browser; pin messages; rate answers (👍/👎); auto-generated session titles; a top-bar token count split into input/output/total, using the provider's own billed figures; export as text.
 
 **🧠 RAG** — multiple named knowledge bases (RAG instances); ingest PDF, DOCX, XLSX, TXT, CSV, and Markdown files; a parallel BFS web crawler with a smart httpx-first mode and optional JS rendering (crawl4ai + Playwright) for SPAs — pausable, cancellable, and reporting real progress against the pages it has discovered; **scheduled auto re-crawl** of web sources, managed from Settings; file ingestion that can be watched, re-attached to and stopped; `llms.txt` auto-detection; **hybrid retrieval** — vector KNN + BM25 keyword search fused by RRF (on by default), with optional cross-encoder reranking and HyDE; a RAG inspector showing retrieved chunks and scores; **inline citations** linking each claim to the passage that supports it — click a `[2]` marker to open and highlight the source it refers to; **per-document management** — browse what's indexed, scope a question to one document, or delete one without rebuilding the instance; an explicit *No KB match* badge when retrieval finds nothing; a top-bar selector to query one instance, **all** of them in parallel, or **No RAG** (answer with no retrieval); export/import a knowledge base as a zip; duplicate detection.
 
@@ -265,7 +301,7 @@ export MISTRAL_API_KEY=...      # Mistral
 
 **🤖 LLM providers** — Ollama (local, no key), Claude, OpenAI, Qwen, Mistral, Groq, Gemini. Switch providers and models from the UI; vision auto-detected for capable models.
 
-**⚙️ Settings** — Redis connection (incl. multiple endpoints), embedding-model selector, chunk-size/overlap/top-K/threshold controls, a **chat-history token budget**, a **chart-authoring toggle** (drop ~2k tokens/message on text-only deployments), reusable prompt templates, dark/light/auto theme, export/import config; staged edits are marked **unsaved** and confirmed before they are discarded.
+**⚙️ Settings** — storage: the built-in Redis plus further Redis or MongoDB (Atlas or self-hosted) connections to keep RAG instances on, embedding-model selector, chunk-size/overlap/top-K/threshold controls, a **chat-history token budget**, a **chart-authoring toggle** (drop ~2k tokens/message on text-only deployments), reusable prompt templates, dark/light/auto theme, export/import config; staged edits are marked **unsaved** and confirmed before they are discarded.
 
 **📊 Observability** — per-response latency breakdown (cache / RAG / LLM / total), Redis memory monitor, cache analytics, ingestion logs, a session notification log (errors stay until dismissed), a system-status panel covering every provider, and an all-time **token usage** table broken down by provider and model (CSV export included) — token counts only, so no stale price estimate is passed off as your bill.
 
@@ -281,7 +317,7 @@ export MISTRAL_API_KEY=...      # Mistral
 
 ## Security
 
-VisualWeaver has **no built-in authentication**. Both the **local runtime** (`start.sh`) and the **Docker Compose** setup listen on all interfaces (`0.0.0.0`) by default, so the app *is* reachable from other devices on your network — `install.sh` asks which you want (only this machine, or any device on the network — just pressing Enter keeps it local) and records the answer in `.visualweaver.env`; `start.sh` prints the LAN address and a warning on every start when it is open. Run it open only on a trusted network. To restrict it to the machine it runs on, set `VISUALWEAVER_HOST=127.0.0.1` (once per run, or permanently in `.visualweaver.env`) for the local runtime, or change the mapping to `127.0.0.1:8420:8420` in [`docker-compose.yml`](docker-compose.yml) for Docker. For anything beyond a trusted LAN, put a reverse proxy with authentication in front of it (see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS setup). **Never expose the port on an untrusted network without an auth layer.**
+VisualWeaver has **no built-in authentication**. `install.sh` asks who may open the web UI — only this machine (`127.0.0.1`, what just pressing Enter chooses) or any device on the network (`0.0.0.0`) — and records the answer in `.visualweaver.env`. Without a recorded answer (an install run with no terminal), the **local runtime** (`start.sh`) listens on all interfaces (`0.0.0.0`), and the **Docker Compose** setup always does, so the app *is* reachable from other devices on your network; `start.sh` prints the LAN address and a warning on every start when it is open. Run it open only on a trusted network. To switch later, run `./changeAccess.sh local` (this machine only) or `./changeAccess.sh lan` (any device on the network) and restart; for a single run, `VISUALWEAVER_HOST=127.0.0.1 ./start.sh` restricts the local runtime. For Docker, put `VISUALWEAVER_WEB_BIND=127.0.0.1` in `.env` and run `./docker.sh up` again. For anything beyond a trusted LAN, put a reverse proxy with authentication in front of it (see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS setup). **Never expose the port on an untrusted network without an auth layer.** Because there is no login, the app refuses requests that another website makes from your browser (another site's page cannot use the chat or change settings), and it answers browsers only for host names an outsider cannot own — IP addresses, `localhost`, single-word intranet names, names ending in `.local`, `.lan`, `.internal` or `.home.arpa`, and this machine's own name. To reach it under any other name, such as a reverse proxy's domain, list that name in `VISUALWEAVER_ALLOWED_HOSTS` (comma-separated; `*.example.com` matches subdomains); `deploy/docker-compose.https.yml` sets it next to the Caddy domain.
 
 **Untrusted content.** Model and RAG output is treated as untrusted: rendered Markdown and every SVG/diagram is sanitised (DOMPurify) before it reaches the DOM, the `geometry` block accepts data only — never expressions — and a Content-Security-Policy restricts scripts to the app itself plus the two CDNs the renderers come from. Ingested pages can carry prompt injections, so this matters in normal use, not just under attack.
 
@@ -307,7 +343,7 @@ VisualWeaver is built on excellent open-source projects:
 - **LLM providers** — [Ollama](https://ollama.com) for local models, and the [Anthropic](https://github.com/anthropics/anthropic-sdk-python) *(MIT)*, [OpenAI](https://github.com/openai/openai-python), [Groq](https://github.com/groq/groq-python), and [Google GenAI](https://github.com/googleapis/python-genai) *(Apache-2.0)* SDKs
 - **Deployment** — [Caddy](https://caddyserver.com) *(Apache-2.0)* for automatic HTTPS
 
-**Browser rendering** — the libraries that turn an answer into a figure. Each is fetched from a public CDN ([cdnjs](https://cdnjs.com), or [jsDelivr](https://www.jsdelivr.com) for smiles-drawer and viz.js) the first time its block type appears:
+**Browser rendering** — the libraries that turn an answer into a figure. Each is fetched from a public CDN ([cdnjs](https://cdnjs.com), or [jsDelivr](https://www.jsdelivr.com) for smiles-drawer, viz.js and the Noto Music font) the first time its block type appears:
 
 | Library | Used for | License |
 |---|---|---|
@@ -326,6 +362,7 @@ VisualWeaver is built on excellent open-source projects:
 | [three.js](https://threejs.org) | ` ```scene ` 3-D scenes | MIT |
 | [abcjs](https://www.abcjs.net) | ` ```abc ` sheet music | MIT |
 | [highlight.js](https://highlightjs.org) | code syntax highlighting | BSD-3-Clause |
+| [Noto Music](https://github.com/notofonts/music) font | music notation symbols (𝅗𝅥 𝅘𝅥𝅮 …) in answers and diagrams — fetched only when one appears and no local copy is installed | OFL-1.1 |
 
 Map tiles are served by [OpenStreetMap](https://www.openstreetmap.org/copyright) — map data © OpenStreetMap contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/) (attribution is shown on every rendered map).
 
@@ -340,6 +377,10 @@ integrates with Redis® OSS. It is **not endorsed, supported, sponsored, or cert
 Redis Ltd.**, and no affiliation is implied. The Redis logo and visual identity are not
 used anywhere in this project; Redis is referred to by name only, to identify the software
 VisualWeaver connects to.
+
+**MongoDB** and **MongoDB Atlas** are trademarks of MongoDB, Inc. VisualWeaver can store
+RAG instances in a MongoDB database; it is **not endorsed, supported, sponsored, or
+certified by MongoDB, Inc.**, and no affiliation is implied. The MongoDB logo is not used.
 
 Docker, GitHub, Google Gemini, Anthropic Claude, OpenAI, Mistral, Ollama, Groq and Qwen —
 and every other product named in this documentation or in the application — are trademarks

@@ -406,3 +406,58 @@ def test_mermaid_renders_the_additional_diagram_types(probe, name):
     c = _case(probe, "mermaid")[name]
     assert c["svg"] and c["children"] > 0 and not c["syntaxError"], c
     assert c["h"] > 60, c
+
+
+def test_a_flowchart_with_quoted_line_broken_labels_renders_each_break(probe):
+    """Real mermaid, through the app's card: the quoted labels parse, `\\n` and `<br>` draw
+    as second lines, and `cost(usd)` inside a label stays text."""
+    c = _case(probe, "mermaid")["flowchart_breaks"]
+    assert c["svg"] and not c["syntaxError"] and not c["err"], c
+    assert ["♩♩♩ Three short Gs", "(anacrusis — unstressed)"] in c["texts"], c["texts"]
+    assert ["One long E♭", "(downbeat)"] in c["texts"], c["texts"]
+    assert ["a step", "lower"] in c["texts"], c["texts"]
+    assert ["Total cost(usd)"] in c["texts"], c["texts"]
+
+
+def test_a_wide_flowchart_stays_readable_and_scrolls(probe):
+    """mermaid sizes a diagram to width="100%", so in the fixed 560px card a long chain
+    was scaled until its 16px text was 6px. The card now takes the diagram's width (up to
+    the message), the diagram keeps at least 70% of its natural size, and past that it
+    scrolls — with the right edge faded so the overflow is visible."""
+    c = _case(probe, "mermaid")["flowchart_wide"]
+    assert c["svg"] and not c["err"], c
+    assert c["wrapW"] > 560, c
+    assert c["textMinH"] >= 10.5, c
+    assert c["overflow"] > 0 and c["more"], c
+
+
+def test_a_small_flowchart_sits_centred_at_its_own_size(probe):
+    c = _case(probe, "mermaid")["flowchart_small"]
+    assert c["svg"] and not c["err"], c
+    assert c["wrapW"] == 560 and c["overflow"] == 0 and not c["more"], c
+    assert abs(c["centreOffset"]) <= 2, c
+    assert c["textMinH"] >= 14, c
+
+
+
+@pytest.mark.parametrize("name", ["gantt_lane", "pie_lane"])
+def test_charts_keep_mermaids_own_fit_to_width(probe, name):
+    """A gantt's viewBox follows the window and a pie is compact: neither has a natural
+    width to keep, so they still scale to the card instead of being cropped."""
+    c = _case(probe, "mermaid")[name]
+    assert c["svg"] and not c["err"], c
+    assert not c["fitted"] and c["overflow"] <= 1 and not c["more"], c
+
+
+def test_a_failed_apply_returns_the_card_to_its_default_width(probe):
+    c = probe["mermaid_apply"]
+    assert "error" not in c, c
+    assert c["before"].endswith("px") and c["after"] == "" and c["afterPx"] == 560, c
+    assert c["err"] and not c["more"], c
+
+
+def test_a_printed_wide_diagram_fits_the_page(probe):
+    c = probe["mermaid_print"]
+    assert "error" not in c, c
+    assert c["nodes"] == 6 and c["inside"] == 6, c
+    assert c["mask"] == "none", c
