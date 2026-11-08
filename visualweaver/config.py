@@ -9,6 +9,7 @@ import asyncio
 import copy
 import json
 import os
+import re
 import tempfile
 import threading
 from datetime import datetime, timezone
@@ -47,10 +48,21 @@ def load_config() -> dict:
     the health endpoint reports degraded rather than ok.
     """
     state._config_load_error = ""
+    if not constants.CONFIG_PATH.exists():
+        # A config.json that failed to parse was moved aside (below). A start without one
+        # but with such a copy is not a fresh install: sign-in stays undecided until the
+        # copy is restored or removed (see _unloaded_defaults).
+        named = [k for k in _kept_copies() if _mentions_signin(k)]
+        if named:
+            state._config_load_error = (f"config.json is missing and an unreadable copy is kept "
+                                        f"as {named[-1].name}")
+            log.error(f"{state._config_load_error}: restore it as config.json (or delete the "
+                      f"copies) — until then every request is refused unless VISUALWEAVER_AUTH is set.")
+            return _unloaded_defaults()
+    unparsable = None      # where the bytes of a config.json that did not parse now are
     if constants.CONFIG_PATH.exists():
         try:
-            with open(constants.CONFIG_PATH, encoding="utf-8") as f:
-                cfg = json.load(f)
+            cfg = json.loads(_config_text(constants.CONFIG_PATH.read_bytes()))
             if not isinstance(cfg, dict):
                 raise ValueError(f"expected a JSON object, got {type(cfg).__name__}")
             normalise_mongo_credentials(cfg)
@@ -59,6 +71,7 @@ def load_config() -> dict:
             for k, v in constants.DEFAULT_CONFIG.items():
                 if isinstance(v, dict):
                     merged[k] = {**v, **cfg.get(k, {})}
+            normalise_session_retention(cfg, merged)
             return merged
         except OSError as e:
             # Unreadable is NOT corrupt. A permission error (e.g. the container UID
@@ -79,8 +92,10 @@ def load_config() -> dict:
             try:
                 constants.CONFIG_PATH.replace(quarantine)
                 kept = f" — kept as {quarantine.name}"
+                unparsable = quarantine
             except Exception:
                 kept = " — could NOT be preserved"
+                unparsable = constants.CONFIG_PATH
             log.error("=" * 70)
             log.error(f"config.json could not be parsed ({state._config_load_error}){kept}.")
             log.error("Starting from built-in DEFAULTS — API keys and your Redis endpoint")
@@ -88,9 +103,67 @@ def load_config() -> dict:
                       f"{constants.DEFAULT_CONFIG['redis']['host']}:{constants.DEFAULT_CONFIG['redis']['port']}).")
             log.error("Restore the quarantined file or re-enter settings before ingesting.")
             log.error("=" * 70)
+    if state._config_load_error:
+        if unparsable is not None and not _mentions_signin(unparsable) \
+                and not any(_mentions_signin(k) for k in _kept_copies()):
+            # Damaged, but neither it nor an earlier damaged copy configured sign-in: the
+            # app runs as before on the defaults (health says degraded), as an install
+            # without sign-in always did. An empty or cut-short file is such a file.
+            return copy.deepcopy(constants.DEFAULT_CONFIG)
+        return _unloaded_defaults()
     # A deep copy: the nested sections are changed in place later (environment
     # overrides, a storage switch), which must not rewrite the defaults themselves.
     return copy.deepcopy(constants.DEFAULT_CONFIG)
+
+
+_BOMS = ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
+
+
+def _config_text(data: bytes) -> str:
+    """config.json's text: UTF-8, or UTF-8 / UTF-16 with a byte-order mark (as some
+    editors on Windows save it). Raises UnicodeDecodeError for anything else."""
+    for bom, enc in _BOMS:
+        if data.startswith(bom):
+            return data.decode(enc)
+    return data.decode("utf-8")
+
+
+_AUTH_KEY = re.compile(r'"\s*auth\s*"\s*:', re.IGNORECASE)
+
+
+def _mentions_signin(path) -> bool:
+    """Whether a config.json that could not be parsed may have configured sign-in: its
+    text — decoded as UTF-8, by its byte-order mark, and as UTF-16 when it holds NUL
+    bytes — names an "auth" key in any letter case, or its bytes cannot be read. Only
+    then must the app stay closed."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return True
+    texts = []
+    for bom, enc in _BOMS:
+        if data.startswith(bom):
+            texts.append(data.decode(enc, errors="replace"))
+    texts.append(data.decode("utf-8", errors="replace"))
+    if b"\x00" in data:
+        texts += [data.decode("utf-16-le", errors="replace"), data.decode("utf-16-be", errors="replace")]
+    return any(_AUTH_KEY.search(t) for t in texts)
+
+
+def _kept_copies() -> list:
+    """The config.json.corrupt-* copies beside config.json, oldest first."""
+    return sorted(constants.CONFIG_PATH.parent.glob(f"{constants.CONFIG_PATH.name}.corrupt-*"))
+
+
+def _unloaded_defaults() -> dict:
+    """The defaults used when config.json exists but could not be loaded. Whether sign-in
+    was on cannot be known, so the auth section says so: every request is refused (503)
+    unless VISUALWEAVER_AUTH states the mode (auth.parse_settings), and a save in that
+    state writes the same undecided section instead of an "off" nobody chose."""
+    from . import auth
+    cfg = copy.deepcopy(constants.DEFAULT_CONFIG)
+    cfg["auth"] = {"mode": auth.UNREADABLE_MODE}
+    return cfg
 
 
 # Every config write is numbered when its copy is taken and lands in that order: a write
@@ -565,7 +638,48 @@ def _unredact_secrets(new_cfg: dict, old_cfg: dict) -> None:
 # through the installer and POST /api/storage/app, never through a settings save or
 # a config import.
 
-_INSTALLED_KEYS = ("storage", "mongodb")
+# "auth" (sign-in, see auth.py) is set in config.json or the environment only: a settings
+# save or an imported file must never be able to turn sign-in off or name a new admin.
+_INSTALLED_KEYS = ("storage", "mongodb", "auth")
+
+
+# sessions.ttl until 1.16: the shipped default, with no control in Settings.
+LEGACY_SESSION_TTL = 86400
+# The shortest conversation retention accepted anywhere (0 = forever is always accepted):
+# Settings, a config import and config.json itself. sessions.MIN_RETENTION is this value.
+MIN_SESSION_TTL = 3600
+
+
+def session_ttl_error(t) -> str:
+    """Why ``t`` cannot be a conversation retention (sessions.ttl), or "" when it can."""
+    if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+        return "sessions.ttl must be a whole number of seconds (0 = forever)"
+    if 0 < t < MIN_SESSION_TTL:
+        return f"sessions.ttl must be 0 (forever) or at least {MIN_SESSION_TTL} seconds (one hour)"
+    return ""
+
+
+def normalise_session_retention(file_cfg: dict, merged: dict) -> None:
+    """Read the old one-day default as the current one (kept forever), and a retention
+    below MIN_SESSION_TTL as MIN_SESSION_TTL.
+
+    Every config.json an earlier version saved holds sessions.ttl 86400 — the whole
+    config is written on each save — so that value says nothing about a choice. A
+    retention chosen in Settings carries retention_chosen and is kept as it is, as is
+    any other number (only a hand edit could have set one)."""
+    raw = file_cfg.get("sessions") if isinstance(file_cfg, dict) else None
+    if (isinstance(raw, dict) and raw.get("ttl") == LEGACY_SESSION_TTL
+            and not raw.get("retention_chosen") and isinstance(merged.get("sessions"), dict)):
+        merged["sessions"] = {**merged["sessions"], "ttl": 0}
+    # A retention below the floor (only a hand edit can write one) is read as the floor:
+    # one second would give every conversation a one-second expiry.
+    sess = merged.get("sessions")
+    if isinstance(sess, dict):
+        t = sess.get("ttl")
+        if isinstance(t, int) and not isinstance(t, bool) and 0 < t < MIN_SESSION_TTL:
+            log.warning(f"config.json: sessions.ttl {t} is below the {MIN_SESSION_TTL} s minimum; "
+                        f"using {MIN_SESSION_TTL} s (one hour)")
+            merged["sessions"] = {**sess, "ttl": MIN_SESSION_TTL}
 
 
 def normalise_mongo_credentials(cfg: dict) -> dict:

@@ -13,7 +13,7 @@ import uuid
 from typing import Any, Optional
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from . import appcore, cache, config, embeddings, hyde, providers, rag, rag_admin, sessions, state
+from . import appcore, cache, config, embeddings, hyde, projects, providers, rag, rag_admin, sessions, state
 from . import ws as _ns_ws
 
 log = logging.getLogger(__name__)
@@ -54,6 +54,9 @@ async def ws_chat(ws: WebSocket, sid: str):
     message is answered: turns on one conversation run one after another (_run_turn),
     and one that has to wait is told so.
     """
+    # With sign-in on, the signed-in user's own conversation of that id (see
+    # sessions.scoped_sid): another user's conversation cannot be resumed or added to.
+    sid = await asyncio.to_thread(sessions.scoped_sid, sid)
     await _ns_ws.mgr.connect(ws, sid)
     try:
         if sid not in state._sessions:
@@ -229,6 +232,169 @@ def _record_answer_citations(answer: str, chunks: list[dict]) -> None:
         state.record_citations(inst, rs, count_answer=(inst == owner))
 
 
+def _cut_for_regenerate(sid: str, replace_from) -> dict:
+    """On a regenerate, truncate the stored transcript to the replaced answer's position.
+
+    The user turn that produced it is dropped too, because the caller re-appends it —
+    truncating at the assistant index alone would duplicate the question. Returns the
+    conversation's own fields (title, a name the user gave, pin, creation time) when the
+    first user turn goes, for the caller to carry over to its successor; else {}.
+    """
+    carried: dict = {}
+    if valid_replace_index(replace_from, len(state._sessions[sid])):
+        cut = replace_from
+        if cut > 0 and state._sessions[sid][cut - 1].get("role") == "user":
+            cut -= 1
+        if cut == 0:
+            carried = sessions.session_meta(state._sessions[sid])
+        del state._sessions[sid][cut:]
+    return carried
+
+
+def _previous_cited_sources(sid: str, replace_from, query: str, instances: list,
+                            source_filter: str = "") -> list[dict]:
+    """The sources of the answer before this turn, for a documents-only follow-up that
+    retrieved nothing on its own wording; [] unless all of these hold:
+
+      * that answer cited them (rag.cited_sources) and was not a refusal;
+      * it was asked against the same knowledge bases as this turn (its stored ``kbs``, as
+        a set) — after switching the selection, a #mention or a project this turn must
+        not be handed another knowledge base's passages;
+      * this question is a follow-up on it (rag.is_follow_up), not one of its own.
+
+    Only passages from this turn's knowledge bases (``instances``) whose source matches
+    ``source_filter`` are returned. On a regenerate, "before this turn" is before the turn
+    being replaced."""
+    msgs = state._sessions.get(sid) or []
+    end = len(msgs)
+    if valid_replace_index(replace_from, len(msgs)):
+        end = replace_from - 1 if replace_from > 0 and msgs[replace_from - 1].get("role") == "user" else replace_from
+    for j in range(end - 1, -1, -1):
+        m = msgs[j]
+        if not (isinstance(m, dict) and m.get("role") == "assistant"):
+            continue
+        meta = m.get("meta") or {}
+        if meta.get("not_found") or meta.get("search_failed"):
+            return []
+        wanted = {str(i) for i in instances or [] if i}
+        prev_kbs = meta.get("kbs")
+        if not wanted or not isinstance(prev_kbs, list) or {str(k) for k in prev_kbs} != wanted:
+            return []
+        cited = rag.cited_sources(m.get("content"), meta.get("chunks"))
+        sf = (source_filter or "").casefold()
+        cited = [c for c in cited if c.get("instance") in wanted
+                 and (not sf or sf in str(c.get("source", "")).casefold())]
+        if not cited:
+            return []
+        q_before = msgs[j - 1] if j > 0 and isinstance(msgs[j - 1], dict) else {}
+        context = [q_before.get("content") if q_before.get("role") == "user" else "", m.get("content")]
+        context += [str(c.get("text", "")) for c in cited] + [str(c.get("source", "")) for c in cited]
+        return cited if rag.is_follow_up(query, context) else []
+    return []
+
+
+def _documents_only_outcome(sid: str, replace_from, rag_used: bool, chunks: list, file_context,
+                            search_errors: list, query: str = "", instances: list | None = None,
+                            source_filter: str = "") -> tuple:
+    """What a documents-only turn with no retrieved chunk answers from. Returns
+    (fixed answer or None, chunks, reused_sources, search_failed):
+
+      * the search failed → the "Search failed: …" answer (not "not in your documents");
+      * nothing retrieved, and this question is a follow-up on a previous answer that cited
+        its sources from the same knowledge bases → those sources again, for the
+        constrained model (a follow-up such as "shorten that" retrieves nothing on its own
+        wording; see _previous_cited_sources);
+      * otherwise → documents_only_refusal's answer (None when a document is attached).
+    """
+    if chunks or rag.documents_only_refusal(rag_used, chunks, file_context) is None:
+        return None, chunks, False, bool(search_errors) and not chunks
+    if search_errors:
+        return rag.documents_only_search_failed(search_errors), [], False, True
+    if rag_used:
+        prev = _previous_cited_sources(sid, replace_from, query, instances or [], source_filter)
+        if prev:
+            for c in prev:
+                c.pop("n", None)
+            rag.number_chunks(prev)
+            return None, prev, True, False
+    return rag.documents_only_refusal(rag_used, chunks, file_context), chunks, False, False
+
+
+def _conversation_fields(msg: dict, sid: str) -> dict:
+    """The conversation's own fields a chat turn carries, to store with it (see
+    sessions.set_conversation_fields): its knowledge-base selection (``kb_select``), its
+    prompt template (``template``, by name; "" = Default) and — on its first turn only —
+    the project it is started in (``project``, an existing project's id). Later turns do
+    not move a conversation between projects: PATCH /api/sessions/{sid} does."""
+    out: dict = {}
+    ks = sessions.clean_kb_select(msg.get("kb_select"))
+    if ks is not None:
+        out["kb_select"] = ks
+    t = msg.get("template")
+    if isinstance(t, str) and len(t) <= 120:
+        out["template"] = t.strip() or None
+    first = not any(isinstance(m, dict) and m.get("role") == "user"
+                    for m in state._sessions.get(sid) or [])
+    if first:
+        p = projects.resolve(msg.get("project"))
+        if p is not None:
+            out["project"] = p["id"]
+    return out
+
+
+async def _store_turn(sid: str, conv: dict | None) -> None:
+    """Save the conversation with this turn, its conversation fields applied first. The
+    project a first turn resolved when it started is checked again: deleted while the turn
+    ran (projects.unbind_all found no turn in memory to unfile), it is not stored."""
+    fields = dict(conv or {})
+    if fields.get("project") and await asyncio.to_thread(projects.resolve, fields["project"]) is None:
+        fields.pop("project")
+    if fields:
+        sessions.set_conversation_fields(state._sessions[sid], **fields)
+    await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
+
+
+async def _answer_not_found(ws: WebSocket, sid: str, query: str, answer: str, chunks: list,
+                            rag_used: bool, provider: str, model: str, rag_instances: list,
+                            replace_from, latency: dict, release=None, conv=None,
+                            search_failed: bool = False) -> None:
+    """Deliver a documents-only turn's fixed "not in your documents" answer.
+
+    Sent through the same frames as a streamed answer (stream_start, rag_context, one
+    final token, stream_end) so the page renders, stores and regenerates it like any
+    other; no model is called and nothing is cached. A first turn is titled after its
+    question, as a cached first answer is.
+    """
+    outcome = {"search_failed": True} if search_failed else {"not_found": True}
+    await ws.send_json({"type": "stream_start"})
+    await ws.send_json({"type": "rag_context", "chunks": chunks, "rag_used": rag_used,
+                        "docs_only": True, **outcome, "latency": latency})
+    await ws.send_json({"type": "token", "content": answer, "done": True})
+    carried = _cut_for_regenerate(sid, replace_from)
+    state._sessions[sid].append({"role": "user", "content": query,
+                                 "meta": {**sessions._turn_meta(), **carried}})
+    state._sessions[sid].append({"role": "assistant", "content": answer,
+                                 "meta": sessions._turn_meta(chunks, latency, provider, model,
+                                                             kbs=rag_instances, docs_only=True,
+                                                             rag_used=rag_used, not_found=not search_failed,
+                                                             search_failed=search_failed)})
+    title = None
+    if len(state._sessions[sid]) == 2:
+        title = re.sub(r"\s+", " ", query).strip()[:60] or None
+        if not sessions.set_title(sid, title or ""):
+            title = None                       # a name the user gave stays, and is not resent
+    await _store_turn(sid, conv)
+    await ws.send_json({"type": "stream_end", "latency": latency, "usage": None,
+                        "title": None, "cache": None, **outcome})
+    if release is not None:
+        release()
+    if title:
+        try:
+            await ws.send_json({"type": "session_title", "title": title})
+        except Exception:
+            pass
+
+
 async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     """
     Process one chat turn:
@@ -250,11 +416,16 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     system_prompt = config.compose_system_prompt(msg.get("system_prompt"))
     source_filter = msg.get("source_filter", "")   # optional substring filter on chunk source
     bypass_cache  = msg.get("bypass_cache", False)  # skip cache lookup (re-run fresh)
+    # Documents only: answer from the retrieved chunks (or an attached document) or say
+    # they do not contain it — never from general knowledge. JSON true only.
+    documents_only = msg.get("documents_only") is True
     # Regenerate: drop the answer being replaced and everything after it, so the
     # stored transcript matches the client's view. Without this the rejected answer
     # stays in Redis, is re-sent as context on the next turn, and reappears on reload.
     replace_from  = msg.get("replace_from")
     file_context  = msg.get("file_context", [])    # list of {name, text} uploaded documents
+    # The conversation's project / knowledge-base selection / template, stored with it.
+    conv          = await asyncio.to_thread(_conversation_fields, msg, sid)
 
     # ── RAG instance selection ───────────────────────────────────────────────
     # Accept either:
@@ -307,7 +478,8 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     exact_only      = cache.wants_visual(query)
     cache_scope     = cache._cache_scope(effective_rag,
                                    provider, model, source_filter, system_prompt,
-                                   visual=exact_only)
+                                   visual=exact_only, documents_only=documents_only,
+                                   owner=cache.private_partition(state._sessions[sid]))
     # Naming the reason, not just the fact. A user who repeats a question and sees
     # nothing cached has no way to tell "nothing similar was stored" from "this kind of
     # question is never cached" — and concludes, reasonably, that caching is broken.
@@ -315,10 +487,13 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     cache_skipped   = cache.skip_reason(images, file_context, query)
     cacheable       = cache_skipped is None
     t_cache_start   = time.time()
+    # The question is embedded once for the whole turn, on first use (cache lookup,
+    # retrieval, cache store all read this).
+    qvec            = cache.query_vectors(query)
     # Off the event loop: while these run, no other session's tokens can flush and
     # the WS receive loop cannot read an {'type':'abort'} frame (Stop goes dead).
     hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,
-                                              cache_scope, exact_only)
+                                              cache_scope, exact_only, qvec)
                        if cacheable and not bypass_cache else None)
     t_cache         = round(time.time() - t_cache_start, 3)
 
@@ -342,7 +517,7 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
         # this the client cannot tell "searched and found nothing" from "RAG was
         # never run", and shows a "no KB match" warning on both.
         await ws.send_json({"type": "rag_context", "chunks": cached_chunks,
-                            "rag_used": bool(cached_chunks),
+                            "rag_used": bool(cached_chunks), "docs_only": documents_only,
                             "latency": {"cache": t_cache, "rag": 0}})
         # Persist the turn. Returning early used to skip this, so a cached answer
         # was missing from the stored transcript — breaking session restore,
@@ -353,15 +528,17 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
             "meta": sessions._turn_meta(cached_chunks,
                                {"cache": t_cache, "total": round(time.time() - t0, 3)},
                                provider, model,
-                               cache={"hit": True, "score": hit.get("score")}),
+                               cache={"hit": True, "score": hit.get("score")}, kbs=rag_instances,
+                               docs_only=documents_only, rag_used=bool(cached_chunks)),
         })
         # A conversation that opens with a cached answer runs no generation, so no title
         # call either: name it after its question instead of leaving it untitled.
         cache_title = None
         if len(state._sessions[sid]) == 2:
             cache_title = re.sub(r"\s+", " ", query).strip()[:60] or None
-            sessions.set_title(sid, cache_title or "")
-        await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
+            if not sessions.set_title(sid, cache_title or ""):
+                cache_title = None             # a name the user gave stays, and is not resent
+        await _store_turn(sid, conv)
         if cache_title:
             try:
                 await ws.send_json({"type": "session_title", "title": cache_title})
@@ -395,13 +572,18 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     # otherwise the cross-encoder is handed exactly the top_k it would have returned
     # anyway and can only permute them, never promote a better chunk from deeper down.
     fetch_k = embeddings._rerank_candidate_k(top_k)
+    # A knowledge base that could not be searched (storage down, an index from another
+    # embedding model) lands here — an empty result alone cannot tell it from "no match".
+    search_errors: list = []
 
     if parallel_mode:
         # Multi-instance parallel query — search all requested instances simultaneously.
         # search_rag_parallel filters disabled instances internally.
         # source_filter is pushed into each instance's KNN + BM25 query (not post-filtered).
         chunks = await rag.search_rag_parallel(rag_instances, query, fetch_k, rag_threshold,
-                                           hybrid_search, search_vec, source_filter)
+                                           hybrid_search,
+                                           search_vec if search_vec is not None else qvec,
+                                           source_filter, errors=search_errors)
         rag_used = True
     elif rag_instances:
         # Single-instance query (normal mode)
@@ -410,7 +592,9 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
         rag_enabled = (meta or {}).get("enabled", True)
         chunks = (
             await asyncio.to_thread(rag.search_rag, rag_inst, query, fetch_k, rag_threshold,
-                                    rag_admin.rc_for_instance(rag_inst), hybrid_search, search_vec, source_filter)
+                                    rag_admin.rc_for_instance(rag_inst), hybrid_search,
+                                    search_vec if search_vec is not None else qvec, source_filter,
+                                    errors=search_errors)
             if rag_enabled else []
         )
         # search_rag_parallel stamps this; the single-instance path did not, so citation
@@ -438,6 +622,27 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
 
     t_rag = round(time.time() - t_rag_start, 3)
 
+    search_failed = bool(search_errors) and not chunks
+    reused_sources = False
+    # Documents only, and nothing to answer from: the fixed answer, no model call — "not
+    # in your documents", or "search failed" when the search itself failed. A follow-up
+    # that retrieves nothing answers from the previous answer's cited sources instead.
+    refusal = None
+    if documents_only:
+        refusal, chunks, reused_sources, search_failed = _documents_only_outcome(
+            sid, replace_from, rag_used, chunks, file_context, search_errors,
+            query, rag_instances, source_filter)
+    if refusal:
+        await _answer_not_found(ws, sid, query, refusal, chunks, rag_used, provider, model,
+                                rag_instances, replace_from,
+                                {"cache": t_cache, "hyde": t_hyde, "rag": t_rag, "llm": 0,
+                                 "total": round(time.time() - t0, 3)}, release, conv,
+                                search_failed=search_failed)
+        return
+    if reused_sources:
+        # Answered from another turn's sources: not an answer to replay for this question.
+        cacheable = False
+
     # Per-turn context (uploaded files + retrieved RAG) rides on the FINAL user
     # turn, NOT the system prompt. Keeping the system prefix byte-stable across a
     # conversation is what lets Claude cache it (cache_control) and OpenAI-compatible
@@ -456,7 +661,9 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     # active_rag), so it would attach the abstention notice to every ungrounded
     # answer — including plain general-knowledge questions and sessions where the
     # user has disabled all instances.
-    if rag_used:
+    if documents_only:
+        context_parts.append(rag.build_documents_only_prompt(chunks).lstrip())
+    elif rag_used:
         context_parts.append(rag.build_context_prompt(chunks).lstrip())
     context_block = "\n\n".join(context_parts)
 
@@ -483,6 +690,9 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     # and sets currentAiMsgId before rag_context arrives.
     await ws.send_json({"type": "stream_start"})
     await ws.send_json({"type": "rag_context", "chunks": chunks, "rag_used": rag_used,
+                        "docs_only": documents_only,
+                        **({"search_failed": True} if search_failed else {}),
+                        **({"reused_sources": True} if reused_sources else {}),
                         "latency": {"cache": t_cache, "hyde": t_hyde, "rag": t_rag}})
 
     full_response = ""
@@ -537,19 +747,18 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     # On a regenerate, truncate to the replaced answer's position first. The
     # user turn that produced it is dropped too, because it is re-appended just
     # below — truncating at the assistant index alone would duplicate the question.
-    if valid_replace_index(replace_from, len(state._sessions[sid])):
-        cut = replace_from
-        if cut > 0 and state._sessions[sid][cut - 1].get("role") == "user":
-            cut -= 1
-        del state._sessions[sid][cut:]
-    state._sessions[sid].append({"role": "user", "content": query, "meta": sessions._turn_meta()})
+    carried = _cut_for_regenerate(sid, replace_from)
+    state._sessions[sid].append({"role": "user", "content": query, "meta": {**sessions._turn_meta(), **carried}})
     state._sessions[sid].append({"role": "assistant", "content": full_response,
                            "meta": sessions._turn_meta(chunks,
                                               {"cache": t_cache, "hyde": t_hyde, "rag": t_rag,
                                                "llm": t_llm, "total": total},
                                               provider, model, usage_sink, cache={"hit": False, "skipped": cache_skipped, "label": cache.skip_label(cache_kind),
-                                                     "bypassed": bool(bypass_cache) and cacheable})})
-    await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
+                                                     "bypassed": bool(bypass_cache) and cacheable},
+                                              kbs=rag_instances, docs_only=documents_only,
+                                              rag_used=rag_used, search_failed=search_failed,
+                                              reused_sources=reused_sources)})
+    await _store_turn(sid, conv)
     if usage_sink.get("prompt") is not None:
         await asyncio.to_thread(sessions.record_usage, provider, model, usage_sink)
 
@@ -578,19 +787,20 @@ async def handle_chat(ws: WebSocket, sid: str, msg: dict, release=None):
     # the same corpus/provider/model/prompt. `cacheable` also excludes turns that
     # had an uploaded file in context.
     if not stream_error and cacheable and cache.worth_caching(effective_rag, chunks):
-        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope)
+        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope, qvec)
 
     # Which chunks did the answer actually use? The app knows how many it SENT;
     # without this it cannot know how many were read, so "is top_k too high" has no
     # answer but a guess. Ranks are the [n] markers the model wrote, which are the
     # numbers rag.number_chunks stamped onto the prompt.
-    if not stream_error and chunks:
+    if not stream_error and chunks and not reused_sources:
         _record_answer_citations(full_response, chunks)
         await asyncio.to_thread(rag_admin.save_rag_stats)
 
     # ── 7. Auto-title (first turn only), delivered as a follow-up event ─────
     title_msg = None
-    if len(state._sessions[sid]) == 2:
+    # Not over a name the user gave it (a regenerated first answer carries that name).
+    if len(state._sessions[sid]) == 2 and not sessions.has_user_title(state._sessions[sid]):
         try:
             t_payload = [{"role": "user", "content": (
                 "Reply with ONLY a short title of 2-5 words for this query. "
@@ -694,11 +904,14 @@ async def api_chat(payload: dict):
     images        = payload.get("images", [])       # list of base64 data URIs
     file_context  = payload.get("file_context", []) # list of {name, text} uploaded documents
     use_cache     = bool(payload.get("use_cache", True))
+    documents_only = payload.get("documents_only") is True     # see handle_chat
     sid = payload.get("session_id") or f"rest_{uuid.uuid4().hex[:8]}"
+    sid = await asyncio.to_thread(sessions.scoped_sid, sid)    # the caller's own (sign-in on)
 
     # Ensure session exists in memory
     if sid not in state._sessions:
         state._sessions[sid] = await asyncio.to_thread(sessions.load_session, sid)
+    conv = await asyncio.to_thread(_conversation_fields, payload, sid)   # see handle_chat
 
     # Model fallback
     if not model:
@@ -737,15 +950,17 @@ async def api_chat(payload: dict):
     exact_only = cache.wants_visual(query)      # see the websocket path
     cache_scope = cache._cache_scope(effective_rag,
                                provider, model, source_filter, system_prompt,
-                               visual=exact_only)
+                               visual=exact_only, documents_only=documents_only,
+                               owner=cache.private_partition(state._sessions[sid]))
     cache_kind    = cache.skip_kind(images, file_context, query)
     cache_skipped = cache.skip_reason(images, file_context, query)
     cacheable   = cache_skipped is None
+    qvec        = cache.query_vectors(query)   # one embedding for the turn (see handle_chat)
     if use_cache and cacheable:
         cache_threshold = cache.effective_threshold()
         _t_cache_start  = time.time()
         hit = await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,
-                                      cache_scope, exact_only)
+                                      cache_scope, exact_only, qvec)
         if hit:
             t_cache = round(time.time() - _t_cache_start, 3)
             # see the websocket path: counted for coverage, never scored
@@ -760,11 +975,14 @@ async def api_chat(payload: dict):
             state._sessions[sid].append({
                 "role": "assistant", "content": hit["response"],
                 "meta": sessions._turn_meta(cached_chunks, {"cache": t_cache}, provider, model,
-                                            cache={"hit": True, "score": hit.get("score")}),
+                                            cache={"hit": True, "score": hit.get("score")},
+                                            kbs=rag_instances, docs_only=documents_only,
+                                            rag_used=bool(cached_chunks)),
             })
-            await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
-            return {"session_id": sid, "response": hit["response"], "chunks": cached_chunks,
-                    "cache_hit": True, "cache_score": hit["score"], "rag_used": bool(cached_chunks)}
+            await _store_turn(sid, conv)
+            return {"session_id": sessions.public_sid(sid), "response": hit["response"], "chunks": cached_chunks,
+                    "cache_hit": True, "cache_score": hit["score"], "rag_used": bool(cached_chunks),
+                    "documents_only": documents_only}
 
     rag_cfg       = state._config.get("rag", {})
     rag_threshold = rag_cfg.get("similarity_threshold", 0.75)
@@ -781,9 +999,12 @@ async def api_chat(payload: dict):
     # RAG retrieval — source_filter is applied in-query (KNN + BM25 pre-filter).
     # fetch_k widens the candidate set when reranking is on (see _rerank_candidate_k).
     fetch_k = embeddings._rerank_candidate_k(top_k)
+    search_errors: list = []           # see handle_chat
     if parallel_mode:
         chunks = await rag.search_rag_parallel(rag_instances, query, fetch_k, rag_threshold,
-                                           hybrid_search, search_vec, source_filter)
+                                           hybrid_search,
+                                           search_vec if search_vec is not None else qvec,
+                                           source_filter, errors=search_errors)
         rag_used = True
     elif rag_instances:
         inst = rag_instances[0]
@@ -791,7 +1012,9 @@ async def api_chat(payload: dict):
         rag_enabled = (meta or {}).get("enabled", True)
         chunks = (
             await asyncio.to_thread(rag.search_rag, inst, query, fetch_k, rag_threshold,
-                                    rag_admin.rc_for_instance(inst), hybrid_search, search_vec, source_filter)
+                                    rag_admin.rc_for_instance(inst), hybrid_search,
+                                    search_vec if search_vec is not None else qvec, source_filter,
+                                    errors=search_errors)
             if rag_enabled else []
         )
         # Same stamp as the streaming route.
@@ -810,6 +1033,30 @@ async def api_chat(payload: dict):
     # Numbered once the list is final, so the stamp matches the prompt exactly.
     rag.number_chunks(chunks)
 
+    # Documents only, and nothing to answer from: the fixed answer, no model call (see
+    # handle_chat: "search failed", or the previous answer's cited sources for a follow-up).
+    search_failed = bool(search_errors) and not chunks
+    reused_sources = False
+    refusal = None
+    if documents_only:
+        refusal, chunks, reused_sources, search_failed = _documents_only_outcome(
+            sid, None, rag_used, chunks, file_context, search_errors,
+            query, rag_instances, source_filter)
+    if refusal:
+        state._sessions[sid].append({"role": "user", "content": query, "meta": sessions._turn_meta()})
+        state._sessions[sid].append({"role": "assistant", "content": refusal,
+                                     "meta": sessions._turn_meta(chunks, None, provider, model,
+                                                                 kbs=rag_instances, docs_only=True,
+                                                                 rag_used=rag_used, not_found=not search_failed,
+                                                                 search_failed=search_failed)})
+        await _store_turn(sid, conv)
+        outcome = {"search_failed": True} if search_failed else {"not_found": True}
+        return {"session_id": sessions.public_sid(sid), "response": refusal, "chunks": [], "cache_hit": False,
+                "rag_used": rag_used, "documents_only": True, **outcome,
+                "cache": None, "usage": None}
+    if reused_sources:
+        cacheable = False              # answered from another turn's sources
+
     # Per-turn context rides on the final user turn, not the system prompt — keeps
     # the system prefix stable for provider prompt-caching and out of resent history.
     # See handle_chat for the full rationale. Turn is stored as the raw query below.
@@ -823,7 +1070,9 @@ async def api_chat(payload: dict):
     # falls back to active_rag), so gating on it alone attached the abstention
     # notice to every ungrounded answer — including plain general-knowledge
     # questions and sessions where the user had disabled all instances.
-    if rag_used:
+    if documents_only:
+        context_parts.append(rag.build_documents_only_prompt(chunks).lstrip())
+    elif rag_used:
         context_parts.append(rag.build_context_prompt(chunks).lstrip())
     context_block = "\n\n".join(context_parts)
 
@@ -889,23 +1138,29 @@ async def api_chat(payload: dict):
                            "meta": sessions._turn_meta(chunks, None, provider, model, usage_sink,
                                                       cache={"hit": False, "skipped": cache_skipped,
                                                              "label": cache.skip_label(cache_kind),
-                                                             "bypassed": bool(not use_cache) and cacheable})})
-    await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])
+                                                             "bypassed": bool(not use_cache) and cacheable},
+                                                      kbs=rag_instances, docs_only=documents_only,
+                                                      rag_used=rag_used, search_failed=search_failed,
+                                                      reused_sources=reused_sources)})
+    await _store_turn(sid, conv)
     if usage_sink.get("prompt") is not None:
         await asyncio.to_thread(sessions.record_usage, provider, model, usage_sink)
 
     if not stream_error and cacheable and cache.worth_caching(effective_rag, chunks):
-        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope)
+        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope, qvec)
 
     # Which chunks did the answer actually use? The app knows how many it SENT;
     # without this it cannot know how many were read, so "is top_k too high" has no
     # answer but a guess. Ranks are the [n] markers the model wrote, which are the
     # numbers rag.number_chunks stamped onto the prompt.
-    if not stream_error and chunks:
+    if not stream_error and chunks and not reused_sources:
         _record_answer_citations(full_response, chunks)
         await asyncio.to_thread(rag_admin.save_rag_stats)
 
-    return {"session_id": sid, "response": full_response, "chunks": chunks, "cache_hit": False,
+    return {"session_id": sessions.public_sid(sid), "response": full_response, "chunks": chunks, "cache_hit": False,
+            "rag_used": rag_used, "documents_only": documents_only,
+            **({"search_failed": True} if search_failed else {}),
+            **({"reused_sources": True} if reused_sources else {}),
             # Same truth the websocket path reports: a client that gets no hit needs to
             # know whether nothing matched or whether this kind of turn is never cached.
             "cache": {"skipped": cache_skipped, "label": cache.skip_label(cache_kind),

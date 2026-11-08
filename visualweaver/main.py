@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 from visualweaver import __version__
 from . import (
-    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, startup as _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend,
+    constants, appcore, auth, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, startup as _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend, projects, routes_projects,
 )
 from .appcore import app
 
@@ -39,7 +39,7 @@ from fastapi.staticfiles import StaticFiles
 # public function (see above) is aliased _mod_<name> so the bare name resolves to
 # the function, not the module.
 _MODULES = [
-    constants, appcore, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend,
+    constants, appcore, auth, state, config, redis_store, embeddings, sessions, rag, cache, textutil, ingest, crawler, providers, hyde, rag_admin, ws, _mod_startup, routes_settings, routes_media, routes_redis, routes_instances, routes_ingestion, routes_monitor, routes_misc, routes_chat, routes_sources, routes_storage, routes_frontend, projects, routes_projects,
 ]
 
 
@@ -67,8 +67,8 @@ def cli() -> None:
     """Run the VisualWeaver server (the ``visualweaver`` console script).
 
     Host/port come from VISUALWEAVER_HOST / VISUALWEAVER_PORT (default
-    127.0.0.1:8420). Bound to loopback by default — there is no built-in auth
-    yet, so front it with a reverse proxy before exposing it to a network.
+    127.0.0.1:8420). Bound to loopback by default. Sign-in, when wanted, comes from an
+    authenticating reverse proxy (see auth.py and DOCS.md).
     """
     import argparse
     import uvicorn
@@ -81,8 +81,9 @@ def cli() -> None:
         prog="visualweaver",
         description="Self-hosted retrieval-augmented chat over your own documents, "
                     "backed by Redis vector search.",
-        epilog="Bound to loopback by default — there is no built-in auth, so front "
-               "it with a reverse proxy before exposing it to a network.",
+        epilog="Bound to loopback by default. Without sign-in (auth.mode in config.json, "
+               "VISUALWEAVER_AUTH) there is no auth, so front it with a reverse proxy "
+               "before exposing it to a network.",
     )
     parser.add_argument("--host", default=os.environ.get("VISUALWEAVER_HOST", "127.0.0.1"),
                         help="interface to bind (env VISUALWEAVER_HOST, default 127.0.0.1)")
@@ -92,7 +93,10 @@ def cli() -> None:
                         version=f"visualweaver {__version__}")
     args = parser.parse_args()
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    # proxy_headers=False: the address the sign-in check trusts (auth.trusted_proxies) must
+    # be the connection's own peer. With uvicorn's default, a connection from 127.0.0.1
+    # carrying X-Forwarded-For would be reported as coming from the address in that header.
+    uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False)
 
 
 if __name__ == "__main__":

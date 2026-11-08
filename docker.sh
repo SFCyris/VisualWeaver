@@ -149,12 +149,15 @@ choose_port() {
   WEB_PORT="${p}"
 }
 
-# This machine's own DNS names, so a browser that uses them is answered (IP addresses,
-# localhost and .local/.lan names always are).
+# This machine's own names (as given, its short name and <short name>.local), so a browser
+# that uses them is answered: inside the container the app does not know the host's name
+# (IP addresses and localhost are always answered).
 allow_host_names() {
   local cur names n; cur="$(env_get VISUALWEAVER_ALLOWED_HOSTS)"
-  names="$(printf '%s\n%s\n' "$(hostname -f 2>/dev/null || true)" "$(hostname 2>/dev/null || true)" \
-           | tr 'A-Z' 'a-z' | grep '\.' | sort -u || true)"
+  names="$(for n in "$(hostname -f 2>/dev/null || true)" "$(hostname 2>/dev/null || true)"; do
+             [ -n "${n}" ] && printf '%s\n%s\n%s.local\n' "${n}" "${n%%.*}" "${n%%.*}"
+           done | tr 'A-Z' 'a-z' | grep -v '^localhost' | grep -v '\.arpa$' | grep -v '^[0-9]*\(\.\|$\)' \
+             | sort -u || true)"
   for n in ${names}; do
     case ",${cur}," in *",${n},"*) ;; *) cur="${cur:+${cur},}${n}" ;; esac
   done
@@ -184,13 +187,38 @@ disk_warning() {
   warn "            \`docker image prune\` / \`docker builder prune\`, or give the Docker VM a larger disk."
 }
 
+# The model provider chosen in the app config, checked as install.sh checks it: the
+# checkout's visualweaver/provider_check.py (standard library only) is piped into the
+# running container, so it sees the container's config, environment and network.
+provider_report() {
+  local out="" kind="" msg="" fix=""
+  if [ -f visualweaver/provider_check.py ]; then
+    out="$(docker exec -i visualweaver python - /data/config.json --docker < visualweaver/provider_check.py 2>/dev/null || true)"
+  fi
+  IFS=$'\t' read -r kind msg fix <<<"${out}" || true
+  case "${kind}" in
+    ok)   info "  Provider: ${G}✓${N} ${msg}" ;;
+    warn) info "  Provider: ${Y}⚠${N} ${msg}"
+          [ -n "${fix}" ] && warn "            Before the first answer: ${fix}" ;;
+    *)    info "  Provider: not checked — open Settings → Providers once the page is up." ;;
+  esac
+}
+
 # ── report ──────────────────────────────────────────────────────────────────
 report() {
   local port; port="$(env_get VISUALWEAVER_WEB_PORT)"; port="${port:-8420}"
   local json; json="$(curl -fsS -m 10 "http://127.0.0.1:${port}/api/components" 2>/dev/null || true)"
   local lan; lan="$(lan_address)"
+  # While sign-in is misconfigured (or config.json could not be loaded) only /api/health
+  # answers — 200, "status": "misconfigured" and the reason; every other address is 503.
+  local health why; health="$(curl -fsS -m 5 "http://127.0.0.1:${port}/api/health" 2>/dev/null || true)"
   info ""
   ok "══ VisualWeaver is running ══"
+  if printf '%s' "${health}" | grep -q '"status" *: *"misconfigured"'; then
+    why="$(printf '%s' "${health}" | sed -n 's/.*"detail" *: *"\([^"]*\)".*/\1/p')"
+    warn "  Sign-in:  MISCONFIGURED — every request is refused until the auth settings are fixed (see \`./docker.sh logs\`)."
+    [ -n "${why}" ] && warn "            ${why}"
+  fi
   info "  Web UI:   http://localhost:${port}"
   if [ "$(env_get VISUALWEAVER_WEB_BIND)" = 127.0.0.1 ]; then
     info "            (this machine only — VISUALWEAVER_WEB_BIND=127.0.0.1)"
@@ -211,6 +239,7 @@ for s in d.get("storage") or []:
   fi
   info "  Storage:  ${STORAGE:-$(normalise_storage "$(env_get COMPOSE_PROFILES)")}  (data in Docker volumes; \`./docker.sh down\` keeps it)"
   disk_warning
+  provider_report
   info "  Models:   Ollama on this machine is used automatically; add cloud model keys in Settings → Providers."
   info "  Logs:     ./docker.sh logs      Stop: ./docker.sh stop"
 }

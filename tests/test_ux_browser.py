@@ -906,8 +906,10 @@ def test_a_grouped_citation_marker_links_every_source_it_names(ux):
 
 def test_a_marker_outside_the_answers_sources_is_left_as_text(ux):
     """[9] with four sources is not a citation into this answer; turning it into a
-    button would offer to open a passage that does not exist."""
+    button would offer to open a passage that does not exist. Since 1.16.0 it is shown
+    as a broken citation (struck through, no card) rather than as ordinary text."""
     assert ux["citations_grouped"]["keptOutOfRange"] is True
+    assert ux["citations_grouped"]["outOfRangeBroken"] is True
 
 
 def test_linking_citations_does_not_disturb_the_prose(ux):

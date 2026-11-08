@@ -226,7 +226,11 @@ def test_that_guard_would_catch_a_distinctive_invented_option():
 def test_the_library_handled_allowlist_has_not_gone_stale():
     """If one of these starts being handled in app code, or stops being
     advertised, the entry is dead weight and the next reader will trust it."""
-    src = _INDEX.read_text(encoding="utf-8")
+    html = _INDEX.read_text(encoding="utf-8")
+    # App code is the scripts: markup attributes such as role="group" are not a
+    # renderer reading a chart option.
+    src = "\n".join(re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.S))
+    assert len(src) > 100_000, "no app scripts found — did the page layout change?"
     bi = _prompt()
     for key, why in _LIBRARY_HANDLED.items():
         assert f'"{key}"' in bi, f"{key!r} is allowlisted but no longer advertised ({why})"

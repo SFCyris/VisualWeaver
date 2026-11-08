@@ -21,10 +21,12 @@ import threading
 import time
 
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 from fastapi import HTTPException
 
 from . import (appcore, appstore, cache, config, constants, local_mongo, mongo_store, rag_admin, redis_store,
-               routes_settings, sessions, state, ws)
+               projects, routes_settings, sessions, state, ws)
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ def _storage_probe(name: str, cfg: dict) -> tuple[bool, bool | None, str]:
         state._search_available[name] = vs
         return bool(p["ok"]), vs, p.get("error") or ""
     try:
-        rc.ping()
+        redis_store._ping_once(rc)     # a dead server answers now, not after the retries
     except Exception as e:
         state._endpoint_health[name] = False
         return False, None, str(e)[:300]
@@ -109,7 +111,8 @@ def _redis_component(cfg: dict, out: dict) -> None:
     rc = redis.Redis(host=cfg.get("host") or "localhost", port=int(cfg.get("port") or 6379),
                      db=int(cfg.get("db") or 0), password=cfg.get("password") or None,
                      ssl=bool(cfg.get("ssl") or False), socket_connect_timeout=_PROBE_TIMEOUT_MS / 1000,
-                     socket_timeout=_PROBE_TIMEOUT_MS / 1000 + 1)
+                     socket_timeout=_PROBE_TIMEOUT_MS / 1000 + 1,
+                     retry=Retry(NoBackoff(), 0))   # one attempt: a probe, not a workload
     try:
         out["version"] = rc.info("server").get("redis_version")
         out["ok"] = True
@@ -337,6 +340,9 @@ def copy_app_data(src, dst) -> dict:
     gone = sorted(set(dst.keys(sessions._SESSION_PREFIX)) - set(keys))
     for i in range(0, len(gone), _COPY_BATCH):
         dst.delete(*gone[i:i + _COPY_BATCH])
+    # The conversation registry there (from an earlier stay) no longer matches: drop
+    # it, and the first listing indexes the copied conversations (sessions.ensure_index).
+    dst.delete(sessions._INDEX_KEY, sessions._INDEX_META_KEY)
 
     usage = src.hgetall(sessions._USAGE_KEY)
     dst.delete(sessions._USAGE_KEY)
@@ -354,6 +360,12 @@ def copy_app_data(src, dst) -> dict:
     dst.delete(ws._WATCH_SEEN_KEY)
     if watch:
         dst.hset(ws._WATCH_SEEN_KEY, watch)
+
+    # Projects become exactly src's, like the conversations filed under them.
+    proj = src.hgetall(projects._KEY)
+    dst.delete(projects._KEY)
+    if proj:
+        dst.hset(projects._KEY, proj)
 
     return {"conversations": n_conv, "usage": bool(usage), "stats": bool(stats), "watch": len(watch)}
 

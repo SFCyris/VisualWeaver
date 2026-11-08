@@ -89,31 +89,38 @@ def test_resaving_the_app_data_connection_rebuilds_the_answer_cache(app_module, 
 
 
 @pytest.fixture
-def two_stores(app_module, redis_client):
-    """Two Redis app stores on separate databases of the private test server."""
+def two_stores(app_module, redis_client, monkeypatch):
+    """Two Redis app stores on separate databases of the private test server, every key
+    the copy touches under this run's KEY_PREFIX — removed by prefix, never flushed."""
     import redis
-    from conftest import REDIS_HOST, REDIS_PORT
-    from visualweaver import appstore
+    from conftest import KEY_PREFIX, REDIS_HOST, REDIS_PORT, _purge
+    from visualweaver import appstore, constants, rag_admin, sessions, ws
+    for mod, name in ((sessions, "_SESSION_PREFIX"), (sessions, "_INDEX_KEY"),
+                      (sessions, "_INDEX_META_KEY"), (sessions, "_USAGE_KEY"),
+                      (rag_admin, "_RAG_STATS_KEY"), (ws, "_WATCH_SEEN_KEY"),
+                      (constants, "CACHE_PREFIX")):
+        monkeypatch.setattr(mod, name, KEY_PREFIX + getattr(mod, name))
     a = appstore.RedisAppStore("a", redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=5))
     b = appstore.RedisAppStore("b", redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=6))
     for s in (a, b):
-        s.raw.flushdb()            # dbs 5/6 of the throwaway test server, used only here
+        _purge(s.raw)
     yield a, b
     for s in (a, b):
-        s.raw.flushdb()
+        _purge(s.raw)
 
 
 def test_a_round_trip_does_not_bring_back_deleted_conversations_or_old_answers(two_stores):
-    from visualweaver import cache, constants, routes_storage
+    from visualweaver import cache, constants, routes_storage, sessions
     a, b = two_stores
-    a.set("session:private", json.dumps([{"role": "user", "content": "private"}]), ttl=600)
-    a.set("session:kept", json.dumps([{"role": "user", "content": "kept"}]), ttl=600)
+    private, kept = sessions._session_key("private"), sessions._session_key("kept")
+    a.set(private, json.dumps([{"role": "user", "content": "private"}]), ttl=600)
+    a.set(kept, json.dumps([{"role": "user", "content": "kept"}]), ttl=600)
     a.set(f"{constants.CACHE_PREFIX}old", "OLD ANSWER")          # an answer cached while on A
     routes_storage.copy_app_data(a, b)                            # A -> B
-    b.delete("session:private")                                   # deleted while on B
+    b.delete(private)                                             # deleted while on B
     routes_storage.copy_app_data(b, a)                            # B -> A
-    assert a.get("session:private") is None, "a conversation deleted on B came back"
-    assert a.get("session:kept") is not None
+    assert a.get(private) is None, "a conversation deleted on B came back"
+    assert a.get(kept) is not None
     assert cache.clear_cache_entries(a) == 1 and a.keys(constants.CACHE_PREFIX) == []
 
 

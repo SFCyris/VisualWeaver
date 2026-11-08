@@ -27,6 +27,13 @@ def main(index: pathlib.Path) -> None:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1280, "height": 900})
         pg.on("console", lambda m: console.append(m.text) if m.type == "error" else None)
+        # The one answer the page waits for before it offers administrator controls: a
+        # single-user install (sign-in off). Every other fetch fails, as before.
+        pg.add_init_script("""(() => { const inner = window.fetch;
+          window.fetch = (u, o) => String(u) === '/api/me'
+            ? Promise.resolve(new Response('{"auth":false,"admin":true}', {status: 200,
+                headers: {'Content-Type': 'application/json'}}))
+            : inner(u, o); })();""")
         pg.goto(index.as_uri(), wait_until="domcontentloaded")
         pg.wait_for_timeout(1200)
 

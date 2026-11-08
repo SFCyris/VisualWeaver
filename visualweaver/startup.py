@@ -10,7 +10,7 @@ import copy
 import os
 import platform
 import socket
-from . import appcore, cache, config, constants, embeddings, mongo_store, pagetext, rag, rag_admin, redis_store, state, ws
+from . import appcore, auth, cache, config, constants, embeddings, mongo_store, pagetext, rag, rag_admin, redis_store, sessions, state, ws
 
 log = logging.getLogger(__name__)
 
@@ -165,6 +165,10 @@ async def startup():
     # the standard `visualweaver` entrypoint.
     _bind_host = os.environ.get("VISUALWEAVER_HOST", "127.0.0.1")
     _port      = os.environ.get("VISUALWEAVER_PORT", "8420")
+    # Sign-in (auth.py). start.sh repeats these warning lines on the console.
+    log.info(f"  {auth.describe()}")
+    for _w in auth.startup_warnings(_bind_host):
+        log.warning(f"  SIGN-IN WARNING: {_w}")
     _in_docker = os.path.exists("/.dockerenv")
     _urls: list[str] = []
     if _bind_host in ("0.0.0.0", "::", ""):
@@ -298,6 +302,12 @@ async def startup():
         # They used to live only in memory, so Settings — most often opened right
         # after a restart — had nothing to show.
         await asyncio.to_thread(rag_admin.load_rag_stats)
+        # The conversation registry, and the retention applied to what is stored — at
+        # boot, so an upgraded install's one-day expiries are lifted before they run out.
+        try:
+            await asyncio.to_thread(sessions.ensure_index)
+        except Exception as e:
+            log.warning(f"  Conversation registry: not ready yet ({str(e)[:200]})")
         log.info(f"  Endpoint health: { {k: ('OK' if v else 'OFFLINE') for k, v in state._endpoint_health.items()} }")
         # What each connection runs, built-in first (short timeouts, probed in parallel).
         try:

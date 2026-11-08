@@ -545,3 +545,75 @@ def test_a_failed_stack_teardown_is_retried_and_reported(monkeypatch):
     with pytest.warns(UserWarning, match="vwtest-x.*NOT removed.*daemon busy"):
         assert conftest._compose_down(["docker", "compose"], "vwtest-x", conftest.Path("c.yml")) is False
     assert len(calls) == 3
+
+
+# ── 1.16: concurrent retrieval legs, instance registry ─────────────────────────
+
+def test_concurrent_legs_rank_exactly_as_the_sequential_ones(mongo):
+    """search_legs now runs the keyword leg beside the vector leg instead of after it.
+    The ranked ids must be the ones the two legs return run one after the other, and a
+    full hybrid search must rank identically."""
+    import numpy as np
+    from visualweaver import embeddings, mongo_store, textutil
+    inst = f"{KEY_PREFIX}mongo_legs"
+    _create(inst)
+    _ingest(inst, DOC_A, "notes/cache.md")
+    _ingest(inst, DOC_B, "parts/valves.pdf")
+    _until_searchable(mongo, inst, "how long does a stored response stay before it expires?",
+                      "notes/cache.md", "QX-7731 boiler", "parts/valves.pdf")
+    field = embeddings.vector_field_for()
+    for q in ("how long does a stored response stay before it expires?", "QX-7731 boiler valve"):
+        q_emb = embeddings.embed(q, is_query=True).astype(np.float32)
+        kws = textutil._keywords_for_bm25(q)
+        col = mongo.col(mongo_store.CHUNKS)
+        seq = (mongo_store._vector_leg(col, field, q_emb, 10, {"instance": inst}),
+               mongo_store._text_leg(col, inst, kws, 10, None))
+        conc = mongo_store.search_legs(mongo, inst, q_emb, kws, 10, field, True)
+        assert [[r["_key"] for r in leg] for leg in conc] == [[r["_key"] for r in leg] for leg in seq]
+        assert conc[0], f"the vector leg returned nothing for {q!r}"
+        if "QX-7731" in q:
+            assert conc[1], "the keyword leg returned nothing for a part number"
+        first = [c["text"] for c in _search(inst, q)]
+        assert first and [c["text"] for c in _search(inst, q)] == first
+
+
+def test_the_mongodb_listing_reads_the_registry_and_heals_it(mongo, monkeypatch):
+    """The listing ran distinct("instance") over every chunk to find the instances. It
+    reads the vw_instances registry now: built once (from the chunks and metadata) where
+    none exists, kept by create / ingest / delete, and a name with nothing behind it is
+    not listed."""
+    from pymongo.collection import Collection
+    from visualweaver import instance_registry, mongo_store, rag_admin, routes_instances
+    made, fed = f"{KEY_PREFIX}mreg_made", f"{KEY_PREFIX}mreg_fed"
+    _create(made)                                       # metadata only
+    reg = mongo.col(instance_registry.MONGO_COLLECTION)
+    assert reg.find_one({"_id": made})
+    distinct_calls = []
+    real_distinct = Collection.distinct
+
+    def spy(self, key, *a, **kw):
+        distinct_calls.append((self.name, key))
+        return real_distinct(self, key, *a, **kw)
+
+    monkeypatch.setattr(Collection, "distinct", spy)
+    mongo_store.add_chunks(mongo, fed, [{"id": 0, "text": "x", "source": "f.md"}],
+                           "embedding_384", [[0.1] * 384], 1, lambda s: "d")   # chunks only
+    assert reg.find_one({"_id": fed})
+
+    mine = lambda: {i["name"]: i["chunks"] for i in rag_admin.list_rag_instances()
+                    if i["name"] in (made, fed)}
+    distinct_calls.clear()
+    assert mine() == {made: 0, fed: 1}
+    assert (mongo_store.CHUNKS, "instance") not in distinct_calls, distinct_calls
+
+    reg.drop()                                          # an install from before the registry
+    assert mine() == {made: 0, fed: 1}
+    assert (mongo_store.CHUNKS, "instance") in distinct_calls
+    assert reg.find_one({"_id": instance_registry.BUILT})
+    distinct_calls.clear()
+    assert mine() == {made: 0, fed: 1} and distinct_calls == []
+
+    mongo.col(mongo_store.CHUNKS).delete_many({"instance": fed})
+    assert mine() == {made: 0}, "a name with nothing behind it is still listed"
+    routes_instances.api_delete_instance(made, endpoint=EP)
+    assert reg.find_one({"_id": made}) is None and mine() == {}

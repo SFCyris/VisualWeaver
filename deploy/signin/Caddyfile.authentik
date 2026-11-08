@@ -1,0 +1,30 @@
+# VisualWeaver behind Caddy, signed in by Authentik (forward_auth to its outpost).
+# Use it in place of Caddyfile.authelia in docker-compose.signin.yml, and start
+# VisualWeaver with:
+#   VISUALWEAVER_AUTH_USER_HEADER=X-Authentik-Username
+#   VISUALWEAVER_AUTH_GROUPS_HEADER=X-Authentik-Groups
+#   VISUALWEAVER_AUTH_NAME_HEADER=X-Authentik-Name
+# Authentik (a Proxy Provider in "Forward auth (single application)" mode for this
+# domain, and its outpost) is set up as its own documentation describes; the outpost
+# must be reachable as authentik-outpost:9000.
+visualweaver.example.com {
+	route {
+		# Removed first: a browser must never be able to send these itself.
+		request_header -X-Authentik-Username
+		request_header -X-Authentik-Groups
+		request_header -X-Authentik-Name
+		request_header -X-Authentik-Email
+
+		# The outpost's own pages (sign-in redirect, callback).
+		reverse_proxy /outpost.goauthentik.io/* authentik-outpost:9000
+
+		forward_auth authentik-outpost:9000 {
+			uri /outpost.goauthentik.io/auth/caddy
+			copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Name X-Authentik-Email
+			# No trusted_proxies here: Caddy is the edge, so the X-Forwarded-* headers the
+			# outpost sees are the ones Caddy sets, never copies a client sent.
+		}
+
+		reverse_proxy visualweaver:8420
+	}
+}

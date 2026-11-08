@@ -47,6 +47,8 @@ CONFIG_PATH   = DATA_DIR / "config.json"
 LOGS_PATH     = DATA_DIR / "ingestion_logs.json"
 FEEDBACK_PATH = DATA_DIR / "feedback.json"
 UPLOAD_DIR    = DATA_DIR / "uploads"
+# Images a tool wrote for an answer: GET /api/files/image serves files from here only.
+IMAGE_DIR     = DATA_DIR / "images"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -310,6 +312,10 @@ DEFAULT_CONFIG: dict = {
         # Candidates fetched for the reranker to choose from. Must exceed top_k
         # or the cross-encoder can only reorder the list it was already given.
         "rerank_candidates": 40,
+        # Documents only — the default for new conversations (the composer toggle sets
+        # it per conversation): answers come from the retrieved chunks or say they are
+        # not in the documents, never from general knowledge.
+        "documents_only": False,
     },
 
     # ── Semantic cache settings ───────────────────────────────────────────────
@@ -341,7 +347,9 @@ DEFAULT_CONFIG: dict = {
     ],
     "security": {"password": "", "enabled": False},
     "active_rag": "default",
-    "sessions":   {"persist": True, "ttl": 86400},
+    # Conversations: ttl = seconds kept after the last turn, 0 = forever (Settings →
+    # General → Conversations sets it, with retention_chosen). Pinned ones never expire.
+    "sessions":   {"persist": True, "ttl": 0},
     "reranker":   {"enabled": False, "model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "top_n": 5},
     "hyde":       {"enabled": False},
     "recrawl":    {"enabled": False, "interval_minutes": 60},

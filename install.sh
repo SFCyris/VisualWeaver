@@ -169,8 +169,20 @@ MONGO_ACCEPT=0; MONGO_SKIP=0; MONGO_RUNTIME=""; MONGO_PREFLIGHT=0
 mongo_preflight() {
   MONGO_PREFLIGHT=1
   storage_has mongodb || return 0
-  local _rc=0
+  local _rc=0 _rt
   MONGO_RUNTIME="$(lm runtime 2>&1)" || _rc=$?
+  # Installed but stopped (after a reboot, typically): start it and wait, as start.sh does.
+  if [ "${_rc}" != 0 ] && printf '%s' "${MONGO_RUNTIME}" | grep -q "installed but not running"; then
+    c_info "The container runtime is installed but stopped — starting it (this can take a minute)…"
+    _rc=0
+    _rt="$(lm ensure-runtime 2>&1)" || _rc=$?
+    if [ "${_rc}" = 0 ]; then
+      c_ok "Started $(printf '%s' "${_rt}" | json_field name) in $(printf '%s' "${_rt}" | json_field seconds) s."
+      MONGO_RUNTIME="$(lm runtime 2>&1)" || _rc=$?
+    else
+      MONGO_RUNTIME="$(printf '%s' "${_rt}" | tail -n 1)"
+    fi
+  fi
   if [ "${_rc}" = 0 ]; then
     c_ok "Container runtime: ${MONGO_RUNTIME}"
   else
@@ -710,11 +722,15 @@ fi
 # Each installed piece is checked for real: the venv imports the app, each store
 # starts and answers with its search, the web UI port can be bound. The stores
 # are left running (start.sh reuses them). Any ✗ ends the install non-zero.
+# The model provider is reported too, as ✓ or ⚠ — never ✗: Ollama can be started
+# and an API key added after installing.
 c_info ""
 c_info "── Validation ──"
 V_FAIL=0; V_FIXES=()
 v_ok()   { printf '  \033[0;32m✓\033[0m %-18s %s\n' "$1" "$2"; }
 v_fail() { printf '  \033[0;31m✗\033[0m %-18s %s\n' "$1" "$2"; V_FAIL=1; V_FIXES+=("$1: $3"); }
+v_warn() { printf '  \033[0;33m⚠\033[0m %-18s %s\n' "$1" "$2"; V_WARNS+=("$1: $3"); }
+V_WARNS=()
 VER_PY=""; VER_REDIS=""; VER_SEARCH=""; VER_MONGO=""; VER_MSEARCH=""; VER_RT=""
 VER_APP="$(sed -n 's/^__version__ *= *["'"'"']\(.*\)["'"'"']/\1/p' "${REPO_DIR}/visualweaver/__init__.py" 2>/dev/null)"
 
@@ -772,11 +788,31 @@ else
     "stop that program, or choose another port: VISUALWEAVER_PORT=<port> ./install.sh"
 fi
 
+# The provider chosen in the app config (Settings → Providers): Ollama must answer and
+# have a chat model; a hosted provider needs its API key, in the config or in its
+# environment variable. visualweaver/provider_check.py runs as a plain file (standard
+# library only), so it works even when the app itself does not import.
+_mp=""
+if [ -f "${DATA_DIR}/config.json" ] && [ -f "${REPO_DIR}/visualweaver/provider_check.py" ]; then
+  _mp="$("${VENV}/bin/python" "${REPO_DIR}/visualweaver/provider_check.py" "${DATA_DIR}/config.json" 2>/dev/null || true)"
+fi
+IFS=$'\t' read -r _mp_kind _mp_msg _mp_fix <<<"${_mp:-}" || true
+case "${_mp_kind:-}" in
+  ok)   v_ok "Model provider" "${_mp_msg}" ;;
+  warn) v_warn "Model provider" "${_mp_msg}" "${_mp_fix}" ;;
+  *)    v_warn "Model provider" "not checked (no app config, or its Python did not run)" \
+          "open Settings → Providers once the app is running." ;;
+esac
+
 if [ "${V_FAIL}" = 1 ]; then
   c_err ""
   c_err "══ Install finished, but VisualWeaver is not ready to use ══"
   for _f in "${V_FIXES[@]}"; do c_err "  • ${_f}"; done
   exit 1
+fi
+if [ "${#V_WARNS[@]}" -gt 0 ]; then
+  c_warn "Before the first answer:"
+  for _f in "${V_WARNS[@]}"; do c_warn "  • ${_f}"; done
 fi
 
 # ── 8. Summary ───────────────────────────────────────────────────────────────

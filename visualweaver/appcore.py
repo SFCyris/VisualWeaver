@@ -98,21 +98,36 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # "same-origin" with the app, so the Origin test above cannot tell. What it cannot
 # fake is the host NAME the browser asks for. A browser request is therefore served
 # only for host names that cannot belong to an outside attacker — IP addresses,
-# localhost, single-label intranet names, private-use suffixes and this machine's own
-# names — or names listed in VISUALWEAVER_ALLOWED_HOSTS (comma-separated; "*.corp.example"
-# matches subdomains; "*" turns the check off), e.g. the domain of a reverse proxy.
-_PRIVATE_SUFFIXES = (".localhost", ".local", ".lan", ".internal", ".home.arpa")
+# localhost (and *.localhost) and this machine's own names — or names listed in
+# VISUALWEAVER_ALLOWED_HOSTS (comma-separated; "*.corp.example" matches subdomains;
+# "*" turns the check off), e.g. the domain of a reverse proxy. Names any device on
+# the network can answer for (mDNS ".local", router DNS ".lan"/".home.arpa"/
+# ".internal", single-label names) are not allowed unless listed.
+_PRIVATE_SUFFIXES = (".localhost",)
 _allowed_hosts = {h.strip().lower().rstrip(".") for h in
                   os.environ.get("VISUALWEAVER_ALLOWED_HOSTS", "").split(",") if h.strip()}
 
 
 def _machine_names() -> set:
+    """localhost, the host name, its first label and "<first label>.local", and the fully
+    qualified name. The short and .local forms come from the host name only: getfqdn() is
+    a reverse lookup, and on macOS it can answer "1.0.…ip6.arpa", whose first label "1"
+    (and "1.local", a name any device on the network can claim over mDNS) is not this
+    machine's. Reverse-lookup names (.arpa) and all-digit labels are never used."""
+    def usable(n: str) -> bool:
+        return bool(n) and not n.endswith(".arpa") and not n.split(".")[0].isdigit()
     names = {"localhost"}
     try:
-        for n in (socket.gethostname(), socket.getfqdn()):
-            n = (n or "").lower().rstrip(".")
-            if n:
-                names |= {n, n.split(".")[0], n.split(".")[0] + ".local"}
+        host = (socket.gethostname() or "").lower().rstrip(".")
+        if usable(host):
+            short = host.split(".")[0]
+            names |= {host, short, short + ".local"}
+    except Exception:
+        pass
+    try:
+        fqdn = (socket.getfqdn() or "").lower().rstrip(".")
+        if usable(fqdn):
+            names.add(fqdn)
     except Exception:
         pass
     return names
@@ -132,11 +147,22 @@ def _host_allowed(host: str) -> bool:
         return True
     except ValueError:
         pass
-    if "." not in name or name.endswith(_PRIVATE_SUFFIXES) or name in _MACHINE_NAMES:
+    if name.endswith(_PRIVATE_SUFFIXES) or name in _MACHINE_NAMES:
         return True
     extra = _allowed_hosts | {urlsplit(o).hostname or "" for o in _cors_origins}
     return "*" in extra or name in extra or any(
         e.startswith("*.") and name.endswith(e[1:]) for e in extra)
+
+
+def _forwarded_host_trusted(scope) -> bool:
+    """X-Forwarded-Host is believed only on a connection from a trusted proxy address
+    (auth.trusted_proxies / VISUALWEAVER_TRUSTED_PROXIES, loopback when unset) — with
+    sign-in on or off. From anyone else it is a header the client chose."""
+    try:
+        from . import auth
+        return auth.trusted(scope, auth.proxy_settings())
+    except Exception:
+        return False
 
 
 def _norm_netloc(netloc: str, scheme: str) -> str:
@@ -150,13 +176,31 @@ def _norm_netloc(netloc: str, scheme: str) -> str:
 def _origin_allowed(scope) -> tuple[bool, str, str]:
     h = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
     origin = h.get("origin", "").strip()
-    host = h.get("x-forwarded-host") or h.get("host", "")
+    host = h.get("host", "")
     site, mode = h.get("sec-fetch-site", ""), h.get("sec-fetch-mode", "")
-    if (origin or site or mode) and not _host_allowed(host):
+    # The Host is checked on every request, not only on those that look like a browser's:
+    # Safari before 16.4 and Firefox before 90 send neither Origin nor Sec-Fetch-* on a GET,
+    # so a rebinding page could read through them. The liveness probe asked by a client
+    # that is not a browser is exempt (a container health check or a proxy may name the
+    # app any way). A trusted proxy that rewrites the Host passes the public name in
+    # X-Forwarded-Host: that name is checked as well and is the one the Origin must match.
+    browser = bool(origin or site or mode)
+    probe = not browser and scope["type"] == "http" and scope.get("path") == "/api/health"
+    if not probe and not _host_allowed(host):
         return False, "host", host
+    fwd = h.get("x-forwarded-host", "").split(",")[0].strip()
+    if fwd and _forwarded_host_trusted(scope):
+        if not probe and not _host_allowed(fwd):
+            return False, "host", fwd
+        host = fwd
     ws = scope["type"] == "websocket"
     method = (scope.get("method") or "GET").upper()
     navigation = not ws and method in _SAFE_METHODS and mode in ("navigate", "")
+    # A navigation from another site (a link, a form-less redirect, an <iframe>) may
+    # open the page itself and nothing else: every other GET route either starts work
+    # (a crawl stream) or answers with data, and none is meant to be linked to.
+    if navigation and site in ("cross-site", "same-site") and scope.get("path") != "/":
+        navigation = False
     if origin and origin != "null":
         if origin.rstrip("/") in {o.rstrip("/") for o in _cors_origins}:
             return True, origin, host
@@ -211,6 +255,11 @@ class _CrossSiteGuard:
         await send({"type": "http.response.body", "body": body})
 
 
+# Sign-in through a trusted reverse proxy (off by default; see auth.py). Added before the
+# cross-site guard so that guard stays the outer layer: a cross-site or DNS-rebinding
+# request is refused before any identity header is looked at.
+from . import auth as _auth  # noqa: E402  (auth imports nothing from here at load time)
+app.add_middleware(_auth.AuthGuard)
 app.add_middleware(_CrossSiteGuard)
 
 

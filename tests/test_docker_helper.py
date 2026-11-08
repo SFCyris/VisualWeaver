@@ -146,3 +146,56 @@ def test_a_web_ui_limited_to_this_machine_is_not_advertised_on_the_network(repo)
     p, _, _ = run(repo, "up", "redis")
     assert p.returncode == 0, p.stderr
     assert "this machine only" in p.stdout and "other devices on your network" not in p.stdout
+
+
+# ── the model provider, as install.sh reports it ─────────────────────────────
+
+FAKE_DOCKER_EXEC = r"""#!/bin/sh
+echo "$*" >> "$FAKE_LOG"
+case "$1" in
+  exec)
+    # `docker exec -i visualweaver python - /data/config.json --docker`: run the piped
+    # check here, with the test's config standing in for the container's /data/config.json.
+    [ -n "${FAKE_EXEC_FAIL:-}" ] && exit 1
+    shift; while [ "$1" != "python" ]; do shift; done; shift
+    shift; shift   # "-" and /data/config.json
+    exec python3 - "$FAKE_CFG" "$@" ;;
+  compose) [ "$2" = version ] && echo 2.30.0; exit 0 ;;
+  inspect) exit 1 ;;
+esac
+exit 0
+"""
+
+
+def _with_exec(repo, tmp_path, cfg):
+    import json
+    r, b, _ = repo
+    (b / "docker").write_text(FAKE_DOCKER_EXEC)
+    (r / "visualweaver").mkdir(exist_ok=True)
+    shutil.copy(_ROOT / "visualweaver" / "provider_check.py", r / "visualweaver" / "provider_check.py")
+    (tmp_path / "cfg.json").write_text(json.dumps(cfg))
+    return {"FAKE_CFG": str(tmp_path / "cfg.json")}
+
+
+def test_up_reports_a_hosted_provider_without_a_key_with_the_fix(repo, tmp_path):
+    """Old: the report said only "Ollama on this machine is used automatically" whatever was
+    selected — install.sh checked the provider, docker.sh did not."""
+    env = _with_exec(repo, tmp_path, {"provider": "claude", "claude": {"api_key": ""}})
+    p, calls, _ = run(repo, "up", "redis", env=env)
+    assert p.returncode == 0, p.stderr
+    assert "Provider: ⚠ Claude is selected but has no API key" in p.stdout
+    assert "ANTHROPIC_API_KEY in docker-compose.yml" in p.stderr
+    assert any(c.startswith("exec -i visualweaver python - /data/config.json --docker") for c in calls), calls
+
+
+def test_up_reports_a_working_provider(repo, tmp_path):
+    env = _with_exec(repo, tmp_path, {"provider": "openai", "openai": {"api_key": "sk-test"}})
+    p, _, _ = run(repo, "up", "redis", env=env)
+    assert "Provider: ✓ OpenAI: API key set in the app config" in p.stdout
+    assert "sk-test" not in p.stdout + p.stderr
+
+
+def test_an_unreadable_provider_check_is_said_not_hidden(repo, tmp_path):
+    env = _with_exec(repo, tmp_path, {"provider": "ollama"})
+    p, _, _ = run(repo, "up", "redis", env={**env, "FAKE_EXEC_FAIL": "1"})
+    assert p.returncode == 0 and "Provider: not checked" in p.stdout

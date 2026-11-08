@@ -43,7 +43,7 @@ Found in **Settings → Storage**.
 What the installer set up: **Built-in Redis**, **Built-in MongoDB**, or both. Each is listed with its address, whether it can search vectors (**✓ Vector search**, **⚠ No vector search** or **✗ Can't connect**), the server and search versions (for example `Redis 8.8.1 · Query Engine 8.8.1` or `MongoDB 9.0.4 · Search 1.78.0`) and how many RAG instances it holds. Built-in storage cannot be removed from the panel. The host and port fields below apply to the built-in Redis and are shown only when the installer set up Redis first.
 
 ### App data & answer cache
-Where conversations, the token-usage tally, retrieval stats, the record of files already read from watched folders, and the semantic (answer) cache are kept. Every built-in or added storage is listed; storage without vector search, that cannot be reached, or that has not been checked yet (press **Test** on its card) is listed but cannot be chosen, with the reason in brackets. When the storage holding app data cannot be reached, the Status and Cache tabs say so, and so does a line above the chat with a link to Status. The default is the built-in Redis on a Redis or Redis + MongoDB install, and the built-in MongoDB on a MongoDB install.
+Where conversations, the token-usage tally, retrieval stats, the record of files already read from watched folders, and the semantic (answer) cache are kept. Every built-in or added storage is listed; storage without vector search, that cannot be reached, or that has not been checked yet (press **Test** on its card) is listed but cannot be chosen, with the reason in brackets. When the storage holding app data cannot be reached, the Status and Cache tabs say so, and so do a line above the chat with a link to Status and the **Storage** item of the status line under the message box. The default is the built-in Redis on a Redis or Redis + MongoDB install, and the built-in MongoDB on a MongoDB install.
 
 Choose another storage and press **Move app data**. After you confirm:
 - conversations (with the time they have left before they expire), the usage tally, retrieval stats and the watched-folder record are copied to the new storage; values already there under the same names are replaced,
@@ -78,7 +78,7 @@ The built-in Redis is set up by the installer and kept as installed: its host, p
 ### Password
 - **Default:** (empty)
 - **What it does:** The `AUTH` password for the Redis server. VisualWeaver's bundled local instance runs on loopback with no password.
-- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the storage can be overridden from the environment (used by the Docker image): the Redis **host and port** — `VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT` — and the built-in storage — `VISUALWEAVER_STORAGE` (`redis`, `mongodb` or `both`) with `VISUALWEAVER_MONGODB_URI`, `VISUALWEAVER_MONGODB_USERNAME`, `VISUALWEAVER_MONGODB_PASSWORD` and `VISUALWEAVER_MONGODB_DATABASE`. Values from the environment apply to that run and are not written to `config.json`. Two more apply to every run: `VISUALWEAVER_OLLAMA_URL` (where Ollama is, e.g. `http://host.docker.internal:11434` in a container; used while the Ollama setting is still the default) and `VISUALWEAVER_ALLOWED_HOSTS` (host names browsers may use, see the Security section of DOCS.md).
+- **Notes:** Stored in `config.json`, which lives in the platform data directory (outside the repo), not the project tree. Only the storage can be overridden from the environment (used by the Docker image): the Redis **host and port** — `VISUALWEAVER_REDIS_HOST` / `VISUALWEAVER_REDIS_PORT` — and the built-in storage — `VISUALWEAVER_STORAGE` (`redis`, `mongodb` or `both`) with `VISUALWEAVER_MONGODB_URI`, `VISUALWEAVER_MONGODB_USERNAME`, `VISUALWEAVER_MONGODB_PASSWORD` and `VISUALWEAVER_MONGODB_DATABASE`. Values from the environment apply to that run and are not written to `config.json`. Two more apply to every run: `VISUALWEAVER_OLLAMA_URL` (where Ollama is, e.g. `http://host.docker.internal:11434` in a container; used while the Ollama setting is still the default) and `VISUALWEAVER_ALLOWED_HOSTS` (the host names it answers for besides IP addresses, `localhost` and this machine's own names; `*` turns the check off; see the Security section of DOCS.md).
 
 ### SSL / TLS
 - **Default:** Off
@@ -91,7 +91,7 @@ Further places to store RAG instances, each under a name of your choice. When yo
 - **Redis** — host, port, database index, password and TLS, as above. The server needs the Search module (Redis 8, Redis Stack or Redis Enterprise).
 - **MongoDB** — server, username, password and database name (default `visualweaver`). The server is the Atlas cluster address (`cluster0.xxxxx.mongodb.net`, the part after `@` in the string under **Connect → Drivers**) or a self-hosted `host:27017`; the connection string is built from it (`mongodb+srv://` for an Atlas cluster, `mongodb://` otherwise) and shown under the field. A whole connection string can be entered instead. The server needs vector search: **MongoDB Atlas**, or a self-managed MongoDB with the search process (mongot), such as the built-in MongoDB the installer sets up. A pasted connection string can include credentials: the username and password in it move to their own fields, and the password is stored as a secret. If the string still holds the `<db_password>` placeholder, the Password field is focused to type it in. A failed check names the cause: a wrong login, a cluster address that does not resolve, or a cluster that does not answer (in Atlas, Network Access must allow this machine's IP address).
 
-Each connection shows whether it is reachable and whether it can search vectors, and the server and search versions once they are known; one that cannot search vectors is listed as **No vector search** and cannot be chosen for an instance. **Test** checks the values in the form before anything is saved. On a MongoDB database, VisualWeaver creates the collections `vw_chunks`, `vw_meta`, `vw_hashes`, `vw_urls` and `vw_counters`, plus two search indexes on `vw_chunks` (`vw_vector`, `vw_text`) that every instance on the connection shares.
+Each connection shows whether it is reachable and whether it can search vectors, and the server and search versions once they are known; one that cannot search vectors is listed as **No vector search** and cannot be chosen for an instance. **Test** checks the values in the form before anything is saved. On a MongoDB database, VisualWeaver creates the collections `vw_chunks`, `vw_meta`, `vw_hashes`, `vw_urls`, `vw_counters` and `vw_instances`, plus two search indexes on `vw_chunks` (`vw_vector`, `vw_text`) that every instance on the connection shares.
 
 ---
 
@@ -171,6 +171,17 @@ Found in **Settings → RAG**.
   - Exact keywords in the query may fail to retrieve chunks that use those keywords verbatim, if the cosine score is below threshold
   - Slightly faster
 - **When to disable:** Almost never. Disable only if you are debugging or benchmarking vector-only retrieval.
+
+### Documents Only for New Conversations
+- **Default:** Off
+- **Config key:** `rag.documents_only`
+- **What it does:** The mode new conversations start in. With Documents only on, answers come only from the retrieved passages (and a document attached to the message), never from general knowledge; when the documents do not contain the answer, the answer says so. When the search finds nothing and no document is attached, the model is not asked at all and the answer is a fixed "Not found in your documents" message.
+- **Per conversation:** The **📚** button beside the template picker switches it for the conversation you are in; a **📚 Documents only** chip above the message box shows it is on. A reopened conversation comes back in the mode its latest answer used. A [project](DOCS.md#projects) can set the mode for the conversations started in it.
+- **Cache:** Answers given in Documents only mode are cached apart from normal answers.
+
+### Advice Measured On
+- **Shown:** once at least one project exists, above the presets.
+- **What it does:** Chooses the knowledge bases the measured advice on this tab is read from: **All knowledge bases**, or one project's (all of them for a project that names none). The settings themselves apply to every knowledge base; the advice for a project says which values suit its knowledge bases.
 
 ### Chat History Budget
 - **Config key:** `history_max_tokens`
@@ -407,6 +418,13 @@ Found in **Settings → General**.
 - **When to enable:** During development or tuning, when you want to see retrieval quality on every response without manually clicking.
 - **When to leave off:** Normal use — the badge is always visible; you can open it on demand.
 
+### Keep Conversations
+- **Default:** Forever
+- **Choices:** Forever, 30 days, 1 day (`sessions.ttl` in seconds; `0` = forever). A different number set in `config.json` is shown as its own choice and kept when you save; it must be at least `3600` (one hour). A smaller number in `config.json` is used as `3600`, and a config import or Settings save with one is refused.
+- **What it does:** How long a conversation is kept after its last message. With a limit, each sidebar row says *expires in …*; every new message starts the count again. Pinned conversations are always kept.
+- **When you change it:** it applies to every stored conversation as soon as you save. **Forever** lifts every expiry. A limit gives each conversation at most that long from the moment you save — nothing is deleted on the spot, and one with less time left keeps it; a longer limit than before gives every conversation the new limit from that moment.
+- **Upgrading:** a `config.json` that still holds the earlier default (`86400`, one day) is read as Forever. To keep a one-day limit, choose **1 day** here and save.
+
 ---
 
 ## Web Crawler Settings
@@ -535,7 +553,9 @@ Found in **Settings → Security**.
 
 ### Authentication
 
-VisualWeaver has **no built-in authentication**. The Settings → Security "password" field is stored in `config.json` (as plaintext, in the platform data directory) but is **not currently enforced** — access is not gated on it.
+VisualWeaver has **no login page of its own**. The Settings → Security "password" field is stored in `config.json` (as plaintext, in the platform data directory) but is **not currently enforced** — access is not gated on it.
+
+**Sign-in through a reverse proxy.** For several people, VisualWeaver can take the signed-in user from an authenticating reverse proxy (Authelia, Authentik, oauth2-proxy): set `auth.mode` to `header` in `config.json` (or `VISUALWEAVER_AUTH=header`), with the proxy's address in `auth.trusted_proxies` and your administrators in `auth.admin_users` / `auth.admin_groups` (names are compared exactly; `auth.case_insensitive_names: true` ignores the case of ASCII letters). Each person then sees only their own conversations, and only administrators can change Settings: in Settings, everyone else sees only **Status**, **Analytics** and **About**, with no Save button. These settings have no control in the Settings panel and a save or a config import never changes them. While `config.json` cannot be read, or cannot be parsed and names `auth` (it or a damaged `config.json.corrupt-…` copy beside it), every request but `GET /api/health` is answered `503` until it is restored or `VISUALWEAVER_AUTH` is set; a damaged `config.json` that names no `auth` is moved aside and the app runs on the built-in defaults (`/api/health` reports `degraded`). Setup, the header names for each proxy, and the examples in `deploy/signin/` are in [DOCS.md → Sign-in through a reverse proxy](DOCS.md#sign-in-through-a-reverse-proxy-multiple-users).
 
 Where the app listens is chosen when you run `install.sh` — this machine only (`127.0.0.1`, the default answer) or any device on your network (`0.0.0.0`) — and recorded in `.visualweaver.env`; change it with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart. With no recorded choice (an install run without a terminal) `start.sh` listens on all interfaces (`0.0.0.0`), as does the Docker Compose setup. Before exposing it on a LAN, VPN, or the internet, put it behind a **reverse proxy (nginx, Caddy) with HTTPS and authentication** — see [`deploy/docker-compose.https.yml`](deploy/docker-compose.https.yml) for a Caddy + automatic-HTTPS starting point, and add an auth layer there before exposing sensitive data.
 

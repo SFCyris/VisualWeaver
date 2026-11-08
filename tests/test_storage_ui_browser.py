@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from test_science_lanes_browser import _playwright_python
+from test_science_lanes_browser import _no_browser, _playwright_python
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _PROBE = pathlib.Path(__file__).with_name("storage_ui_probe.py")
@@ -15,7 +15,10 @@ _PROBE = pathlib.Path(__file__).with_name("storage_ui_probe.py")
 
 @pytest.fixture(scope="module")
 def probe():
-    r = subprocess.run([_playwright_python(), str(_PROBE), str(_ROOT / "visualweaver" / "index.html")],
+    py = _playwright_python()
+    if py is None:
+        _no_browser()
+    r = subprocess.run([py, str(_PROBE), str(_ROOT / "visualweaver" / "index.html")],
                        capture_output=True, text=True, timeout=240)
     out = json.loads(r.stdout.strip().splitlines()[-1])
     if out.get("skip"):

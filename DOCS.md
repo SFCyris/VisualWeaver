@@ -73,13 +73,35 @@ Or with containers — one command chooses the storage (Redis, MongoDB or both),
 ./docker.sh stop         # stop later; everything is kept
 ```
 
-Plain Compose works too: `COMPOSE_PROFILES=mongodb docker compose up -d` (unset = Redis, `mongodb`, `both`). See the README's Docker section for every command.
+Plain Compose works too: `COMPOSE_PROFILES=mongodb docker compose up -d` (unset = Redis, `mongodb`, `both`). To open it by a NAS or host name rather than `localhost` or an IP address, put that name in `VISUALWEAVER_ALLOWED_HOSTS` in `.env` (`./docker.sh up` records this machine's names itself). See the README's Docker section for every command.
 
 On first launch a `config.json` is created (with defaults) in the per-platform data directory — `~/Library/Application Support/VisualWeaver` on macOS, `~/.local/share/visualweaver` on Linux — not in the repo. Configure Redis and your LLM provider via **Settings** before chatting.
 
 ### First run
 
 Until a provider has a usable model, the welcome screen says so and offers the two places that fix it rather than suggestion prompts that cannot work. The message names the actual obstacle — Ollama running but with nothing pulled, or a hosted provider whose key is missing or was rejected.
+
+While something is still missing, the welcome screen also shows a **Get started** checklist:
+
+- **Storage** — whether the storage holding the conversations can be reached; if not, **Open Status** shows why.
+- **Model** — whether the selected provider can answer: Ollama is running and has a chat model, or a hosted provider has its API key. If not, one button opens that provider's settings.
+- **Knowledge** — **Add documents** opens **Settings → RAG** with the knowledge base the chat searches already chosen as the target (`default` on a new install) and the drop zone ready. It is ticked off once a knowledge base holds documents.
+
+Each item says its state in words (done, needs attention, to do, waiting) as well as with its mark. The checklist disappears once all three are done; **✕** hides it for good in this browser.
+
+With [sign-in](#sign-in-through-a-reverse-proxy-multiple-users) on, setting up a model and adding documents are for administrators. Someone who is not an administrator sees **Ask your administrator to set up a model** instead of a button when no model can answer, and **Ask your administrator to add documents** when no knowledge base holds documents yet; documents alone do not bring the checklist up for them.
+
+### Status strip
+
+A line under the message box shows, at all times:
+
+- **Storage** — the storage holding the conversations: reachable or not (checked every 30 seconds).
+- **Model** — the selected provider and model, or why it cannot answer (Ollama not running, no chat model, no API key). Ollama is checked every 30 seconds, a hosted provider every 5 minutes.
+- **Server** — the connection to the VisualWeaver server: *connected*, *reconnecting…*, *unreachable* once it has been away for 15 seconds (it keeps retrying; **Retry now** tries at once), *offline* when the device has no network, or — with sign-in on — *signed out — reload to sign in* when the server refuses the page because the sign-in has ended. Signed out, the page stops reconnecting and offers **Reload**; a message waiting to be sent goes back into the message box. While the server is unreachable or the user is signed out, Storage and Model show as unknown.
+
+Clicking **Storage** opens **Settings → Status**; clicking **Model** opens the provider's settings (for an administrator; for anyone else with sign-in on, Model only shows the state, with *ask your administrator to set up a model* when it cannot answer). Each item states its state in words as well as with a mark and a colour, and screen readers hear a short announcement when one changes. On a phone, an item that is fine shows only its mark and name; one that is not also says why.
+
+A message sent while the connection is being re-established waits and is sent when it is back; the strip says so. If the server is not back within 10 seconds, the message returns to the message box and is not added to the conversation.
 
 <p align="center">
   <img src="screenshots/features/first-run.png" alt="The welcome screen with no model configured, showing a setup card with Open provider settings and Check system status" width="76%">
@@ -163,10 +185,10 @@ Hover any AI message to reveal its action bar.
 | Button | Action |
 |---|---|
 | 👍 / 👎 | Rate the answer — stored as feedback with the question, the model and the sources used |
-| 📌 | Pin to the pinned panel for this browser session |
+| 🔖 | Bookmark the message: it is listed under **Bookmarks** in the sidebar until the page is reloaded |
 | ↻ | Regenerate; a version switcher appears so attempts can be compared |
 | ⑂ | Fork the conversation here — a new session containing everything up to this answer |
-| 💾 | [Keep this answer](#keeping-an-answer) — index it into a knowledge base so it outlives the cache and the conversation |
+| 💾 | [Keep this answer](#keeping-an-answer) — index it into a knowledge base so it outlives the cache and the conversation (administrators only, with sign-in on) |
 
 ### Question actions
 
@@ -178,7 +200,7 @@ Hover any of **your** earlier questions to reveal its action bar:
 ### Cached message actions
 
 Messages served from the semantic cache have two additional buttons:
-- **🗑 Uncache** — Deletes this specific cache entry from Redis. Future identical queries will go to the LLM instead.
+- **🗑 Uncache** — Removes this one answer from the cache. Future identical queries will go to the LLM instead. With sign-in on, only an answer cached for you can be removed (an administrator can remove any).
 - **↺ Re-run fresh** — Re-sends the original query to the LLM, bypassing the cache. The new response automatically replaces the cached one.
 
 ### Rich content rendering
@@ -336,7 +358,30 @@ After each AI response that used RAG, a **📚 N matched chunks** badge appears 
 
 When an answer is grounded in your knowledge base, the retrieved passages are numbered and the model marks each claim with the passage it came from — `[1]`, `[2]`, and so on.
 
-**Each marker is a button.** Click one to open the RAG inspector, expand that source and highlight it. A bracketed number inside a code sample is left alone — `arr[1]` is an array index, not a reference.
+**Each marker is a button.** Point at one, or move the keyboard focus to it, and a card opens beside it with that source: its name or address (a link for web pages), the knowledge base it came from, its match score (and the reranker's score when reranking is on) and the retrieved passage itself. Escape closes the card; on a touch screen a tap opens and closes it. Click a marker, or use **Show in sources** on the card, to open the RAG inspector, expand that source and highlight it. From the keyboard, **Enter** or **Space** on a marker moves into its card: **Tab** goes between the card's link and **Show in sources** (staying in the card), and **Escape** closes it and returns to the marker. A bracketed number inside a code sample is left alone — `arr[1]` is an array index, not a reference.
+
+A number the answer was not given a source for — `[7]` when five passages were retrieved — is shown struck through with a dashed outline: it is a broken citation and opens nothing.
+
+Cards work the same in a reopened conversation: they read the passages stored with each answer.
+
+### Grounding badge
+
+Every answer that ran a knowledge-base search gets a badge saying how well it is backed by its sources:
+
+| Badge | Meaning |
+|---|---|
+| **● Grounded** | Every substantive paragraph, list item and table row cites a source, and every citation number points to a real source. |
+| **◐ Partly grounded** | Some of it is cited, but not all of it — or a citation number points to no source. |
+| **○ Uncited** | The answer was given sources and cites none of them. |
+| **– Nothing retrieved** | A knowledge base was searched and nothing matched, so there was nothing to cite. |
+| **○ Cites missing sources** | A knowledge base was searched and nothing matched, yet the answer cites source numbers — sources it was never given. |
+| **⚠ Search failed** | The knowledge base could not be searched (its storage could not be reached, or it was indexed with a different embedding model), so nothing was retrieved. |
+| **– No documents used** | No knowledge base was searched for this answer. |
+| **∅ Not in your documents** | Documents only was on and nothing matched (see below). |
+
+How it is decided: code blocks, inline code and display maths are ignored; headings, horizontal rules and table header rows are not counted; a paragraph, list item or table row with fewer than six words, or one that ends with a colon (a lead-in such as "The steps are:"), does not need a citation. In scripts written without spaces between words (Chinese, Japanese, Thai, Lao, Khmer, Myanmar) every two characters count as one word. A number beyond twice the number of sources is read as a reference quoted from a document, and left as plain text, when it stands inside a quotation (`"…"`, `“…”`, `«…»`) or opens a line of a reference list (`[12] Smith, J. …`); any other number with no source behind it is shown struck through as a broken citation and counts against the answer. Hover the badge for the counts. Answers in Documents only mode carry **· Documents only** on the badge.
+
+Each version of a regenerated answer (‹ n/N ›) is shown with its own sources, citations and badge.
 
 `[2]` and **#2** always refer to the same passage, in a live answer, a reopened conversation and a cached one alike. The inspector lists passages best-match-first, which is not necessarily the order they were numbered in.
 
@@ -361,6 +406,37 @@ If retrieval runs and finds nothing above the similarity threshold, the answer i
 </p>
 
 An answer with no badge at all was produced without RAG (all instances disabled, or none selected).
+
+### Documents only
+
+Turn on **📚** beside the template picker (a **📚 Documents only** chip appears above the message box; its ✕ turns it off) to have answers come **only** from your documents:
+
+- The model is told to answer from the retrieved passages — and from a document you attached to the message — and nothing else: no general knowledge. If the passages do not contain the answer, it says so; if they cover only part of the question, it answers that part and says which part the documents do not cover. Every statement it takes from the passages is cited.
+- When the search finds nothing (and no document is attached), the model is not asked at all. The answer is a fixed **Not found in your documents** message, marked **∅ Not in your documents**. When no knowledge base is selected for the question, the message says that instead. These answers are not cached.
+- When the search itself fails — the storage holding the knowledge base cannot be reached, or the knowledge base was indexed with a different embedding model than the one now selected — the answer is a fixed **Search failed: …** message naming the knowledge base and the reason, marked **⚠ Search failed**, instead of "not found": the documents were not looked at. The model is not asked and nothing is cached.
+- A follow-up that finds nothing on its own wording ("shorten that", "explain point 2") is answered from the sources of the previous answer, when that answer cited them: the model gets those passages under the same rules, and the source list shows them again under **↩ N sources from the previous answer** (the badge's tooltip says so too). Such an answer is not cached. This happens only when all of these hold — otherwise the fixed "not in your documents" answer is given, without calling the model:
+  - the question is asked against the same knowledge bases as the previous answer (switching the selection, a `#` mention or a project with other knowledge bases counts as a change), and only passages from those knowledge bases — and matching **⌖ only this**, when set — are used;
+  - the question brings in nothing of its own: each of its words is an instruction or a reference ("shorten", "explain", "table", "that", "point 2") or appears in the previous question, answer or its sources. "What is the capital of France?" after a question about a warranty is a new question, not a follow-up. Only English instruction words are known; in other languages a follow-up counts as one when its words appear in the previous question, answer or sources.
+
+The setting belongs to the conversation: it is kept with each answer, and a reopened conversation comes back in the mode its latest answer used. New conversations start from **Settings → RAG → Documents only for new conversations**. Answers given in Documents only mode and normal answers are cached separately, so one is never replayed as the other.
+
+### Projects
+
+A project gathers conversations about one subject and gives them their settings: a name (with an optional icon and colour), the **knowledge bases** to search, a **prompt template**, a **provider and model**, and a **Documents only** default. Each one is optional — a project without knowledge bases leaves the selection in use, one without a template keeps the template in use, and so on.
+
+- **The switcher** under **＋ New Chat** shows *All conversations*, *No project*, or one project. With a project shown, the list holds only its conversations (still grouped by date) and **New Chat** starts a conversation in it, with its knowledge bases, template, model and Documents only setting. A chip above the message box names the project of the conversation you are in.
+- **＋** beside the switcher creates a project; **✎** (shown while a project is picked) edits it. **Delete project** asks first, and never deletes a conversation: the project's conversations — every user's — are kept and become conversations without a project.
+- A conversation belongs to at most one project, set when its first message is sent.
+- Rows of conversations in a project show the project's icon (or a dot in its colour) instead of 💬.
+- **Settings → RAG → Advice measured on** reads the retrieval advice for one project's knowledge bases only.
+
+With sign-in on, projects are created, changed and deleted by administrators and are visible to everyone; anyone can start their own conversations in one.
+
+**Each conversation keeps its own knowledge-base selection.** The knowledge bases a conversation searches, its template and its model are stored with it. Reopening it — in this browser or another — brings them back, instead of whatever was selected last. A change made inside a project's conversation stays with that conversation; a change made in a conversation without a project also becomes this browser's choice for new conversations, as before. A new conversation without a project starts from that choice. In the knowledge-base picker, a project's selection of several knowledge bases shows as **⧉ name, name**.
+
+### Mentioning a knowledge base with #
+
+Type **#** in the message box to pick knowledge bases for the question you are writing: a list of the enabled knowledge bases opens above the box and narrows as you type (**↑/↓** move, **Enter** or **Tab** picks, **Esc** closes it; a click or tap picks too). Each pick becomes a **# name** chip above the box (its **✕** removes it) and the typed `#…` leaves the question. That question then searches **only** the mentioned knowledge bases — with Documents only too — and the question shows them under it. The conversation's own selection is unchanged, and the next question searches it again. A `#` inside a word (`C#`, `issue#4`) does not open the list.
 
 ### Finding an earlier answer
 
@@ -393,13 +469,17 @@ Messages appear bottom-right. **Errors stay until dismissed**; everything else c
 
 ### Session management
 
-Sessions are listed in the left sidebar. Click any session to switch to it, or the ✕ to delete it (with confirmation).
+Sessions are listed in the left sidebar, newest first, under **Pinned**, **Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days** and **Older**. Click a session to switch to it. Point at a row for its actions (on a phone, open the conversation and reopen the sidebar — its row then shows them): **✎** renames it in place (Enter saves, Esc cancels), **📌** pins it at the top of the list, and **✕** deletes it (with confirmation). Names and pins are stored with the conversation, so they survive a reload; a name you give is never replaced by the automatic title.
+
+**How long conversations are kept.** Conversations are kept until you delete them — including ones this browser does not list (see below). **Settings → General → Conversations → Keep conversations** can limit that to **30 days** or **1 day** after a conversation's last message (a value must be `0` or at least `3600` seconds: a Settings save or config import with a smaller one is refused, and a smaller one written in `config.json` is used as `3600`); the rows then say *expires in …*. Pinned conversations are always kept. A change applies to every stored conversation when you save: **Forever** lifts every expiry; a limit gives each conversation at most that long from the moment you save (one with less time left keeps it), and a longer limit than before gives every conversation the new limit from that moment.
 
 The foot of the sidebar holds the actions that apply to the conversation you are in — **Export Chat** as `.md` or `.txt`, and **🗑 Clear Chat**, which empties the current conversation after a confirmation and leaves every other one alone.
 
-Conversations are **persisted in the app-data store (see [Storage Connections](#storage-connections)) and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically. The sidebar lists conversations started in *this* browser; because VisualWeaver has no user accounts, it deliberately does not list sessions created elsewhere.
+Conversations are **persisted in the app-data store (see [Storage Connections](#storage-connections)) and restored on reload** — closing the tab or restarting the browser no longer loses them, and the conversation you were last in is reopened automatically.
 
-Each message records the provider and model that produced it. Sessions are automatically titled from the first message.
+**Which conversations the sidebar lists.** With sign-in off, the sidebar lists the conversations started or opened in *this* browser — the browser keeps their ids (the 1,000 most recently opened, plus every pinned one). Conversations stored from another browser, or from this one before its site data was cleared, are not listed, but they are kept like any other: **Settings → General → Conversations** counts them, **Show them in the sidebar** adds them to this browser's list, and **Delete them…** removes them from the server after a confirmation. With [sign-in](#sign-in-through-a-reverse-proxy-multiple-users) on, the sidebar lists every conversation of the signed-in user, in every browser.
+
+Each message records the provider and model that produced it, and the knowledge bases it was asked against. Each conversation also keeps its project, its knowledge-base selection and its template (see [Projects](#projects)). Sessions are automatically titled from the first message.
 
 ### Regenerating an answer
 
@@ -629,6 +709,8 @@ Select **⊘ No RAG** from the top-bar dropdown to answer the next messages with
 
 The cache intercepts queries before they reach the LLM. If a semantically equivalent question exists in the cache (above the similarity threshold), the stored answer — including associated RAG chunks — is returned immediately.
 
+A cached answer is replayed only under the same conditions it was given under: the knowledge bases searched, the provider and model, the prompt (base instruction and template), a source scope, Documents only, and whether it is a drawing. Projects add no condition of their own — their knowledge bases, template and model already are these — so two projects, or a project and a conversation without one, share an answer only when all of them match. A question restricted with [# mentions](#mentioning-a-knowledge-base-with-) is cached under the knowledge bases it searched.
+
 | Setting | Default | Effect |
 |---|---|---|
 | **Enabled** | ✅ | Toggle the cache on/off |
@@ -694,7 +776,7 @@ deliberately bypassed.
 
 Every cached message has two action buttons:
 
-- **🗑 Uncache** — Removes just that one cache entry. Future queries that would have matched it will go to the LLM instead.
+- **🗑 Uncache** — Removes just that one cache entry. Future queries that would have matched it will go to the LLM instead. With sign-in on, only an entry cached for you can be removed (an administrator can remove any).
 - **↺ Re-run fresh** — Bypasses the cache for this query only, re-generates a fresh response, and the new answer automatically updates the cache.
 
 Clear the entire cache in **Settings → Cache → 🗑 Clear Cache**.
@@ -744,7 +826,7 @@ When creating a new RAG instance, the **Storage** dropdown lists the built-in st
 
 ### MongoDB layout
 
-All instances on one MongoDB connection share these collections in its database: `vw_chunks` (chunks with their embeddings), `vw_meta` (instance metadata), `vw_hashes` (deduplication), `vw_urls` (crawled pages) and `vw_counters` (chunk ids), plus two search indexes on `vw_chunks`: `vw_vector` (vector search) and `vw_text` (keyword search). A connection holding the app data also has `vw_kv` (conversations and other values, with their expiry) and `vw_hash` (the usage tally and watched-folder state). Retrieval is hybrid on MongoDB as on Redis — a vector leg and a keyword leg fused with Reciprocal Rank Fusion — and scores use the same cosine scale, so the similarity threshold means the same on either. Search indexes build in the background: until they are ready, searches on a new connection return nothing, and freshly ingested chunks become searchable once the server has indexed them. Changing the embedding model rebuilds the vector index for the new model; chunks embedded with the previous model are searchable again after re-ingesting.
+All instances on one MongoDB connection share these collections in its database: `vw_chunks` (chunks with their embeddings), `vw_meta` (instance metadata), `vw_hashes` (deduplication), `vw_urls` (crawled pages), `vw_counters` (chunk ids) and `vw_instances` (the instance names), plus two search indexes on `vw_chunks`: `vw_vector` (vector search) and `vw_text` (keyword search). A connection holding the app data also has `vw_kv` (conversations and other values, with their expiry) and `vw_hash` (the usage tally and watched-folder state). Retrieval is hybrid on MongoDB as on Redis — a vector leg and a keyword leg fused with Reciprocal Rank Fusion — and scores use the same cosine scale, so the similarity threshold means the same on either. Search indexes build in the background: until they are ready, searches on a new connection return nothing, and freshly ingested chunks become searchable once the server has indexed them. Changing the embedding model rebuilds the vector index for the new model; chunks embedded with the previous model are searchable again after re-ingesting.
 
 ### How routing works
 
@@ -781,7 +863,7 @@ Shows the built-in Redis (host, port, db, password, SSL — set up by the instal
 URL crawler with depth and page-cap controls. Real-time progress log. Saved web source list.
 
 #### ⚡ Cache
-Enable/disable semantic cache, threshold, TTL, analytics, and clear button.
+Enable/disable semantic cache, threshold, TTL, analytics, and clear button. With [sign-in](#sign-in-through-a-reverse-proxy-multiple-users) on, the analytics list only your own cached questions; below the counters, a line gives the number of cached answers of all users and of each user (by an anonymous tag), without their questions.
 
 ### Group 3 — Providers
 
@@ -807,7 +889,7 @@ The card header shows:
 Create, edit, and delete named system prompts.
 
 #### 🔐 Security
-VisualWeaver has **no built-in authentication**. The password field here is stored but **not currently enforced** — access is not gated on it. `install.sh` asks whether the web UI is for this machine only or any device on the network and records the answer in `.visualweaver.env` (`VISUALWEAVER_HOST=127.0.0.1` or `0.0.0.0`); change it later with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with HTTPS + auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`). Because there is no login, the app refuses requests that another website makes from your browser (another site's page cannot use the chat or change settings), and it answers browsers only for host names an outsider cannot own — IP addresses, `localhost`, single-word intranet names, names ending in `.local`, `.lan`, `.internal` or `.home.arpa`, and this machine's own name. To reach it under any other name, such as a reverse proxy's domain, list that name in `VISUALWEAVER_ALLOWED_HOSTS` (comma-separated; `*.example.com` matches subdomains); `deploy/docker-compose.https.yml` sets it next to the Caddy domain.
+VisualWeaver has **no login page of its own**: out of the box it is a single-user app with no authentication, and the password field here is stored but **not currently enforced** — access is not gated on it. To give several people their own conversations and keep Settings to administrators, turn on [sign-in through a reverse proxy](#sign-in-through-a-reverse-proxy-multiple-users). `install.sh` asks whether the web UI is for this machine only or any device on the network and records the answer in `.visualweaver.env` (`VISUALWEAVER_HOST=127.0.0.1` or `0.0.0.0`); change it later with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with HTTPS + auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`). Because there is no login, the app refuses requests that another website makes from your browser (another site's page cannot use the chat or change settings); a link or frame on another website opens only the page itself (`/`), and any other address of the app opened from another site is refused (`403`). It answers requests — from browsers and from scripts alike, so also an old browser that sends no `Origin` or `Sec-Fetch-*` header — only for host names an outsider cannot own: IP addresses, `localhost` (and names ending in `.localhost`) and this machine's own names (its host name, its short name and `<short name>.local`; `./docker.sh` records them for the container). `GET /api/health` from a client that is not a browser answers under any name (container health checks). Names any device on the network can answer for — other names ending in `.local`, `.lan`, `.internal` or `.home.arpa`, and other single-word names — are refused unless listed. To reach it under any other name, such as a reverse proxy's domain or a NAS's name, list that name in `VISUALWEAVER_ALLOWED_HOSTS` (comma-separated; `*.example.com` matches subdomains; `*` turns the check off); `deploy/docker-compose.https.yml` sets it next to the Caddy domain. Behind a reverse proxy the `Host` header VisualWeaver receives must be an allowed name; a proxy that replaces it with its upstream address passes the public name in `X-Forwarded-Host`, which is used only on a connection from a trusted proxy address (`auth.trusted_proxies` / `VISUALWEAVER_TRUSTED_PROXIES`, the loopback addresses when unset — with sign-in on or off) and must be an allowed name too.
 
 ### Group 5 — Diagnostics
 
@@ -830,6 +912,105 @@ Editing a staged control marks the panel **Unsaved changes**, and closing it the
   <img src="screenshots/features/unsaved-settings.png" alt="A dialog asking whether to discard unsaved settings, explaining which changes are staged and which were already applied" width="62%">
 </p>
 
+### Sign-in through a reverse proxy (multiple users)
+
+Sign-in is **off by default**: VisualWeaver is then the single-user app described everywhere else in this document. Turned on, an authenticating reverse proxy — [Authelia](https://www.authelia.com), [Authentik](https://goauthentik.io) or [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) — signs people in, and passes the signed-in user to VisualWeaver in a request header. VisualWeaver keeps no passwords of its own.
+
+**Settings.** The `auth` section of `config.json`, or environment variables (an environment variable wins). Read when the app starts — restart after a change. A Settings save or a config import never changes it.
+
+| `config.json` key | Environment variable | Default | Meaning |
+|---|---|---|---|
+| `auth.mode` | `VISUALWEAVER_AUTH` | `off` | `header` turns sign-in on |
+| `auth.user_header` | `VISUALWEAVER_AUTH_USER_HEADER` | `Remote-User` | The header holding the user name. Authelia: `Remote-User`; Authentik: `X-Authentik-Username`; oauth2-proxy: `X-Forwarded-Email` (or `X-Forwarded-User`). User and group names are compared exactly (`Root` is another user than `root`; see `auth.case_insensitive_names`); a name that Unicode compatibility normalisation (NFKC) changes — look-alike characters such as `K` (Kelvin sign) or fullwidth letters — is refused |
+| `auth.groups_header` | `VISUALWEAVER_AUTH_GROUPS_HEADER` | `Remote-Groups` | The user's groups, separated by `,` or `\|`. Authentik: `X-Authentik-Groups`; oauth2-proxy: `X-Forwarded-Groups` |
+| `auth.name_header` | `VISUALWEAVER_AUTH_NAME_HEADER` | `Remote-Name` | Optional display name shown in the sidebar. Authentik: `X-Authentik-Name`; oauth2-proxy: `X-Forwarded-Preferred-Username` |
+| `auth.trusted_proxies` | `VISUALWEAVER_TRUSTED_PROXIES` (comma-separated) | `127.0.0.1`, `::1` | Addresses or CIDR ranges of the proxy. The headers above (and `X-Forwarded-Host`) are believed **only** on a connection from one of these. A range is written with its network address (`10.0.0.0/24`, not `10.0.0.5/24`); an IPv4-mapped form (`::ffff:10.0.0.5`) is the IPv4 address; a range wider than `/24` (IPv4) or `/64` (IPv6) is warned about at start |
+| `auth.admin_users` | `VISUALWEAVER_ADMIN_USERS` (comma-separated) | none | User names with administrator rights |
+| `auth.admin_groups` | `VISUALWEAVER_ADMIN_GROUPS` (comma-separated) | none | Groups whose members have administrator rights |
+| `auth.case_insensitive_names` | `VISUALWEAVER_AUTH_CASE_INSENSITIVE_NAMES` (`1`/`true`/`yes`/`on`) | `false` | `true` compares ASCII user and group names without regard to case (`Root` and `root` are then one user, also for `admin_users` and `admin_groups`); other characters stay exact. Turn it on only when your proxy itself treats names that differ only in case as the same account |
+
+**Reach VisualWeaver only through the proxy.** Whoever can open a connection to VisualWeaver's port from a trusted proxy address can claim to be any user. So:
+
+- with the proxy on the same machine, bind VisualWeaver to the loopback interface (`./changeAccess.sh local`, or `VISUALWEAVER_HOST=127.0.0.1`) and keep the default `trusted_proxies`;
+- in Docker, do not publish VisualWeaver's port, give the proxy container a fixed address and list only that address (the examples in `deploy/signin/` do this);
+- list only the proxy's own address in `trusted_proxies` — never a network your users' machines are on;
+- if you start uvicorn yourself, add `--no-proxy-headers` (`start.sh` and the `visualweaver` command do): otherwise uvicorn reports the address from a proxy's `X-Forwarded-For` header instead of the proxy's own, and the proxy's requests are refused.
+
+`start.sh` and the app's log say at every start whether sign-in is on, and warn when the app is bound to a network address while only the loopback is a trusted proxy (a proxy on another machine is then refused), when it is bound to a network address at all (make sure only the proxy can reach the port), and when no administrator is set (nobody can change Settings).
+
+**What is refused.**
+
+| Request | Answer |
+|---|---|
+| The user header from an address that is not a trusted proxy | `403`, logged with the address |
+| No user header (from anywhere) | `401` — except `GET /api/health`, the liveness probe |
+| The user header twice, an empty or over-long name, or a name NFKC normalisation changes | `400` |
+| Any request while the `auth` settings cannot be used — an `auth` value that is not an object, an unknown `mode`, an address that does not parse, a range with host bits set, ranges that together cover every address (`0.0.0.0/0`, `::/0`, `0.0.0.0/1` + `128.0.0.0/1`) | `503` until the settings are fixed; `GET /api/health` alone answers `200` with `status: "misconfigured"` and the reason, so `start.sh`, `./docker.sh up` and the container health check see the app is running, and both scripts print **Sign-in: MISCONFIGURED** |
+| Any request while `config.json` cannot be read, or cannot be parsed and it — or any `config.json.corrupt-…` copy beside it — contains an `auth` key in any letter case (also when `config.json` is missing while such a copy is beside it) | `503` until `config.json` is restored, or `VISUALWEAVER_AUTH` is set (`off` or `header`) — `GET /api/health` answers `200` with `status: "misconfigured"` as above; a Settings save made meanwhile keeps the `auth` section undecided. A `config.json` that cannot be parsed and has no `auth` key — an empty file or one cut short before its `auth` section included — is moved aside and the app runs on the built-in defaults, with `/api/health` reporting `degraded` and the log naming the kept copy; restore it rather than re-entering settings. `config.json` may be UTF-8, or UTF-8 or UTF-16 with a byte-order mark |
+| A signed-in user who is not an administrator, on an administrator's endpoint | `403` |
+| The chat WebSocket in any of these cases | the connection is refused |
+
+Requests from another website and unknown host names are refused before any of this, as described under [Security](#-security).
+
+**Administrators.** A user listed in `admin_users`, or a member of a group in `admin_groups`. Only an administrator can save Settings, export or import the config, move the app data, add or remove storage connections, create, delete, reset, enable/disable, import, export and deduplicate knowledge bases, ingest files, text and web pages, remove documents, manage web sources and re-crawls, clear the answer cache, reset the analytics counters, pull or delete Ollama models, test unsaved API keys and connections, read the ratings and the ingestion log, and open the API documentation (`/docs`). Every signed-in user can chat with any knowledge base, attach files, manage their own conversations, rate answers, remove a cached answer they were given, and see Status, Analytics and About (`GET /api/config` then leaves out the `auth` section, the storage hosts and connection strings, the web sources, scheduled re-crawls and watched folders, and the providers' addresses) — in Settings, someone who is not an administrator sees only those three tabs and no Save button; the other tabs are not shown at all, and a link to one of them opens Status. For them the [Get started checklist and the status strip](#first-run) say *ask your administrator* where an administrator gets a button into Settings, and an answer has no **💾 Keep this answer**. The sidebar shows who is signed in, with an **admin** badge for administrators.
+
+**Conversations belong to the user who started them** (recorded as `owner`). Listing, opening, renaming, pinning, forking, deleting and continuing a conversation — over the chat WebSocket and `POST /api/chat` with a `session_id` as well — only ever reach the caller's own; another user's conversation id is answered exactly like an id nobody has used. The sidebar lists all of a user's conversations, in every browser they sign in from. Conversations stored before sign-in was turned on have no owner and are listed for administrators only.
+
+**Knowledge bases are shared.** Every signed-in user can search every knowledge base, so their documents reach everyone through answers, citations and the document lists.
+
+**The answer cache.** Every answer is cached for its user only, and replayed only to them; answers cached while sign-in was off are not used. A user removes only cached answers given to them (**Re-run fresh** replaces only their own); an administrator can remove any. The cached questions themselves (Settings → Cache) are shown to administrators only; everyone else sees how many there are.
+
+**Ratings** record the signed-in user as `user`.
+
+#### Examples (`deploy/signin/`)
+
+| File | What it is |
+|---|---|
+| `docker-compose.signin.yml` | VisualWeaver, Redis and Caddy with HTTPS; Caddy at the fixed address `172.31.240.10`, the only trusted proxy; VisualWeaver's port not published. Add your Authelia (or Authentik) service to it |
+| `Caddyfile.authelia` | Caddy `forward_auth` to Authelia (`authelia:9091`, `/api/authz/forward-auth`) |
+| `Caddyfile.authentik` | Caddy `forward_auth` to an Authentik outpost (`authentik-outpost:9000`) |
+| `docker-compose.oauth2-proxy.yml`, `oauth2-proxy.cfg` | oauth2-proxy as the reverse proxy, for any OIDC provider; oauth2-proxy at the fixed address `172.31.241.10` |
+
+The VisualWeaver settings for Caddy + Authelia, as in `docker-compose.signin.yml`:
+
+```bash
+VISUALWEAVER_AUTH=header
+VISUALWEAVER_TRUSTED_PROXIES=172.31.240.10      # Caddy's address, and nothing else
+VISUALWEAVER_AUTH_USER_HEADER=Remote-User
+VISUALWEAVER_AUTH_GROUPS_HEADER=Remote-Groups
+VISUALWEAVER_AUTH_NAME_HEADER=Remote-Name
+VISUALWEAVER_ADMIN_GROUPS=vw-admins             # and/or VISUALWEAVER_ADMIN_USERS=alice
+VISUALWEAVER_ALLOWED_HOSTS=visualweaver.example.com
+```
+
+The Caddy site removes any copy of the identity headers a browser sent, asks Authelia, and only then proxies — `route` keeps that order:
+
+```caddyfile
+visualweaver.example.com {
+	route {
+		request_header -Remote-User
+		request_header -Remote-Groups
+		request_header -Remote-Name
+		request_header -Remote-Email
+		forward_auth authelia:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+		reverse_proxy visualweaver:8420
+	}
+}
+```
+
+For Authentik use `Caddyfile.authentik` and `VISUALWEAVER_AUTH_USER_HEADER=X-Authentik-Username`, `VISUALWEAVER_AUTH_GROUPS_HEADER=X-Authentik-Groups`, `VISUALWEAVER_AUTH_NAME_HEADER=X-Authentik-Name`. For oauth2-proxy: `VISUALWEAVER_AUTH_USER_HEADER=X-Forwarded-Email`, `VISUALWEAVER_AUTH_GROUPS_HEADER=X-Forwarded-Groups`, `VISUALWEAVER_TRUSTED_PROXIES=172.31.241.10`, with `pass_user_headers = true` in `oauth2-proxy.cfg`.
+
+A local install with Caddy on the same machine needs only, in `config.json`:
+
+```json
+"auth": { "mode": "header", "admin_users": ["alice"] }
+```
+
+with VisualWeaver bound to `127.0.0.1` (`./changeAccess.sh local`) and the Caddy site proxying to `127.0.0.1:8420`.
+
 ---
 
 ## Keyboard Shortcuts
@@ -848,9 +1029,10 @@ Editing a staged control marks the panel **Unsaved changes**, and closing it the
 
 ## Keeping an answer
 
-Answers are otherwise transient: the semantic cache expires on `cache.ttl` (one hour by
-default), the conversation expires on `sessions.ttl` (one day), and **📌 Pin** lasts only
-until the page is reloaded.
+Answers are otherwise tied to where they appeared: the semantic cache expires on `cache.ttl`
+(one hour by default), the conversation goes when it is deleted or its
+[retention](#session-management) runs out, and **🔖 Bookmark** on a message lasts only until the
+page is reloaded.
 
 **💾** on any answer opens a review dialog and then indexes the answer into a RAG instance,
 where it has no expiry and is retrievable in later answers.
@@ -906,7 +1088,7 @@ What counts as "strict" depends on the embedding model, and the useful range is 
 
 #### Reranking
 
-With reranking enabled (**Settings → RAG → Rerank retrieved chunks**), a cross-encoder re-scores the retrieved candidates before they reach the model. Because a reranker can only improve on the original ordering if it is given more candidates than you intend to keep, VisualWeaver widens retrieval to `rerank_candidates` (default 40) whenever reranking is on, then cuts back to `top_k` afterwards. With the reranker off, retrieval fetches only `top_k` and no extra work is done.
+With reranking enabled (**Settings → RAG → Rerank retrieved chunks**), a cross-encoder re-scores the retrieved candidates before they reach the model. Because a reranker can only improve on the original ordering if it is given more candidates than you intend to keep, VisualWeaver widens retrieval to `rerank_candidates` (default 40) whenever reranking is on, then cuts back to `top_k` afterwards. With the reranker off, retrieval fetches only `top_k` and no extra work is done. The cross-encoder runs in full precision, so its scores are the same on a CPU and a GPU. Setting `reranker.half_precision` to `true` in `config.json` runs it in half precision on a GPU (CUDA or Apple silicon) — faster, but the scores change slightly (by up to about 0.007), so two candidates that close can swap places; on a CPU it stays in full precision.
 
 A **⚠ threshold?** warning pill appears automatically on any instance where raw score ≥ 0.60 but hit rate < 50%.
 
@@ -935,7 +1117,13 @@ Counts come from the provider and only from answers it actually produced. Cache 
 
 ## API Reference
 
-All endpoints are served at `http://localhost:8420`.
+All endpoints are served at `http://localhost:8420`. With [sign-in](#sign-in-through-a-reverse-proxy-multiple-users) on, every endpoint but `GET /api/health` needs the proxy's user header, and the ones that change settings, storage or knowledge bases need an administrator.
+
+### Sign-in
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/me` | Who is signed in: `{"auth": true, "user": "<display name>", "id": "<user name>", "admin": false}`. With sign-in off: `{"auth": false, "user": null, "id": null, "admin": true}` |
 
 ### Config
 
@@ -950,23 +1138,23 @@ All endpoints are served at `http://localhost:8420`.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/chat` | Non-streaming chat — same semantics as the WebSocket handler, for clients that don't use WebSockets. Body: `content` (required), plus optional `session_id`, `provider`, `model`, `system_prompt`, `rag_instance`/`rag_instances`, `source_filter`, `images` (base64 data URIs), `file_context`, `use_cache`. Returns `{session_id, response, chunks, cache_hit?, rag_used?}` |
+| `POST` | `/api/chat` | Non-streaming chat — same semantics as the WebSocket handler, for clients that don't use WebSockets. Body: `content` (required), plus optional `session_id`, `provider`, `model`, `system_prompt`, `rag_instance`/`rag_instances`, `source_filter`, `images` (base64 data URIs), `file_context`, `use_cache`, `documents_only` (`true` = answer only from the documents, see [Documents only](#documents-only)), and `kb_select`, `template`, `project` (stored with the conversation, as on the WebSocket). Returns `{session_id, response, chunks, cache_hit?, rag_used?, documents_only?, not_found?, search_failed?, reused_sources?}` — `not_found: true` is the fixed "not in your documents" answer, given without calling the model; `search_failed: true` means the knowledge-base search failed (with Documents only, `response` is then the fixed "Search failed: …" answer); `reused_sources: true` marks a Documents only follow-up answered from the previous answer's sources |
 | `POST` | `/api/chat/upload-file` | Extract text from an attached file (TXT/MD/CSV/PDF/DOCX/XLSX) for the next chat turn — not stored or indexed. Multipart `file`; returns `{filename, chars, truncated, text}` |
 
 ### Files
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/files/image?path=...` | Serve a local image (used for images the model generates via tools). Path-traversal guarded to the system tempdir/CWD |
+| `GET` | `/api/files/image?path=...` | Serve an image a tool wrote for an answer. Only files inside the `images` folder of the data directory are served (symlinks and `..` resolved first); any other path answers 404, whether or not the file exists. `path` is percent-encoded. A tool result naming an image anywhere else is shown as the raw tool call |
 
 ### Status
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/health` | App status: `{status, app, version, license, source, provider, services: {...}}`. `status` is `"degraded"` only if `config.json` failed to parse — Redis reachability is checked separately below |
+| `GET` | `/api/health` | App status: `{status, app, version, license, source, provider, services: {...}}`. `status` is `"degraded"` only if `config.json` failed to parse and the app runs on the defaults. While sign-in is misconfigured, or a damaged `config.json` configured it, this is the only endpoint that answers: `200` with just `{status: "misconfigured", app, detail, license, source}` (`detail` is the reason); every other request is `503` — Redis reachability is checked separately below |
 | `GET` | `/api/status/redis` | Ping the built-in connection and refresh every connection's health: `{ok, type, version, search_available, endpoint_health}` (`type` is `redis` or `mongodb`) |
 | `GET` | `/api/status/redis/{endpoint}` | Ping a named connection (`default` is the built-in one) |
-| `GET` | `/api/status/ollama` | Test Ollama server |
+| `GET` | `/api/status/ollama` | Test Ollama server — `{ok, models}` (how many models it lists), or `{ok: false, error}` when it cannot be reached |
 | `GET` `POST` | `/api/status/claude` | Verify the Claude API key. `GET` checks the configured key; `POST {"key": "..."}` tests an unsaved one — the key travels in the body so it never reaches an access log or browser history |
 | `GET` `POST` | `/api/status/openai` | Verify the OpenAI API key. `GET` checks the configured key; `POST {"key": "..."}` tests an unsaved one — the key travels in the body so it never reaches an access log or browser history |
 | `GET` `POST` | `/api/status/qwen` | Verify the Qwen API key. `GET` checks the configured key; `POST {"key": "..."}` tests an unsaved one — the key travels in the body so it never reaches an access log or browser history |
@@ -1085,11 +1273,11 @@ set up from one that is set up and failing.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/cache/stats` | Hit count, entry count |
+| `GET` | `/api/cache/stats` | `{count, entries: [{query, ttl}]}`. With sign-in on, `entries` and `count` are the signed-in user's own; administrators also get `total` and `by_user` (`[{user, count}]`, `user` an anonymous tag, `""` for answers cached before sign-in) — counts only |
 | `DELETE` | `/api/cache` | Clear all cached responses |
 | `DELETE` | `/api/cache/entry?entry_id={id}` | Delete a single cache entry by ID |
 
-**`DELETE /api/cache/entry`** — removes a specific cached response without touching any other entries. The `entry_id` is included in every `cache_hit` WebSocket message and stored as `data-entry-id` on cached message elements.
+**`DELETE /api/cache/entry`** — removes a specific cached response without touching any other entries. With sign-in on, a user who is not an administrator removes only an entry cached for them; any other id answers `{"ok": false}`. The `entry_id` is included in every `cache_hit` WebSocket message and stored as `data-entry-id` on cached message elements.
 
 ```jsonc
 // Request
@@ -1105,7 +1293,7 @@ DELETE /api/cache/entry?entry_id=abc123
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/rag/advice` | Per-setting verdicts for the RAG controls, derived from this deployment's own retrieval history — the distribution of pre-threshold scores and which chunk ranks answers cited. Returns `{advice, presets}`. A setting with no measurement behind it is `unknown` or `static` rather than scored |
+| `GET` | `/api/rag/advice` | Per-setting verdicts for the RAG controls, derived from this deployment's own retrieval history — the distribution of pre-threshold scores and which chunk ranks answers cited. Returns `{advice, presets}`. A setting with no measurement behind it is `unknown` or `static` rather than scored. `?project=<id>`: measured on that project's knowledge bases only (all of them for a project without its own), adding `project: {id, name, kbs}`; `404` for an unknown project |
 | `GET` | `/api/rag/stats` | Per-instance query statistics |
 | `DELETE` | `/api/rag/stats` | Reset all counters |
 
@@ -1114,18 +1302,30 @@ DELETE /api/cache/entry?entry_id=abc123
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/feedback?limit=200&value=up` | List thumbs ratings, newest first — `value` filters to `up`/`down` (or raw `1`/`-1`) |
-| `POST` | `/api/feedback` | Record a rating — free-form body; used by 👍/👎 on an answer |
+| `POST` | `/api/feedback` | Record a rating — free-form body (text fields cut to 8,000 characters; at most 64 KB as JSON and 5 levels deep, else `413`); used by 👍/👎 on an answer |
 
 ### Sessions
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/sessions` | List sessions |
+| `GET` | `/api/sessions` | List conversations (with sign-in on: the caller's own), newest first: `id`, `title`, `messages`, `preview`, `created`, `updated` (epoch seconds), `model` and `provider` of the latest answer, `kbs` (knowledge bases asked), `pinned`, `expires` (epoch seconds; `null` while it is kept), and when set `project`, `kb_select` (the conversation's selection) and `template` |
+| `PATCH` | `/api/sessions/{sid}` | Rename, pin, file under a project and/or change the knowledge-base selection: `{"title": "…"}`, `{"pinned": true}`, `{"project": "<project id>"}` (`null`: no project), `{"kb_select": "all" \| "none" \| ["kb", …]}` → the updated row. A pinned conversation never expires |
 | `GET` | `/api/sessions/{sid}` | Fetch message history |
 | `DELETE` | `/api/sessions/{sid}` | Delete session |
 | `POST` | `/api/sessions/{sid}/fork` | Fork at a message (`{"role","content_prefix","occurrence"}`) → new session id |
 | `GET` | `/api/usage` | All-time provider-reported token usage, as `{"provider:model": {in, out, cached, cache_write}}`. The four counts are disjoint: `in` is fresh input, `cached` prompt-cache reads, `cache_write` cache creation, `out` generated tokens. `cached` and `cache_write` appear only for providers that report them |
 | `DELETE` | `/api/usage` | Reset the all-time tally to zero. Conversations and their per-turn counts are untouched |
+
+### Projects
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/projects` | List projects by name: `id`, `name`, `icon`, `color`, `kbs`, `template` (a template name), `provider`, `model`, `documents_only` (`true`/`false`, `null` = the Settings default), `created`, `updated` |
+| `POST` | `/api/projects` | Create one: `{"name": "…"}` plus any of the other fields → the project. `400` for a field that cannot be stored (name 1–60 characters; `color` `#rrggbb`; `icon` up to 8 characters; up to 50 knowledge-base names), `409` for a name already in use (ignoring case) |
+| `PATCH` | `/api/projects/{id}` | Change some of its fields → the project |
+| `DELETE` | `/api/projects/{id}` | Delete it → `{"ok": true, "unfiled": n}`. Its conversations are kept, without a project, each with the time it had left |
+
+With sign-in on, `GET` is open to every signed-in user and the others to administrators. A chat turn files a new conversation under a project with `project` (see the WebSocket below); `PATCH /api/sessions/{sid}` moves one.
 
 ### Templates
 
@@ -1153,7 +1353,12 @@ WS /ws/chat/{session_id}
   // OR
   "rag_instances": ["docs", "kb"],  // parallel multi-instance
   "images": [],                      // base64 data URIs for vision
-  "bypass_cache": false              // true = skip cache lookup for this query
+  "bypass_cache": false,             // true = skip cache lookup for this query
+  "documents_only": false,           // true = answer only from the documents (JSON true only)
+  // stored with the conversation (all optional):
+  "kb_select": ["docs", "kb"],       // its knowledge-base selection: "all" | "none" | [names]
+  "template": "Concise",             // its template, by name ("" = Default)
+  "project": "p_0123456789ab"        // the project it starts in — first message only
 }
 
 // Abort current stream
@@ -1165,7 +1370,11 @@ WS /ws/chat/{session_id}
 ```jsonc
 { "type": "status", "phase": "cache" }   // progress phase: "cache" | "rag" | "hyde"
 { "type": "stream_start" }
-{ "type": "rag_context", "chunks": [...], "rag_used": true, "latency": { "rag": 0.12 } }
+{ "type": "rag_context", "chunks": [...], "rag_used": true, "docs_only": false, "latency": { "rag": 0.12 } }
+// a Documents only turn with nothing to answer from adds "not_found": true here and on stream_end;
+// its fixed answer arrives as one token with "done": true. A knowledge-base search that failed
+// adds "search_failed": true instead (Documents only: on stream_end too, with the fixed answer);
+// a Documents only follow-up answered from the previous answer's sources adds "reused_sources": true
 { "type": "token", "content": "Hello", "done": false }
 { "type": "stream_end", "latency": { "cache": 0, "rag": 0.12, "llm": 1.4, "total": 1.52 }, "title": null }
 { "type": "session_title", "title": "Redis Overview" }   // deferred auto-title (first turn only)
@@ -1213,6 +1422,7 @@ Redis (one or more servers)
   ├── rag:{instance}:chunk:{id}    — HASH: text, source, embedding
   ├── rag:{instance}:chunk_counter — INCRBY atomic ID counter
   ├── rag_meta:{instance}          — JSON metadata (color, endpoint, enabled)
+  ├── visualweaver:rag_instances   — SET: the names of the instances on this database
   ├── semcache:idx                 — FLAT vector index for response cache
   └── semcache:{id}                — HASH: query, response, embedding, chunks_json, TTL
 ```
@@ -1336,7 +1546,8 @@ The container also needs GPU access (`--gpus all`, or a `deploy.resources` reser
     "top_k": 5,
     "similarity_threshold": 0.35,
     "hybrid_search": true,
-    "rerank_candidates": 40
+    "rerank_candidates": 40,
+    "documents_only": false
   },
   "cache": { "enabled": true, "similarity_threshold": 0.92, "ttl": 3600 },
   "ui": {
@@ -1362,14 +1573,16 @@ These keys have **no Settings-UI control** — edit `config.json` directly and r
 |---|---|---|
 | `visual_instructions` | `true` | When `false`, drops the ~2,000-token chart/diagram authoring section from the base instruction — text-only, token-lean answers. (Also exposed as the Settings → Templates toggle.) |
 | `history_max_tokens` | `3000` | Approximate token budget for the conversation history resent to the model each turn. A 20-message hard cap always applies; `0` disables the token cap. |
-| `reranker` | `{ "enabled": false, "model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "top_n": 5 }` | Optional cross-encoder reranking: when enabled, retrieval widens to `rag.rerank_candidates`, the cross-encoder re-scores, then results are trimmed to `top_k`. |
+| `reranker` | `{ "enabled": false, "model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "top_n": 5 }` | Optional cross-encoder reranking: when enabled, retrieval widens to `rag.rerank_candidates`, the cross-encoder re-scores, then results are trimmed to `top_k`. `"half_precision": true` (not in Settings) runs it in half precision on a GPU: faster, slightly different scores (see [Reranking](#reranking)). |
 | `hyde` | `{ "enabled": false }` | HyDE (Hypothetical Document Embeddings): the model drafts a hypothetical answer and search uses *its* embedding, improving recall for sparse or keyword-poor queries. Costs one extra LLM call per query. |
-| `sessions` | `{ "persist": true, "ttl": 86400 }` | Whether conversations persist to the app-data store, and their TTL in seconds. |
+| `auth` | `{ "mode": "off", … }` | Sign-in through a reverse proxy — see [Sign-in through a reverse proxy](#sign-in-through-a-reverse-proxy-multiple-users). Only read from `config.json` and the environment; Settings and config imports never change it. |
+| `sessions` | `{ "persist": true, "ttl": 0 }` | Whether conversations persist to the app-data store, and how long each is kept after its last message, in seconds (`0` = forever; Settings → General → Conversations offers forever, 30 days and 1 day, and records `"retention_chosen": true`). A `ttl` of `86400` without `retention_chosen` — the earlier default, which every saved `config.json` holds — is read as `0`. Pinned conversations never expire. |
 | `storage` | `{ "default_type": "redis", "app": "default" }` | `default_type`: whether the built-in `default` connection is the built-in Redis (`redis` section) or the built-in MongoDB (`mongodb` section: `uri`, `username`, `password`, `database`). `app`: the connection holding the app data and semantic cache. Written by the installer and by `POST /api/storage/app`; a settings save or config import leaves this section, `mongodb` and the built-in connections as they are. |
 | `recrawl` | `{ "enabled": false, "interval_minutes": 60 }` | Scheduled automatic re-crawl of registered web sources, every `interval_minutes`. |
 | `scheduled_sources` | `[]` | The web sources registered for scheduled re-crawl. |
 | `crawl` | `{ "concurrency": 10, "js_render": false, "js_concurrency": 3, "smart_mode": true, "min_words": 100 }` | Web-crawler tuning — see [SETTINGS.md → Web Crawler Settings](SETTINGS.md#web-crawler-settings). |
 | `rag.rerank_candidates` | `40` | How many candidates retrieval fetches for the reranker to choose from (only relevant when reranking is on). |
+| `rag.documents_only` | `false` | Documents only for new conversations (Settings → RAG). The 📚 button switches it per conversation. |
 
 ### Storage from the environment
 
@@ -1472,10 +1685,17 @@ MongoDB, or both — then the app, and prints the address and the versions in us
 `./stop.sh` stops the app first, then shuts Redis down with a save and stops MongoDB's
 containers cleanly. Nothing is deleted by either.
 
-After a reboot, nothing starts on its own except the built-in MongoDB's containers, and
-only if the container runtime starts automatically and MongoDB was running when the
-machine went down (`./stop.sh` leaves them stopped). Run `./start.sh` to bring
-everything up.
+For the built-in MongoDB, `./start.sh` (and `./install.sh`) also starts the container
+runtime when it is installed but stopped — Colima, Docker Desktop, OrbStack, Rancher
+Desktop or Podman, whichever the `docker` command uses — and waits until it answers.
+`./stop.sh` reports each part as it goes down: Redis saved and stopped, MongoDB stopped
+cleanly (or not, with its exit code), and the container runtime stopped again if
+VisualWeaver started it and no other containers run in it
+(`VISUALWEAVER_KEEP_RUNTIME=1` always leaves it running). It ends by checking that
+nothing of VisualWeaver still answers.
+
+After a reboot nothing starts on its own: run `./start.sh`. A Docker Engine daemon on
+Linux is not started by the scripts (it needs `sudo systemctl start docker`).
 
 ### Ports
 
@@ -1562,11 +1782,12 @@ set `VISUALWEAVER_STORAGE=redis` in `.visualweaver.env`, and start again.
 
 | Symptom | Cause and fix |
 |---|---|
-| `./start.sh`: *The built-in MongoDB did not start* — "… is installed but not running" | The container runtime is stopped: start it as the message says (e.g. `colima start`), then `./start.sh`. |
+| `./start.sh`: *its container runtime is not available* | The runtime could not be started here: none is installed, it did not start in time (its output is in `log/container-runtime.log` in the data folder), or it is a Linux daemon (`sudo systemctl start docker`). Start it, then `./start.sh`. |
 | "… did not answer within 80 s — it is busy or stuck" | The container runtime is overloaded: wait and run `./start.sh` again; if it keeps happening, restart the runtime. |
 | A new knowledge base on MongoDB finds nothing for a while | Its search index is still being built (seconds); if it stays that way, check the disk-space warning above. |
 | Redis shows **search ?** or the Status tab says search is unavailable | Redis is still loading its data after a start (wait), or the search module did not load: run `./install.sh` again. |
 | A browser shows *VisualWeaver does not answer browsers that reach it as '…'* | You opened it under a host name it does not know (for example a reverse proxy's domain): add that name to `VISUALWEAVER_ALLOWED_HOSTS` and restart (see [Settings Reference](#settings-reference) → Security). |
+| Every request but `/api/health` answers `503` (which reports `misconfigured`) and the log says *config.json could not be loaded* | `config.json` cannot be read (permissions), or a damaged copy that configured sign-in is kept as `config.json.corrupt-…`: restore it and restart. To run without sign-in meanwhile, start with `VISUALWEAVER_AUTH=off`. |
 | The log says *Refused a cross-site request* | A page on another site tried to use the API — expected. If it was VisualWeaver's own page behind a proxy that rewrites the Host header, forward the Host header or list the page's origin in `VISUALWEAVER_CORS_ORIGINS`. |
 | In Docker, Ollama is not found | Ollama must listen on this machine (`ollama serve`); the container reaches it as `host.docker.internal`. For another machine set `VISUALWEAVER_OLLAMA_URL` in `.env`. |
 

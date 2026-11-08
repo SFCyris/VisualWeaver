@@ -1,0 +1,91 @@
+# VisualWeaver with sign-in: Caddy (HTTPS) asks your sign-in service (Authelia here;
+# Authentik with Caddyfile.authentik) for every request and passes the signed-in user to
+# VisualWeaver in a header. See DOCS.md → "Sign-in through a reverse proxy".
+#
+#   1. Point your domain's DNS at this host; open ports 80 and 443.
+#   2. Replace visualweaver.example.com in Caddyfile.authelia and below.
+#   3. Set VISUALWEAVER_ADMIN_USERS / VISUALWEAVER_ADMIN_GROUPS below.
+#   4. Add your sign-in service to this file (Authelia: as its documentation describes,
+#      on the `signin` network, reachable as authelia:9091).
+#   5. From the repo root:  docker compose -f deploy/signin/docker-compose.signin.yml up -d
+#
+# The identity header is believed only from Caddy's fixed address (172.31.240.10). The
+# VisualWeaver port is NOT published: the only way in is through Caddy.
+
+services:
+  visualweaver:
+    image: ghcr.io/sfcyris/visualweaver:1.16
+    # build: ../..
+    container_name: visualweaver
+    volumes:
+      - visualweaver-data:/data
+    environment:
+      - VISUALWEAVER_DATA_DIR=/data
+      - VISUALWEAVER_HOST=0.0.0.0
+      - VISUALWEAVER_PORT=8420
+      - VISUALWEAVER_REDIS_HOST=redis
+      - VISUALWEAVER_REDIS_PORT=6379
+      - VISUALWEAVER_ALLOWED_HOSTS=visualweaver.example.com
+      # Sign-in
+      - VISUALWEAVER_AUTH=header
+      - VISUALWEAVER_TRUSTED_PROXIES=172.31.240.10        # Caddy, and nothing else
+      - VISUALWEAVER_AUTH_USER_HEADER=Remote-User
+      - VISUALWEAVER_AUTH_GROUPS_HEADER=Remote-Groups
+      - VISUALWEAVER_AUTH_NAME_HEADER=Remote-Name
+      - VISUALWEAVER_ADMIN_USERS=alice                    # your administrators' user names
+      - VISUALWEAVER_ADMIN_GROUPS=vw-admins               # and/or a group
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "8420"            # internal network only — never add a `ports:` entry here
+    networks:
+      - signin
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    container_name: visualweaver-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - visualweaver-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - signin
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: visualweaver-caddy
+    depends_on:
+      - visualweaver
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.authelia:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      signin:
+        ipv4_address: 172.31.240.10
+    restart: unless-stopped
+
+networks:
+  signin:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+          # Containers without a fixed address get one from .128-.255 only, so none
+          # of them can be given the proxy's 172.31.240.10.
+          ip_range: 172.31.240.128/25
+
+volumes:
+  visualweaver-data:
+  visualweaver-redis:
+  caddy-data:
+  caddy-config:

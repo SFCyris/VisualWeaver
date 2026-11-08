@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 import redis
 from fastapi import HTTPException
-from . import appstore, config, mongo_store, rag, redis_store, state
+from . import appstore, config, instance_registry, mongo_store, rag, redis_store, state
 
 log = logging.getLogger(__name__)
 
@@ -31,17 +31,30 @@ def meta_get(rc, instance: str) -> dict | None:
 
 
 def meta_set(rc, instance: str, meta: dict) -> None:
+    """Write an instance's metadata, and its name to the instance registry."""
     if mongo_store.is_mongo(rc):
         mongo_store.set_meta(rc, instance, meta)
     else:
         rc.set(f"rag_meta:{instance}", json.dumps(meta))
+        _registry_write(instance_registry.redis_add, rc, instance)
 
 
 def meta_delete(rc, instance: str) -> None:
+    """Remove an instance's metadata and its registry entry."""
     if mongo_store.is_mongo(rc):
         mongo_store.delete_meta(rc, instance)
     else:
         rc.delete(f"rag_meta:{instance}")
+        _registry_write(instance_registry.redis_remove, rc, instance)
+
+
+def _registry_write(fn, rc, instance: str) -> None:
+    """A registry update after a metadata write. Best effort: the metadata is the
+    record, and a listing repairs the registry (see instance_registry)."""
+    try:
+        fn(rc, instance)
+    except Exception as e:
+        log.debug(f"instance registry not updated for '{instance}': {e}")
 
 
 def list_rag_instances() -> list[dict]:
@@ -114,25 +127,52 @@ def list_rag_instances() -> list[dict]:
                     idx_names = [rag._decode(x) for x in rc.execute_command("FT._LIST")]
                 except Exception:
                     idx_names = []
+            indexed = []
             for idx_name in idx_names:
                 if not (idx_name.startswith("rag:") and idx_name.endswith(":idx")):
                     continue
                 inst = idx_name[len("rag:"):-len(":idx")]
-                if not inst:
-                    continue
+                if inst:
+                    indexed.append(inst)
+            # Instances that exist only as metadata (created, never ingested, so no
+            # index yet) come from the instance registry. They used to come from
+            # SCAN MATCH rag_meta:* — a walk over every key, chunks included.
+            registered = instance_registry.redis_names(rc)
+            unregistered = [i for i in indexed if i not in registered]
+            if unregistered:                          # heal: an index the registry missed
                 try:
-                    res = rc.execute_command("FT.SEARCH", idx_name, "*", "LIMIT", "0", "0")
-                    count = int(res[0]) if res else 0
+                    instance_registry.redis_add(rc, *unregistered)
+                except Exception as e:                # a read-only replica: list anyway
+                    log.debug(f"instance registry on '{ep_name}' not updated: {e}")
+            meta_only = sorted(registered.difference(indexed))
+            # One round trip for every count and every metadata check, instead of one
+            # FT.SEARCH per index.
+            pipe = rc.pipeline(transaction=False)
+            for inst in indexed:
+                pipe.execute_command("FT.SEARCH", f"rag:{inst}:idx", "*", "LIMIT", "0", "0")
+            for inst in meta_only:
+                pipe.exists(f"rag_meta:{inst}")
+            replies = pipe.execute(raise_on_error=False)
+            for inst, res in zip(indexed, replies):
+                try:
+                    count = int(res[0]) if res and not isinstance(res, Exception) else 0
                 except Exception:
                     count = 0
-                key = f"{ep_name}:{inst}"
-                all_instances[key] = {"count": count, "ep": ep_name, "name": inst}
-            # Pick up instances that exist only as metadata — created but never
-            # ingested, so they have no index yet (rag_meta keys are few and cheap).
-            for mk in rc.scan_iter("rag_meta:*", count=200):
-                inst = rag._decode(mk).replace("rag_meta:", "")
-                key  = f"{ep_name}:{inst}"
-                all_instances.setdefault(key, {"count": 0, "ep": ep_name, "name": inst})
+                all_instances[f"{ep_name}:{inst}"] = {"count": count, "ep": ep_name, "name": inst}
+            stale = []
+            for inst, has_meta in zip(meta_only, replies[len(indexed):]):
+                if isinstance(has_meta, Exception):
+                    continue
+                if has_meta:
+                    all_instances.setdefault(f"{ep_name}:{inst}",
+                                             {"count": 0, "ep": ep_name, "name": inst})
+                else:
+                    stale.append(inst)                # no metadata and no index left
+            if stale:
+                try:
+                    instance_registry.redis_remove(rc, *stale)
+                except Exception as e:
+                    log.debug(f"instance registry on '{ep_name}' not updated: {e}")
             listed.add(ep_name)
         except Exception:
             pass

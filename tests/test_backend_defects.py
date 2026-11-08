@@ -150,7 +150,8 @@ def test_image_route_rejects_a_sibling_directory_with_an_allowed_prefix(tmp_path
 
     with pytest.raises(HTTPException) as ei:    # sibling with an allowed-looking prefix
         call(sibling / "a.png")
-    assert ei.value.status_code == 403, f"expected 403, got {ei.value.status_code}"
+    # 404, as for a file that does not exist: the route tells no one which files exist
+    assert ei.value.status_code == 404, f"expected 404, got {ei.value.status_code}"
 
 
 # ── tool-result markdown: for/else always fired ──────────────────────────────

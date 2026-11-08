@@ -74,6 +74,20 @@ def test_set_many(store):
     store.set_many([])
 
 
+def test_expire_many_sets_and_clears_expiries_of_live_keys_only(store):
+    store.set(k("e1"), "a", ttl=100)
+    store.set(k("e2"), "b")
+    store.set(k("e3"), "c", ttl=1)
+    time.sleep(2.1)
+    store.expire_many([(k("e1"), None), (k("e2"), 500), (k("e3"), None), (k("nope"), 50)])
+    assert store.ttl(k("e1")) is None and store.get(k("e1")) == "a"
+    assert 490 <= store.ttl(k("e2")) <= 500
+    # an expired key (on MongoDB: past exp, not yet removed) is not brought back
+    assert store.get(k("e3")) is None and store.ttls([k("e3")]) in ([0], [None])
+    assert store.get(k("nope")) is None
+    store.expire_many([])
+
+
 def test_keys_take_the_prefix_literally(store):
     """Glob characters in a prefix match only themselves (Redis SCAN MATCH would
     otherwise read * ? [ ] as patterns)."""

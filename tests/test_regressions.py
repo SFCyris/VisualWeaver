@@ -846,16 +846,16 @@ def test_search_embeds_the_query_as_a_query(app_module):
     assert recorded[0] == ("how do i reindex?", True), \
         f"the question was embedded as {recorded[0]!r} — a passage, not a query"
 
-    # Census half: the KNN leg and the index-missing retry each embed the query, and
-    # both must embed it as a QUERY. Pinned to EXACTLY two (measured): `>= 2` could
-    # not tell two well-formed sites from a third that slipped in embedding a passage.
-    sites = re.findall(r"embed\(\s*query\s*(?:,[^)]*)?\)", _pysrc(m.search_rag))
-    assert len(sites) == 2, (
-        f"expected exactly the KNN leg and the index-missing retry to embed the "
-        f"query; found {len(sites)}: {sites}"
-    )
+    # Census half: search_rag embeds through embeddings.query_vector only (the index-
+    # missing retry reuses the vector instead of embedding again), and query_vector has
+    # EXACTLY one site, which must embed it as a QUERY. `>= 1` could not tell one
+    # well-formed site from a second that slipped in embedding a passage.
+    assert not re.findall(r"embed\(\s*query\s*(?:,[^)]*)?\)", _pysrc(m.search_rag)), \
+        "search_rag embeds the question itself instead of through query_vector"
+    sites = re.findall(r"embed\(\s*query\s*(?:,[^)]*)?\)", _pysrc(m.embeddings.query_vector))
+    assert len(sites) == 1, f"expected one site in query_vector; found {len(sites)}: {sites}"
     bad = [s for s in sites if "is_query=True" not in s]
-    assert not bad, f"search_rag embeds the question as a PASSAGE at {len(bad)} site(s): {bad}"
+    assert not bad, f"query_vector embeds the question as a PASSAGE: {bad}"
 
 
 def test_chunks_record_their_embedding_model(app_module):

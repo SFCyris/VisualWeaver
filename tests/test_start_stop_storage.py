@@ -27,6 +27,11 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+# A port nothing listens on, so stop.sh's final check never sees a real MongoDB
+# (27019 is the built-in MongoDB's usual port on a developer's machine).
+_MPORT = _free_port()
+
+
 def _exe(path: pathlib.Path, text: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(textwrap.dedent(text))
@@ -58,7 +63,31 @@ def stack(tmp_path):
               fi
               echo '{{"running": true, "ready": true, "version": "9.0.4", "total_seconds": 11.7, "runtime": "docker (colima)", "runtime_version": "29.1.0", "server": "9.0.4", "search": "1.78.0"}}'
               exit 0 ;;
-            stop) exit 0 ;;
+            runtime)
+              if [ "${{FAKE_MONGO:-ok}}" = down ] || [ "${{FAKE_RUNTIME:-up}}" = stopped ]; then
+                echo "docker is installed but not running." >&2; exit 3
+              fi
+              echo "docker compose — docker (colima)"; exit 0 ;;
+            ensure-runtime)
+              if [ "${{FAKE_MONGO:-ok}}" = down ]; then
+                echo "Colima did not start within 300 s. Start it by hand (colima start) and run this again." >&2; exit 2
+              fi
+              if [ "${{FAKE_RUNTIME:-up}}" = stopped ]; then
+                echo '{{"runtime": "docker (colima)", "started": true, "name": "Colima", "seconds": 23.4}}'
+              else
+                echo '{{"runtime": "docker (colima)", "started": false, "seconds": 0}}'
+              fi
+              exit 0 ;;
+            stop)
+              echo '{{"was_running": true, "seconds": 2.1, "mongod_exit": '"${{FAKE_MONGOD_EXIT:-0}}"'}}'
+              exit 0 ;;
+            release-runtime)
+              if [ "${{FAKE_STARTED:-0}}" = 1 ]; then
+                echo '{{"stopped": true, "name": "Colima", "seconds": 4.2}}'
+              else
+                echo '{{"stopped": false, "reason": "not started by VisualWeaver"}}'
+              fi
+              exit 0 ;;
           esac
           exit 0
         fi
@@ -99,8 +128,12 @@ def stack(tmp_path):
                 'REDIS_MODULE_SEARCH="/x/redisearch.so"\nREDIS_DYLD_FALLBACK=""\nREDIS_SOURCE="fake Redis"\n')
         if mongo:
             (data / "mongodb").mkdir(exist_ok=True)
-            (data / "mongodb" / "state.json").write_text('{\n  "port": 27019,\n  "project": "vwa-x"\n}\n')
-        (data / "config.json").write_text(json.dumps({"storage": {"default_type": default_type, "app": app}}))
+            (data / "mongodb" / "state.json").write_text('{\n  "port": %d,\n  "project": "vwa-x"\n}\n' % _MPORT)
+        cfg = {"storage": {"default_type": default_type, "app": app}}
+        if mongo and default_type == "redis":      # as install.sh writes it: a built-in extra connection
+            cfg["redis_endpoints"] = [{"name": "local-mongodb", "type": "mongodb", "builtin": True,
+                                       "uri": f"mongodb://127.0.0.1:{_MPORT}/?authSource=admin"}]
+        (data / "config.json").write_text(json.dumps(cfg))
         if env_file is not None:
             (repo / ".visualweaver.env").write_text(env_file)
 
@@ -128,7 +161,7 @@ def test_a_mongodb_only_install_starts_without_any_redis(stack):
     assert "redis" not in calls.lower(), "nothing Redis may be started"
     assert "Redis" not in out, out
     assert "lm up" in calls and "MongoDB up, vector search ready (11.7 s)" in out
-    assert "MongoDB:  127.0.0.1:27019 (built-in, vector search, containers) — app data & answer cache" in out
+    assert f"MongoDB:  127.0.0.1:{_MPORT} (built-in, vector search, containers) — app data & answer cache" in out
     assert re.search(r"Versions: VisualWeaver 1\.14\.0 · Python \d+\.\d+", out)
     assert "MongoDB 9.0.4 · search 1.78.0 · docker (colima) 29.1.0" in out
     assert "local_mongo logs" in out
@@ -140,7 +173,7 @@ def test_both_stores_start_and_report_their_versions(stack):
     assert rc == 0, out
     assert "redis-server" in calls and "lm up" in calls
     assert "Redis:    127.0.0.1:6389 (built-in, AOF everysec) — app data & answer cache" in out
-    assert "MongoDB:  127.0.0.1:27019 (built-in, vector search, containers)\n" in out
+    assert f"MongoDB:  127.0.0.1:{_MPORT} (built-in, vector search, containers)\n" in out
     assert "Redis 8.8.1 · search 8.8.0" in out
     assert "MongoDB 9.0.4 · search 1.78.0" in out
 
@@ -157,7 +190,7 @@ def test_a_stopped_runtime_does_not_block_a_redis_first_install(stack):
     stack.install(redis=True, mongo=True)
     rc, out, _ = stack.run("start.sh", {"FAKE_MONGO": "down"})
     assert rc == 0, out
-    assert "The built-in MongoDB did not start" in out and "colima start" in out
+    assert "container runtime is not available" in out and "colima start" in out
     assert "Continuing without it" in out and "MongoDB:  NOT running" in out
 
 
@@ -165,7 +198,8 @@ def test_a_stopped_runtime_stops_a_mongodb_first_start_with_the_fix(stack):
     stack.install(mongo=True, default_type="mongodb")
     rc, out, _ = stack.run("start.sh", {"FAKE_MONGO": "down"})
     assert rc != 0
-    assert "The built-in MongoDB did not start" in out and "colima start" in out
+    assert "container runtime is not available" in out and "colima start" in out
+    assert "main storage, so the app cannot start without it" in out
     assert not (stack.data / "visualweaver.pid").exists(), "the app must not start without its store"
 
 
@@ -190,8 +224,8 @@ def test_stop_stops_mongodb_and_keeps_its_data(stack):
     assert stack.run("start.sh")[0] == 0
     rc, out, calls = stack.run("stop.sh")
     assert rc == 0, out
-    assert "lm stop" in calls and "MongoDB stopped." in out and "data kept" in out
-    assert "Redis" not in out
+    assert "lm stop" in calls and "MongoDB stopped cleanly (exit 0, 2.1 s; data kept)." in out
+    assert "Redis" not in out and "everything shut down cleanly" in out
     assert not (stack.data / "visualweaver.pid").exists()
 
 
@@ -201,7 +235,41 @@ def test_stop_with_both_stops_both(stack):
     rc, out, calls = stack.run("stop.sh")
     assert rc == 0, out
     assert "redis shutdown" in calls and "lm stop" in calls
-    assert "Redis stopped." in out and "MongoDB stopped." in out
+    assert "Redis stopped cleanly (data saved to disk)." in out and "MongoDB stopped cleanly" in out
+
+
+def test_start_starts_a_stopped_container_runtime_and_waits_for_it(stack):
+    """After a reboot the runtime is usually stopped: start.sh starts it, then MongoDB."""
+    stack.install(redis=True, mongo=True)
+    rc, out, calls = stack.run("start.sh", extra={"FAKE_RUNTIME": "stopped"})
+    assert rc == 0, out
+    assert calls.index("lm ensure-runtime") < calls.index("lm up"), calls
+    assert "Started Colima (container runtime) in 23.4 s." in out and "MongoDB up" in out
+
+
+def test_a_missing_runtime_explains_why_the_app_cannot_start_when_it_holds_the_app_data(stack):
+    stack.install(redis=True, mongo=True, app="local-mongodb")
+    rc, out, calls = stack.run("start.sh", extra={"FAKE_MONGO": "down"})
+    assert rc != 0
+    assert "container runtime is not available" in out and "colima start" in out
+    assert "keeps its app data (conversations, the answer cache) on the built-in MongoDB" in out
+    assert "lm up" not in calls
+
+
+def test_stop_reports_an_unclean_mongodb_shutdown(stack):
+    stack.install(mongo=True, default_type="mongodb")
+    assert stack.run("start.sh")[0] == 0
+    rc, out, _ = stack.run("stop.sh", extra={"FAKE_MONGOD_EXIT": "137"})
+    assert "not cleanly (exit 137)" in out and "everything shut down cleanly" not in out
+
+
+def test_stop_stops_the_runtime_it_started_and_says_so(stack):
+    stack.install(mongo=True, default_type="mongodb")
+    assert stack.run("start.sh")[0] == 0
+    rc, out, calls = stack.run("stop.sh", extra={"FAKE_STARTED": "1"})
+    assert rc == 0, out
+    assert calls.index("lm stop") < calls.index("lm release-runtime")
+    assert "Stopped Colima (container runtime, started by VisualWeaver) in 4.2 s." in out
 
 
 def test_the_search_version_is_read_after_redis_has_loaded_its_data(tmp_path):

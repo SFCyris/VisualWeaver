@@ -12,7 +12,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from . import appcore, config, constants, ingest, sessions, state
+from fastapi.responses import JSONResponse
+from . import appcore, auth, config, constants, ingest, projects, sessions, state
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +21,18 @@ log = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ROUTES — FEEDBACK
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_MAX_FEEDBACK_ENTRY = 64_000     # characters of one stored rating, as JSON
+_MAX_FEEDBACK_DEPTH = 5          # {"sources": [{"source": …}]} is 3
+
+
+def _depth(v, limit: int = 64) -> int:
+    """Nesting depth of a JSON value (1 for a scalar); stops counting past ``limit``."""
+    if limit <= 0 or not isinstance(v, (dict, list)):
+        return 1
+    items = v.values() if isinstance(v, dict) else v
+    return 1 + max((_depth(x, limit - 1) for x in items), default=0)
+
 
 @appcore.app.post("/api/feedback")
 async def api_feedback(payload: dict):
@@ -30,7 +43,15 @@ async def api_feedback(payload: dict):
         k: (v[:config._MAX_FEEDBACK_FIELD] if isinstance(v, str) else v)
         for k, v in payload.items()
     }
+    # Nested values (the answer's sources) are kept as sent, so they are bounded as a
+    # whole: depth and size of the stored entry.
+    if _depth(entry) > _MAX_FEEDBACK_DEPTH or \
+            len(json.dumps(entry, ensure_ascii=False)) > _MAX_FEEDBACK_ENTRY:
+        raise HTTPException(413, f"A rating may be at most {_MAX_FEEDBACK_ENTRY // 1000} KB "
+                                 f"and {_MAX_FEEDBACK_DEPTH} levels deep")
     entry["ts"] = datetime.now(timezone.utc).isoformat()
+    if auth.owner_id() is not None:
+        entry["user"] = auth.owner_id()      # who rated it (sign-in on); not client-settable
     state._feedback.append(entry)
     del state._feedback[:-config._MAX_FEEDBACK]        # bound memory as well as the file
     # Up to 2,000 entries rewritten per rating: in a thread, and atomically.
@@ -59,17 +80,37 @@ def api_feedback_list(limit: int = 200, value: str | None = None):
 # ROUTES — SESSIONS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+@appcore.app.get("/api/me")
+def api_me():
+    """Who is signed in. With sign-in off: {"auth": false, "user": null, "admin": true}."""
+    u = auth.current()
+    return {"auth": auth.enabled(), "user": u.name if u else None, "id": u.id if u else None,
+            "admin": auth.is_admin()}
+
+
+# Every route below that takes a conversation id maps it through sessions.scoped_sid:
+# with sign-in on, the caller can only ever reach their own conversations, and another
+# user's id is answered exactly like an id nobody has used.
+
 @appcore.app.get("/api/sessions")
 def api_sessions():
-    # In-memory sessions (active connections), then the stored ones not loaded here,
-    # newest first — the store's own key order is arbitrary.
-    result = [sessions.session_summary(sid, msgs) for sid, msgs in list(state._sessions.items())]
-    result.extend(sessions.list_sessions_from_redis())
-    result.sort(key=lambda r: r.get("updated") or 0, reverse=True)
-    return result
+    # The conversations open in memory and the stored ones (from the registry, not a
+    # scan of the keyspace), newest first, each with title, times, model, knowledge
+    # bases, pin and expiry. Plain JSON already: sent as is, without FastAPI's per-value
+    # encoder (which took longer than reading the list from the store).
+    rows = sessions.list_sessions()
+    # A conversation filed under a project that no longer exists (deleted while the
+    # conversation could not be rewritten) is listed without one.
+    if any(r.get("project") for r in rows):
+        known = projects.ids()
+        for r in rows:
+            if r.get("project") and r["project"] not in known:
+                r.pop("project")
+    return JSONResponse(rows)
 
 @appcore.app.get("/api/sessions/{sid}")
 def api_session(sid: str):
+    sid = sessions.scoped_sid(sid)
     if sid in state._sessions:
         return state._sessions[sid]
     # Try Redis
@@ -78,8 +119,48 @@ def api_session(sid: str):
         state._sessions[sid] = msgs   # cache in memory
     return msgs
 
+@appcore.app.patch("/api/sessions/{sid}")
+def api_update_session(sid: str, payload: dict):
+    """Rename, pin, file under a project and/or set the knowledge-base selection of a
+    conversation: {"title": str}, {"pinned": bool}, {"project": "<project id>" | null},
+    {"kb_select": "all" | "none" | [names]}. Returns its row as /api/sessions lists it.
+    A pinned conversation never expires."""
+    if not isinstance(payload, dict) or not ({"title", "pinned", "project", "kb_select"} & set(payload)):
+        raise HTTPException(400, "title, pinned, project or kb_select is required")
+    title = pinned = None
+    extra: dict = {}
+    if "project" in payload:
+        pid = payload["project"]
+        if pid is not None and projects.resolve(pid) is None:
+            raise HTTPException(400, "no such project")
+        extra["project"] = pid
+    if "kb_select" in payload:
+        ks = sessions.clean_kb_select(payload["kb_select"])
+        if ks is None:
+            raise HTTPException(400, 'kb_select must be "all", "none" or a list of knowledge-base names')
+        extra["kb_select"] = ks
+    if "title" in payload:
+        title = sessions.clean_title(payload["title"]) if isinstance(payload["title"], str) else ""
+        if not title:
+            raise HTTPException(400, "title must be a non-empty string")
+    if "pinned" in payload:
+        if not isinstance(payload["pinned"], bool):
+            raise HTTPException(400, "pinned must be true or false")
+        pinned = payload["pinned"]
+    sid = sessions.scoped_sid(sid)
+    try:
+        row = sessions.update_session(sid, title=title, pinned=pinned, **extra)
+    except Exception as e:
+        raise HTTPException(503, f"The conversation could not be saved ({str(e)[:200]})")
+    if row is None:
+        raise HTTPException(404, "session not found")
+    row["id"] = sessions.public_sid(row["id"])
+    return row
+
+
 @appcore.app.delete("/api/sessions/{sid}")
 def api_delete_session(sid: str):
+    sid = sessions.scoped_sid(sid)
     state._sessions.pop(sid, None)
     sessions.delete_session_from_redis(sid)
     return {"ok": True}
@@ -97,6 +178,7 @@ def api_fork_session(sid: str, payload: dict):
     index would silently fork at the wrong message after any Stop. Content is
     identical for every turn both sides persisted, and turns only the client
     has can never match, so occurrence counting stays aligned."""
+    sid = sessions.scoped_sid(sid)
     msgs = state._sessions.get(sid) or sessions.load_session(sid)
     if not msgs:
         raise HTTPException(404, "session not found")
@@ -119,11 +201,12 @@ def api_fork_session(sid: str, payload: dict):
     if at is None:
         raise HTTPException(409, "message not found in the stored session "
                                  "(it may not have been persisted — e.g. an aborted answer)")
-    new_sid = f"sess_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}_fork"
+    new_sid = sessions.scoped_sid(f"sess_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}_fork")
     state._sessions[new_sid] = [copy.deepcopy(m) for m in msgs[:at + 1]]
+    sessions.mark_fork(state._sessions[new_sid])     # not pinned; "<title> (fork)"
     state.touch_session(new_sid)
     sessions.save_session(new_sid, state._sessions[new_sid])
-    return {"id": new_sid, "messages": len(state._sessions[new_sid])}
+    return {"id": sessions.public_sid(new_sid), "messages": len(state._sessions[new_sid])}
 
 
 @appcore.app.get("/api/usage")

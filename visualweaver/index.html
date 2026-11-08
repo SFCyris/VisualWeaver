@@ -5,7 +5,7 @@
   Copyright (C) 2026 Sebastian Cyris
   Source: https://github.com/SFCyris/VisualWeaver
 -->
-<html lang="en">
+<html lang="en" class="vw-user">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -144,6 +144,14 @@ body{background:radial-gradient(ellipse 120% 80% at 20% 0%,rgba(99,102,241,0.07)
 .rag-pill{display:inline-flex;align-items:center;font-size:10px;padding:2px 6px;border-radius:10px;margin-left:auto;flex-shrink:0;font-weight:600}
 .session-preview{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
 #sidebar-footer{padding:8px;border-top:1px solid var(--border);flex-shrink:0}
+/* Signed in through the reverse proxy (sign-in on): who, and whether an administrator.
+   For everyone else every [data-admin] control is removed from the page (html.vw-user). */
+.signed-in{display:flex;align-items:center;gap:8px;padding:6px 10px 8px;font-size:12px;color:var(--text2);min-width:0}
+.signed-in[hidden]{display:none}
+.signed-in .icon{font-size:15px;flex-shrink:0;width:20px;text-align:center}
+.signed-in-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text0);font-weight:600}
+.signed-in-role:empty{display:none}
+html.vw-user [data-admin]{display:none!important}
 /* Topbar */
 /* position+z-index are load-bearing: backdrop-filter makes this a stacking context,
    so the model picker's popover cannot escape it however high its own z-index is.
@@ -258,6 +266,42 @@ button.wv-chip{font:inherit;font-size:12px;cursor:pointer}
 .cite-ref:hover{background:rgba(124,111,247,.30)}
 .rag-chunk.cite-flash{animation:citeFlash 1.4s ease}
 @keyframes citeFlash{0%,100%{background:transparent}20%{background:rgba(124,111,247,.28)}}
+/* A citation number with no source behind it ([7] when the answer was given 5): shown as
+   broken, never as a working link, and it opens no card. */
+.cite-broken{display:inline;color:var(--red);text-decoration:line-through;border:1px dashed currentColor;
+  border-radius:4px;padding:0 3px;margin:0 1px;font-size:.88em;font-weight:600;cursor:help}
+/* The source card shown while a [n] is hovered or focused (tap on touch). Fixed to the
+   viewport and attached to <body>, so no scrolling container can clip it. */
+#cite-card{position:fixed;left:0;top:0;z-index:1200;box-sizing:border-box;width:min(360px,calc(100vw - 32px));
+  max-height:min(340px,60vh);overflow:auto;background:var(--bg1);border:1px solid var(--border2);
+  border-radius:var(--r2);box-shadow:var(--shadow);padding:10px 12px;font-size:12px;line-height:1.45;color:var(--text1)}
+#cite-card[hidden]{display:none}
+.cite-card-head{display:flex;align-items:baseline;gap:6px;margin-bottom:3px}
+.cite-card-n{font-weight:700;color:var(--accent3);flex-shrink:0}
+.cite-card-title{font-weight:600;color:var(--text0);overflow-wrap:anywhere}
+.cite-card-src{font-size:11px;color:var(--text2);overflow-wrap:anywhere;margin-bottom:4px}
+.cite-card-src a{color:var(--blue)}
+.cite-card-score{font-size:11px;color:var(--text2);margin-bottom:6px}
+.cite-card-text{white-space:pre-wrap;overflow-wrap:anywhere;border-left:2px solid rgba(124,111,247,.45);padding-left:8px}
+.cite-card-jump{margin-top:8px;background:var(--glass2);border:1px solid var(--border);color:var(--text1);
+  font:inherit;font-size:11px;padding:3px 9px;border-radius:6px;cursor:pointer;min-height:24px}
+.cite-card-jump:hover{border-color:var(--accent3);color:var(--accent3)}
+/* How well an answer is backed by its sources (see _groundingOf). */
+.ground-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 9px;border-radius:10px;
+  font-weight:600;white-space:nowrap;border:1px solid var(--border);background:var(--glass2);color:var(--text2)}
+.ground-badge.g-grounded{color:var(--green);border-color:currentColor}
+.ground-badge.g-partly{color:var(--yellow);border-color:currentColor}
+.ground-badge.g-uncited,.ground-badge.g-missing{color:var(--red);border-color:currentColor}
+/* The mode suffix is set apart by weight only: at opacity .85 it fell to 3.7:1 (light) and
+   4.3:1 (dark), under the 4.5:1 that text this size needs. */
+.ground-badge .g-mode{font-weight:500}
+/* The composer's Documents only toggle (beside the template picker), lit while on. */
+#docs-only-btn{background:var(--glass2);border:1px solid var(--border);border-radius:var(--r3);color:var(--text1);
+  height:30px;min-width:32px;padding:0 6px;font-size:15px;line-height:1;cursor:pointer;flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;transition:var(--transition)}
+#docs-only-btn:hover{border-color:var(--accent3)}
+#docs-only-btn[aria-pressed="true"]{background:rgba(124,111,247,.20);border-color:rgba(124,111,247,.6);
+  box-shadow:0 0 0 1px rgba(124,111,247,.45)}
 .rag-inspector{margin-top:10px;border:1px solid rgba(124,111,247,.28);border-radius:var(--r2);overflow:hidden}
 .rag-inspector-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(124,111,247,.10);cursor:pointer;font-size:12px;color:var(--text2);transition:var(--transition);user-select:none}
 .rag-inspector-header:hover{background:rgba(124,111,247,.18)}
@@ -297,7 +341,15 @@ mark.rag-hl{background:rgba(251,191,36,.35);color:inherit;border-radius:2px;padd
 .file-chip.loading{opacity:.6}
 .msg-files{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .msg-file-tag{background:rgba(124,111,247,.15);border:1px solid rgba(124,111,247,.3);border-radius:12px;padding:2px 9px;font-size:11px;color:var(--accent)}
-#input-row{display:flex;gap:10px;align-items:flex-end}
+/* A grid, so the Documents only toggle can stand above the template picker without taking
+   width from the message box: [📚 / picker] [message box] [send] [stop]. Send and stop are
+   auto-placed, so a hidden stop button adds no column. */
+#input-row{display:grid;grid-template-columns:auto minmax(0,1fr);grid-auto-columns:auto;grid-template-rows:1fr auto;
+  column-gap:10px;row-gap:4px;align-items:end}
+#input-row>#template-select{grid-column:1;grid-row:2;width:140px}   /* its flex width before the grid */
+#input-row>#docs-only-btn{grid-column:1;grid-row:1;justify-self:start}
+#input-row>#input-wrap{grid-column:2;grid-row:1 / span 2}
+#input-row>#send-btn,#input-row>#stop-btn{grid-row:1 / span 2}
 #template-select{background:var(--glass2);border:1px solid var(--border);color:var(--text1);padding:6px 10px;border-radius:var(--r3);font-size:12px;outline:none;cursor:pointer;max-width:140px}
 #template-select option{background:var(--bg1)}
 #input-wrap{flex:1;background:var(--glass2);border:1px solid var(--border);border-radius:20px;padding:10px 16px;display:flex;gap:10px;align-items:flex-end;transition:var(--transition)}
@@ -324,10 +376,11 @@ mark.rag-hl{background:rgba(251,191,36,.35);color:inherit;border-radius:2px;padd
    24px wide. A container query, so the width that counts is the composer's own. */
 #input-area{container:composer/inline-size}
 @container composer (max-width:600px){
-  #input-row{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-columns:auto;gap:8px;align-items:end}
-  #template-select{grid-row:1;grid-column:1;justify-self:start;width:auto;max-width:100%}
-  #input-wrap{grid-row:2;grid-column:1;min-width:0;padding:8px 12px;gap:6px}
-  #send-btn,#stop-btn{grid-row:2}
+  #input-row{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-auto-columns:auto;gap:8px;align-items:end}
+  #input-row>#template-select{grid-row:1;grid-column:1;justify-self:start;width:auto;max-width:100%}
+  #input-row>#docs-only-btn{grid-row:1;grid-column:2;justify-self:center}
+  #input-row>#input-wrap{grid-row:2;grid-column:1;min-width:0;padding:8px 12px;gap:6px}
+  #input-row>#send-btn,#input-row>#stop-btn{grid-row:2}
 }
 @media (max-width:640px){#input-area{padding:10px 12px}}
 /* ── Streaming bubble color-cycle glow frame (green ↔ blue) ── */
@@ -372,6 +425,53 @@ mark.rag-hl{background:rgba(251,191,36,.35);color:inherit;border-radius:2px;padd
 #storage-down-note[hidden]{display:none}
 #storage-down-note button{background:none;border:none;padding:2px 0;font:inherit;font-weight:600;color:var(--accent3);
   text-decoration:underline;cursor:pointer}
+/* Status strip under the composer: storage, model provider, server connection. The state
+   is carried by the mark (✓ ✗ … ⟳) and the words as well as the colour. */
+#health-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:8px;font-size:11px;line-height:1.4;color:var(--text2);min-width:0}
+#health-strip:empty{display:none}
+.hs-item{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;padding:1px 0;background:none;border:none;
+  font:inherit;color:inherit;text-align:left}
+button.hs-item{cursor:pointer;border-radius:4px}
+button.hs-item:hover .hs-name{text-decoration:underline}
+.hs-ico{font-weight:700;flex-shrink:0;width:1em;text-align:center}
+.hs-name{font-weight:600;color:var(--text1);white-space:nowrap}
+.hs-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.hs-ok .hs-ico{color:var(--green)}
+.hs-bad .hs-ico,.hs-bad .hs-name{color:var(--red)}
+.hs-wait .hs-ico{color:var(--yellow)}
+.hs-retry{background:none;border:none;padding:1px 0;font:inherit;font-weight:600;color:var(--accent3);text-decoration:underline;cursor:pointer}
+@container composer (width<=600px){
+  /* A phone: a healthy item keeps its mark and name, a failing one also says why. */
+  #health-strip .hs-ok .hs-detail{display:none}
+  #health-strip{gap:2px 10px}
+}
+/* First-run checklist on the welcome screen. With it the welcome screen can be taller than
+   the chat area on a phone: centred, it then overflowed above the top, where no scrolling
+   reaches. The two spacers centre it while it fits and give way when it does not (their
+   negative margins cancel the 20px gap they would otherwise add). */
+.welcome-screen{justify-content:flex-start}
+.welcome-screen::before{content:'';margin-top:auto;margin-bottom:-20px}
+.welcome-screen::after{content:'';margin-bottom:auto;margin-top:-20px}
+.fr-card{width:100%;max-width:460px;text-align:left;padding:12px 14px;margin:0}
+.fr-card[hidden]{display:none}
+.fr-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.fr-title{font-weight:700;font-size:14px;color:var(--text0)}
+.fr-hide{background:none;border:none;color:var(--text2);cursor:pointer;font-size:13px;min-width:24px;min-height:24px;border-radius:6px}
+.fr-hide:hover{color:var(--text0);background:var(--glass2)}
+.fr-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.fr-item{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--text1);line-height:1.45}
+.fr-ico{flex-shrink:0;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;border:1.5px solid currentColor}
+.fr-ok .fr-ico{color:var(--green)}
+.fr-bad .fr-ico{color:var(--red)}
+.fr-todo .fr-ico{color:var(--accent3)}
+.fr-wait .fr-ico,.fr-blocked .fr-ico,.fr-info .fr-ico{color:var(--text3)}
+.fr-ask{flex-shrink:0;margin-left:26px;font-size:12px;color:var(--text1);font-style:italic}
+@media (min-width:641px){.fr-ask{margin-left:0}}
+.fr-text{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}
+.fr-detail{color:var(--text2)}
+.fr-act{flex-shrink:0;margin-left:26px}
+@media (min-width:641px){.fr-act{margin-left:0}}
 /* Redis red, darker on the light card and lighter on the dark one: #DC2626 measured
    about 4.6:1 on the light banner and 3.88:1 on the dark one. */
 .redis-brand{color:#b91c1c}
@@ -739,12 +839,77 @@ table.data-table tr:last-child td{border-bottom:none}
 .rag-used-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:2px 9px;border-radius:10px;font-weight:600;background:rgba(124,111,247,.13);border:1px solid rgba(124,111,247,.28);color:var(--accent3);white-space:nowrap;cursor:pointer}
 /* Session row: a div acting as a button so the delete control can nest legally. */
 .session-row{cursor:pointer}
+.session-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:0;margin:0;border:0;background:none;
+  color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--r3)}
+.session-open[hidden]{display:none}
+.session-text{flex:1;min-width:0;overflow:hidden;display:block}
+.session-text>span{display:block}
+.session-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-rename{flex:1;min-width:0}
+.unl-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.unl-acts[hidden]{display:none}
 .session-del{background:none;border:none;color:var(--text2);cursor:pointer;font-size:14px;
   padding:0 4px;line-height:1;border-radius:4px;flex-shrink:0;opacity:0;transition:opacity .15s;
   min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center}
 .session-row:hover .session-del,.session-row:focus-within .session-del{opacity:1}
 .session-del:hover{color:var(--red)}
 @media (hover:none){.session-del{opacity:1}}   /* touch has no hover */
+/* Rename / pin: shown on hover or focus, and always on the open conversation (on touch,
+   only there — tap a conversation to manage it). A pinned row keeps its pin lit. */
+.session-act{background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;
+  padding:0 3px;line-height:1;border-radius:4px;flex-shrink:0;display:none;
+  min-width:24px;min-height:24px;align-items:center;justify-content:center}
+.session-row:hover .session-act,.session-row:focus-within .session-act,.session-row.active .session-act,
+.session-act.on{display:inline-flex}
+@media (hover:none){.session-row:not(.active) .session-act:not(.on){display:none}}
+.session-act:hover{color:var(--text0);background:var(--glass2)}
+.session-act.on{color:var(--yellow)}
+.session-group{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;
+  padding:10px 10px 3px}
+.session-group:first-child{padding-top:2px}
+.session-exp{font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Projects: the switcher above the conversation list, a row's project mark, the chip in
+   the composer, and the editor. */
+#project-bar{display:flex;align-items:center;gap:4px;margin:0 8px 2px}
+#project-bar[hidden]{display:none}
+.sessions-label{display:flex;align-items:center}
+.project-add{margin:-7px 0 -7px auto;min-height:24px;min-width:24px;padding:0 6px;background:none;border:1px solid transparent;
+  border-radius:var(--r3);color:var(--text2);font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:none;cursor:pointer}
+.project-add:hover{color:var(--text0);border-color:var(--border)}
+#project-filter{flex:1;min-width:0;height:30px;background:var(--glass2);border:1px solid var(--border);
+  color:var(--text0);padding:4px 8px;border-radius:var(--r3);font-size:12px;cursor:pointer;text-overflow:ellipsis}
+#project-filter option{background:var(--bg1);color:var(--text0)}
+.project-btn{flex-shrink:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;
+  background:var(--glass2);border:1px solid var(--border);border-radius:var(--r3);color:var(--text1);cursor:pointer;font-size:13px}
+.project-btn:hover{color:var(--text0);border-color:var(--accent)}
+.project-btn[hidden]{display:none}
+.session-proj{color:var(--pc);font-size:12px;width:16px;text-align:center}
+.session-empty{font-size:12px;color:var(--text2);padding:8px 10px}
+.project-chip{border-color:var(--pc)!important}
+.project-chip strong{max-width:160px}
+.mention-chip strong{max-width:180px}
+.project-form .pj-kbs{border:1px solid var(--border);border-radius:var(--r3);padding:8px 10px;margin:0 0 12px;max-height:180px;overflow-y:auto}
+.project-form .pj-kbs legend{font-size:12px;font-weight:600;color:var(--text1);padding:0 4px}
+.project-form .pj-kb{display:flex;align-items:center;gap:6px;font-size:13px;padding:3px 0;cursor:pointer;overflow-wrap:anywhere}
+.project-form .pj-kb input{width:auto;margin:0}
+.project-form input[type=color]{height:36px;padding:2px 4px}
+.adv-scope-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text1);margin:0 0 8px}
+.adv-scope-row[hidden]{display:none}
+.adv-scope-row select{width:auto;max-width:260px}
+/* # mention menu: above the message box, the options as text */
+#input-wrap{position:relative}
+#mention-menu{position:absolute;left:8px;bottom:calc(100% + 6px);z-index:40;min-width:200px;max-width:min(340px,calc(100% - 16px));
+  max-height:240px;overflow-y:auto;background:var(--bg1);border:1px solid var(--border2);border-radius:var(--r3);
+  box-shadow:0 8px 28px rgba(0,0,0,.18);padding:4px}
+#mention-menu[hidden]{display:none}
+.mention-opt{display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:6px;font-size:13px;color:var(--text0);cursor:pointer;min-height:24px}
+.mention-opt[aria-selected="true"]{background:var(--accent-fill);color:#fff}
+.mention-opt:hover:not([aria-selected="true"]){background:var(--glass2)}
+.mention-hash{opacity:.7;font-weight:600}
+.mention-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mention-empty{font-size:12px;color:var(--text2);padding:7px 10px}
+.session-rename{width:100%;font-size:13px;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;
+  background:var(--bg1);color:var(--text0)}
 /* Regenerate version switcher ‹ n/N › */
 .ver-switch{display:inline-flex;align-items:center;gap:2px;font-size:10px;padding:1px 4px;border-radius:9px;
   background:var(--glass2);border:1px solid var(--border);color:var(--text2)}
@@ -1110,15 +1275,21 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
     <div class="logo"><div class="logo-icon">⚡</div><span>VisualWeaver</span></div>
   </div>
   <button class="new-chat-btn" onclick="newSession()">＋ New Chat</button>
+  <!-- shown once a project exists -->
+  <div id="project-bar" hidden>
+    <select id="project-filter" aria-label="Project" onchange="setProjectFilter(this.value)"><option value="">All conversations</option></select>
+    <button type="button" id="project-edit-btn" class="project-btn" data-admin hidden title="Edit this project" aria-label="Edit project" onclick="openProjectEditor(S.projectFilter)">✎</button>
+  </div>
   <div id="sidebar-body">
-    <div class="sidebar-section"><div class="sidebar-label">Sessions</div><div id="sessions-list"></div></div>
+    <div class="sidebar-section"><div class="sidebar-label sessions-label">Sessions<button type="button" id="project-new-btn" class="project-add" data-admin title="New project" aria-label="New project" onclick="openProjectEditor()">＋ Project</button></div><div id="sessions-list"></div></div>
     <div class="sidebar-section"><div class="sidebar-label">RAG Instances</div><div id="rag-sidebar-list"></div></div>
     <div class="sidebar-section">
-      <div class="sidebar-label">Pinned</div>
-      <button class="sidebar-btn" onclick="togglePinned()"><span class="icon">📌</span>Pinned Messages<span id="pinned-count" class="rag-pill" style="background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:var(--text1)">0</span></button>
+      <div class="sidebar-label">Bookmarks</div>
+      <button class="sidebar-btn" onclick="togglePinned()"><span class="icon" aria-hidden="true">🔖</span>Bookmarked messages<span id="pinned-count" class="rag-pill" style="background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:var(--text1)">0</span></button>
     </div>
   </div>
   <div id="sidebar-footer">
+    <div id="signed-in" class="signed-in" hidden role="status"><span class="icon" aria-hidden="true">👤</span><span class="signed-in-name"></span><span class="signed-in-role ep-badge"></span></div>
     <button class="sidebar-btn" onclick="openSettings('general')"><span class="icon">⚙️</span>Settings</button>
     <button class="sidebar-btn" onclick="openSettings('analytics')"><span class="icon">📊</span>Analytics</button>
     <button class="sidebar-btn" onclick="exportChat('md')"><span class="icon">💾</span>Export Chat (.md)</button>
@@ -1181,9 +1352,16 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
     <div id="img-preview-row" style="display:none"></div>
     <div id="input-row">
       <select id="template-select" aria-label="Prompt template"><option value="">💬 Default</option></select>
+      <button id="docs-only-btn" type="button" aria-pressed="false" onclick="toggleDocsOnly()"
+        title="Documents only: answer only from your knowledge base, or say the documents do not contain the answer"
+        aria-label="Documents only — answer only from your knowledge base">📚</button>
       <div id="input-wrap" ondrop="handleDrop(event)" ondragover="event.preventDefault()">
-        <textarea id="msg-input" aria-label="Message — press Enter to send, Shift+Enter for a new line" placeholder="Message… (Enter to send)" rows="1"
-          oninput="autoResize(this);updateCharCount()" onkeydown="handleKey(event)"></textarea>
+        <div id="mention-menu" role="listbox" aria-label="Knowledge bases to search for this question" hidden></div>
+        <textarea id="msg-input" aria-label="Message — press Enter to send, Shift+Enter for a new line. Type # to search only some knowledge bases." placeholder="Message… (Enter to send)" rows="1"
+          aria-controls="mention-menu" aria-autocomplete="list"
+          oninput="autoResize(this);updateCharCount();_mentionUpdate()" onkeydown="handleKey(event)"
+          onclick="_mentionUpdate()" onkeyup="if(/^(Arrow(Left|Right)|Home|End)$/.test(event.key))_mentionUpdate()"
+          onblur="_mentionClose()"></textarea>
         <input type="file" id="img-file-input" aria-label="Choose an image to attach" accept="image/*" style="display:none" onchange="handleImageFile(this)"/>
         <input type="file" id="doc-file-input" aria-label="Choose a document to attach" accept=".txt,.md,.csv,.pdf,.docx,.xlsx" multiple style="display:none" onchange="handleDocFile(this)"/>
         <button class="attach-btn" title="Attach document (TXT, MD, CSV, PDF, DOCX, XLSX)" onclick="document.getElementById('doc-file-input').click()">📄</button>
@@ -1194,6 +1372,7 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
       <button id="stop-btn" onclick="stopStream()" title="Stop generating">■</button>
     </div>
     <div id="char-count" style="display:none"></div>
+    <div id="health-strip" role="group" aria-label="Status of storage, model and server connection"></div>
   </div>
 </div>
 </div>
@@ -1208,24 +1387,24 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
   <div class="settings-tabs" role="tablist" aria-label="Settings sections" onkeydown="settingsTabKey(event)">
     <!-- Group 1: Status & Infrastructure — "is everything working?" -->
     <button class="stab active" role="tab" id="stab-status" aria-controls="tab-status" aria-selected="true" tabindex="0" onclick="switchTab('status')" data-tab="status">💡 Status</button>
-    <button class="stab" role="tab" id="stab-redis" aria-controls="tab-redis" aria-selected="false" tabindex="-1" onclick="switchTab('redis')" data-tab="redis">🗄 Storage</button>
-    <div class="stab-sep" aria-hidden="true"></div>
+    <button class="stab" data-admin role="tab" id="stab-redis" aria-controls="tab-redis" aria-selected="false" tabindex="-1" onclick="switchTab('redis')" data-tab="redis">🗄 Storage</button>
+    <div class="stab-sep" data-admin aria-hidden="true"></div>
     <!-- Group 2: Knowledge — primary workflow -->
-    <button class="stab" role="tab" id="stab-rag" aria-controls="tab-rag" aria-selected="false" tabindex="-1" onclick="switchTab('rag')" data-tab="rag">📚 RAG</button>
-    <button class="stab" role="tab" id="stab-websources" aria-controls="tab-websources" aria-selected="false" tabindex="-1" onclick="switchTab('websources')" data-tab="websources">🌐 Web Sources</button>
-    <button class="stab" role="tab" id="stab-cache" aria-controls="tab-cache" aria-selected="false" tabindex="-1" onclick="switchTab('cache');loadCacheAnalytics()" data-tab="cache">⚡ Cache</button>
-    <div class="stab-sep" aria-hidden="true"></div>
+    <button class="stab" data-admin role="tab" id="stab-rag" aria-controls="tab-rag" aria-selected="false" tabindex="-1" onclick="switchTab('rag')" data-tab="rag">📚 RAG</button>
+    <button class="stab" data-admin role="tab" id="stab-websources" aria-controls="tab-websources" aria-selected="false" tabindex="-1" onclick="switchTab('websources')" data-tab="websources">🌐 Web Sources</button>
+    <button class="stab" data-admin role="tab" id="stab-cache" aria-controls="tab-cache" aria-selected="false" tabindex="-1" onclick="switchTab('cache');loadCacheAnalytics()" data-tab="cache">⚡ Cache</button>
+    <div class="stab-sep" data-admin aria-hidden="true"></div>
     <!-- Group 3: LLM Providers -->
-    <button class="stab" role="tab" id="stab-providers" aria-controls="tab-providers" aria-selected="false" tabindex="-1" onclick="switchTab('providers')" data-tab="providers">🤖 Providers</button>
-    <div class="stab-sep" aria-hidden="true"></div>
+    <button class="stab" data-admin role="tab" id="stab-providers" aria-controls="tab-providers" aria-selected="false" tabindex="-1" onclick="switchTab('providers')" data-tab="providers">🤖 Providers</button>
+    <div class="stab-sep" data-admin aria-hidden="true"></div>
     <!-- Group 4: App Config -->
-    <button class="stab" role="tab" id="stab-general" aria-controls="tab-general" aria-selected="false" tabindex="-1" onclick="switchTab('general')" data-tab="general">🔧 General</button>
-    <button class="stab" role="tab" id="stab-templates" aria-controls="tab-templates" aria-selected="false" tabindex="-1" onclick="switchTab('templates')" data-tab="templates">💬 Templates</button>
-    <button class="stab" role="tab" id="stab-security" aria-controls="tab-security" aria-selected="false" tabindex="-1" onclick="switchTab('security')" data-tab="security">🔐 Security</button>
-    <div class="stab-sep" aria-hidden="true"></div>
+    <button class="stab" data-admin role="tab" id="stab-general" aria-controls="tab-general" aria-selected="false" tabindex="-1" onclick="switchTab('general')" data-tab="general">🔧 General</button>
+    <button class="stab" data-admin role="tab" id="stab-templates" aria-controls="tab-templates" aria-selected="false" tabindex="-1" onclick="switchTab('templates')" data-tab="templates">💬 Templates</button>
+    <button class="stab" data-admin role="tab" id="stab-security" aria-controls="tab-security" aria-selected="false" tabindex="-1" onclick="switchTab('security')" data-tab="security">🔐 Security</button>
+    <div class="stab-sep" data-admin aria-hidden="true"></div>
     <!-- Group 5: Diagnostics -->
     <button class="stab" role="tab" id="stab-analytics" aria-controls="tab-analytics" aria-selected="false" tabindex="-1" onclick="switchTab('analytics');loadAnalytics()" data-tab="analytics">📊 Analytics</button>
-    <button class="stab" role="tab" id="stab-logs" aria-controls="tab-logs" aria-selected="false" tabindex="-1" onclick="switchTab('logs')" data-tab="logs">📋 Logs</button>
+    <button class="stab" data-admin role="tab" id="stab-logs" aria-controls="tab-logs" aria-selected="false" tabindex="-1" onclick="switchTab('logs')" data-tab="logs">📋 Logs</button>
     <button class="stab" role="tab" id="stab-about" aria-controls="tab-about" aria-selected="false" tabindex="-1" onclick="switchTab('about')" data-tab="about">🧩 About</button>
   </div>
   <div id="settings-body">
@@ -1248,6 +1427,24 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
         <div class="form-group"><label for="s-max-img-dim">Max Image Dimension (px)</label><input type="number" id="s-max-img-dim" value="1024" min="256" max="4096" step="128"/></div>
         <div class="toggle-row"><span class="toggle-label" id="s-show-rag-label">📚 Show RAG Matches in Answers</span><label class="toggle"><input type="checkbox" aria-labelledby="s-show-rag-label" id="s-show-rag"/><span class="toggle-slider"></span></label></div>
         <div class="form-hint" style="margin-top:-4px">When off, the matched-chunks panel starts collapsed rather than open — the “📚 N matched chunks” header is still there to click. Turn on to inspect retrieval by default.</div>
+      </div>
+      <div class="glass-card"><h4>Conversations</h4>
+        <div class="form-group"><label for="s-session-retention">Keep conversations</label>
+          <select id="s-session-retention">
+            <option value="0">Forever</option>
+            <option value="2592000">30 days</option>
+            <option value="86400">1 day</option>
+          </select>
+          <div class="form-hint">How long a conversation is kept after its last message. Pinned conversations are always kept. On save the change applies to every stored conversation: Forever keeps them all; a limit gives each one at most that long from now.</div>
+        </div>
+        <div class="form-group" id="unlisted-sessions" hidden>
+          <div class="toggle-label">Conversations not in this browser's sidebar</div>
+          <div class="form-hint unl-text" id="unlisted-text"></div>
+          <div class="unl-acts">
+            <button type="button" class="btn btn-secondary btn-sm" id="unlisted-show" onclick="showUnlistedSessions()" aria-describedby="unlisted-text">Show them in the sidebar</button>
+            <button type="button" class="btn btn-danger btn-sm" id="unlisted-del" onclick="deleteUnlistedSessions()" aria-describedby="unlisted-text">Delete them…</button>
+          </div>
+        </div>
       </div>
       <div class="glass-card"><h4>Config Management</h4>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1600,6 +1797,8 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
       <div class="glass-card">
         <!-- Presets are starting points, not modes: applying one writes the values and
              forgets. Each shows what it would change before it changes it. -->
+        <div class="adv-scope-row" id="adv-scope-row" hidden><label for="adv-scope">Advice measured on</label>
+          <select id="adv-scope" onchange="loadRagAdvice()"><option value="">All knowledge bases</option></select></div>
         <div class="preset-row" id="rag-presets"><span class="preset-cap">Start from</span><button type="button" class="preset-btn preset-copy" onclick="copyRagDiagnosis()" title="Copy every measurement behind these verdicts as text">Copy diagnosis</button></div>
         <div class="form-row">
           <div class="form-group" data-advice="chunk_size"><div class="lbl-row"><label for="s-chunk-size">Chunk Size (words)</label><button type="button" class="adv-info" aria-haspopup="dialog" data-info="chunk_size" aria-label="About chunk size">i</button></div><div class="range-row"><input type="range" id="s-chunk-size" min="64" max="1024" step="1" oninput="this.nextElementSibling.textContent=this.value"/><span class="range-val">180</span></div><div class="adv-line" hidden></div></div>
@@ -1614,6 +1813,10 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
         <div class="form-group" data-advice="hybrid_search" style="margin-bottom:0">
           <div class="toggle-row"><span class="toggle-label"><span id="s-hybrid-label">⚡ Hybrid Search (Vector + BM25)</span><button type="button" class="adv-info" aria-haspopup="dialog" data-info="hybrid_search" aria-label="About hybrid search">i</button></span><label class="toggle"><input type="checkbox" aria-labelledby="s-hybrid-label" id="s-hybrid" checked/><span class="toggle-slider"></span></label></div>
           <div class="adv-line" hidden></div>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <div class="toggle-row"><span class="toggle-label" id="s-docs-only-label">📚 Documents only for new conversations</span><label class="toggle"><input type="checkbox" aria-labelledby="s-docs-only-label" aria-describedby="s-docs-only-hint" id="s-docs-only"/><span class="toggle-slider"></span></label></div>
+          <div class="form-hint" id="s-docs-only-hint">Answers come only from the knowledge base (or an attached document); when nothing matches, the answer says so instead of answering from general knowledge. The 📚 button in the message box switches it per conversation.</div>
         </div>
         <div class="form-group" data-advice="reranker" style="margin-bottom:0">
           <div class="toggle-row"><span class="toggle-label"><span id="s-rerank-label">🎯 Rerank retrieved chunks (cross-encoder)</span><button type="button" class="adv-info" aria-haspopup="dialog" data-info="reranker" aria-label="About reranking">i</button></span><label class="toggle"><input type="checkbox" aria-labelledby="s-rerank-label" id="s-rerank-enabled"/><span class="toggle-slider"></span></label></div>
@@ -1875,7 +2078,7 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
     <!-- Status -->
     <div class="tab-pane" id="tab-status" role="tabpanel" aria-labelledby="stab-status"><div class="section-title">System Status</div><div id="status-content">Loading…</div></div>
   </div>
-  <div class="settings-footer">
+  <div class="settings-footer" data-admin>
     <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
     <span id="settings-dirty" hidden class="status-pill pill-warn" style="margin-right:auto"
           aria-live="polite">Unsaved changes</span>
@@ -1886,7 +2089,7 @@ button:focus-visible,a:focus-visible,[tabindex]:not([tabindex="-1"]):focus-visib
 
 <!-- Pinned Panel -->
 <div id="pinned-panel" role="dialog" aria-modal="false" aria-labelledby="pinned-title">
-  <h3 id="pinned-title">📌 Pinned <button class="settings-close" onclick="togglePinned()" title="Close pinned" aria-label="Close pinned panel">✕</button></h3>
+  <h3 id="pinned-title">🔖 Bookmarks <button class="settings-close" onclick="togglePinned()" title="Close bookmarks" aria-label="Close the bookmarks panel">✕</button></h3>
   <div id="pinned-list"></div>
 </div>
 
@@ -1951,11 +2154,18 @@ const S={
   // false, so a failed load cannot be written back over real settings.
   configLoaded:false,
   sessionId:null,sessions:{},ws:null,
+  // Who is signed in (loadMe). null until /api/me has answered: no administrator control
+  // is offered until then. Sign-in off: {auth:false,admin:true}, every control is offered.
+  me:null,
   models:[],currentModel:'',ragInstances:[],activeRag:{name:'default',ep:'default'},
   config:{},templates:[],pendingImages:[],pendingFiles:[],pinnedMsgs:[],sourceFilter:'',
   streaming:false,recognition:null,
   chatMetrics:{hits:0,misses:0,latencies:[]},msgIdCounter:0,
   provider:'ollama',ragAllMode:false,noRag:false,
+  // Projects (loadProjects), the sidebar's project filter, a selection of several
+  // knowledge bases (a project's), and the #mentions of the question being typed.
+  projects:[],projectFilter:(()=>{try{return localStorage.getItem('rr.projectFilter')||'';}catch(e){return '';}})(),
+  ragSet:null,mentions:[],
   // The Ollama settings table keeps its own list; S.models is the ACTIVE provider's.
   ollamaModels:[],modelsLoading:false,modelsError:'',
   modelsLoaded:false,       // the first model list has come back (until then: "looking")
@@ -1975,6 +2185,11 @@ function _loadPrefs(){
   try{return JSON.parse(localStorage.getItem(_LS_PREFS)||'{}')||{};}catch(e){return {};}
 }
 function _savePrefs(){
+  // Applying a conversation's own selection is not a choice made in this browser; and a
+  // change inside a project's conversation is that conversation's (see _noteConversationSelection).
+  if(typeof _scopeApplying!=='undefined'&&_scopeApplying)return;
+  if(typeof _noteConversationSelection==='function')_noteConversationSelection();
+  if(typeof _inProject==='function'&&_inProject())return;
   try{
     localStorage.setItem(_LS_PREFS,JSON.stringify({
       provider:S.provider||'ollama',
@@ -2031,6 +2246,7 @@ function getWelcomeHTML(){
     <div class="welcome-title">VisualWeaver</div>
     <p class="welcome-sub">Ask anything about your knowledge base. Answers cite their sources and render themselves — more than twenty kinds of chart, diagram, map and molecule — with the maths computed rather than approximated.</p>
     <div class="welcome-version" id="welcome-version"${S.appInfo?.version?'':' hidden'}>${_welcomeVersionHTML()}</div>
+    <div id="welcome-checklist" class="fr-card glass-card" role="region" aria-labelledby="fr-title" hidden></div>
     <div id="welcome-setup" hidden style="max-width:460px">
       <div class="glass-card" style="padding:16px;text-align:left">
         <div style="font-weight:700;margin-bottom:6px" id="welcome-setup-title">No model is available yet</div>
@@ -2038,7 +2254,7 @@ function getWelcomeHTML(){
           VisualWeaver needs one model provider before it can answer anything.
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" id="welcome-setup-actions">
-          <button class="btn btn-primary btn-sm" onclick="openSettings('providers')">Open provider settings</button>
+          <button class="btn btn-primary btn-sm" data-admin onclick="openSettings('providers')">Open provider settings</button>
           <button class="btn btn-secondary btn-sm" onclick="openSettings('status')">Check system status</button>
         </div>
       </div>
@@ -2092,6 +2308,239 @@ function _refreshWelcomeSetupState(){
       : `${label} is selected but has no usable model — its API key is missing or was `
        +'rejected. Add a working key, or switch provider.';
   }
+  _renderFirstRunChecklist();
+}
+
+// ── First-run checklist + chat status strip ───────────────────────────────────
+// Both read state the page already keeps — the storage poll (S.defaultStatus / S.epOk),
+// the provider probe (S.providerStatus) and model list, the instance list and the chat
+// socket — so neither costs a request of its own. Each verdict is true / false / null
+// (null: not known yet, or blocked by something else that is not ready).
+const _WS_OFFLINE_MS=15000;   // reconnecting for this long reads as "server unreachable"
+const _FR_HIDDEN_KEY='rr.firstrunHidden';
+let _healthPrev=null;         // the last verdicts announced, to announce changes only
+function _frTarget(){
+  const L=Array.isArray(S.ragInstances)?S.ragInstances:[];
+  const up=r=>r.reachable!==false;
+  return (!S.noRag&&!S.ragAllMode&&L.find(r=>_isActiveRag(r)&&up(r)))
+    ||L.find(r=>r.name==='default'&&up(r))||L.find(up)||null;
+}
+function _healthModel(){
+  const app=_appConn();
+  const sv=app==='default'?S.defaultStatus?.ok:(S.epOk||{})[app];
+  // While the app server itself cannot be reached (or the user is signed out), nothing it
+  // reports is current.
+  const away=S.wsState==='offline'||S.wsState==='signedout';
+  const storage={ok:away?null:sv===true?true:sv===false?false:null,label:_connLabel(app)};
+  const p=S.provider||'ollama', label=(PROVIDER_META[p]||{}).label||p;
+  const ps=(S.providerStatus||{})[p]||{};
+  let model;
+  if(away)model={ok:null,text:`${label} · not known while the server is away`};
+  else if(!S.modelsLoaded||S.modelsLoading)model={ok:null,text:`Checking ${label}…`};
+  else if(p==='ollama'){
+    if(ps.ok===false&&ps.configured!==false)model={ok:false,text:'Ollama is not reachable',fix:'Start Ollama, or choose a hosted provider'};
+    else if(S.currentModel)model={ok:true,text:`Ollama · ${S.currentModel}`};
+    else model={ok:false,text:(S.ollamaModels||[]).length?'Ollama has only embedding models':'Ollama has no chat model',
+                fix:'Pull a chat model (ollama pull llama3), or choose a hosted provider'};
+  }
+  // A hosted provider lists its models without a key, so a model being selected says
+  // nothing about whether it can answer: the key decides.
+  else if(ps.configured===false)model={ok:false,text:`No ${label} API key`,fix:`Add your ${label} API key`};
+  else if(ps.ok===false)model={ok:false,text:`${label} key rejected or unreachable`,fix:ps.error||`Check the ${label} API key`};
+  else if(ps.ok&&S.currentModel)model={ok:true,text:`${label} · ${S.currentModel}`};
+  else if(ps.ok)model={ok:false,text:`${label} has no usable model`,fix:'Choose a model in Settings → Providers'};
+  else model={ok:null,text:`Checking ${label}…`};
+  model.label=label;
+  let knowledge;
+  const L=S.ragInstances;
+  if(storage.ok===false)knowledge={ok:null,blocked:true,text:'Add documents once the storage is back'};
+  else if(!Array.isArray(L))knowledge={ok:null,text:'Checking knowledge bases…'};
+  else{
+    const full=L.find(r=>r.reachable!==false&&(r.chunks|0)>0), t=_frTarget();
+    knowledge=full?{ok:true,text:`“${full.name}” has ${full.chunks|0} chunk${(full.chunks|0)===1?'':'s'}`}
+                  :{ok:false,text:'Add your first documents',target:t?t.name:'default'};
+  }
+  const online=typeof navigator==='undefined'||navigator.onLine!==false;
+  const st=S.wsState||'connecting';
+  const socket={state:st==='signedout'?st:!online&&st!=='open'?'offline':st,queued:!!_wsQueued,net:online};
+  return {storage,model,knowledge,socket};
+}
+
+// ── The checklist (welcome screen) ──
+function _frHidden(){try{return localStorage.getItem(_FR_HIDDEN_KEY)==='1';}catch(e){return false;}}
+function hideFirstRunChecklist(){
+  try{localStorage.setItem(_FR_HIDDEN_KEY,'1');}catch(e){}
+  const el=document.getElementById('welcome-checklist');
+  if(el){el.hidden=true;el.dataset.state='';el.innerHTML='';}
+  announce('Getting-started checklist hidden');
+  // Focus goes on to the message box — except on a touch screen, where that opens the keyboard.
+  if(!window.matchMedia?.('(pointer:coarse)').matches)document.getElementById('msg-input')?.focus();
+}
+// kind: ok | bad (needs fixing) | todo (a step not taken yet) | wait (being checked) |
+// blocked (waits for another item). The state is in words as well as the mark.
+// A provider id put into an inline onclick: only one of the known ids (HTML-escaping does
+// not make a value safe inside a JS string literal in an attribute).
+function _safeProv(p){return ['ollama','claude','openai','qwen','mistral','groq','gemini'].includes(p)?p:'ollama';}
+const _FR_KIND={ok:['✓','Done'],bad:['✗','Needs attention'],todo:['○','To do'],wait:['…','Checking'],blocked:['–','Waiting'],
+  info:['–','Not yet']};
+function _frRow(kind,title,text,action){
+  const [ico,word]=_FR_KIND[kind]||_FR_KIND.wait;
+  return `<li class="fr-item fr-${kind}"><span class="fr-ico" aria-hidden="true">${ico}</span>`
+    +`<span class="fr-text"><span class="sr-only">${word}: </span><b>${escHtml(title)}</b> <span class="fr-detail">${escHtml(text)}</span></span>`
+    +(action||'')+`</li>`;
+}
+function _renderFirstRunChecklist(){
+  const el=document.getElementById('welcome-checklist');
+  if(!el)return;
+  const h=_healthModel();
+  // Setting up a model and adding documents are for administrators (with sign-in on): for
+  // anyone else a missing model reads "ask your administrator", and no documents yet is
+  // not a step of theirs — on its own it does not bring the list up.
+  const admin=_isAdmin();
+  const vals=admin?[h.storage.ok,h.model.ok,h.knowledge.ok]:[h.storage.ok,h.model.ok];
+  // Shown while something is known to be missing; never while everything is still being
+  // looked up (it would flash on every load), and gone once all three are done.
+  const show=!_frHidden()&&vals.includes(false);
+  const key=show?JSON.stringify(h.storage)+JSON.stringify(h.model)+JSON.stringify(h.knowledge)+admin:'';
+  if(el.dataset.state===key&&el.hidden===!show)return;   // unchanged: keep focus where it is
+  el.dataset.state=key;
+  el.hidden=!show;
+  if(!show){el.innerHTML='';return;}
+  const btn=(label,on,aria)=>`<button type="button" class="btn btn-secondary btn-sm fr-act" onclick="${on}"${aria?` aria-label="${escHtml(aria)}"`:''}>${escHtml(label)}</button>`;
+  const ask=t=>`<span class="fr-ask">${escHtml(t)}</span>`;
+  const s=h.storage, m=h.model, k=h.knowledge;
+  const prov=S.provider||'ollama';
+  const kind=v=>v===true?'ok':v===false?'bad':'wait';
+  el.innerHTML=`<div class="fr-head"><span class="fr-title" id="fr-title">Get started</span>`
+    +`<button type="button" class="fr-hide" onclick="hideFirstRunChecklist()" aria-label="Hide the getting-started checklist" title="Hide this checklist">✕</button></div>`
+    +`<ul class="fr-list" aria-labelledby="fr-title">`
+    +_frRow(kind(s.ok),'Storage',s.ok===true?`${s.label} is reachable`:s.ok===false?`${s.label} cannot be reached`:'Checking…',
+       s.ok===false?btn('Open Status',"openSettings('status')",'Open Settings, Status, to see why the storage cannot be reached'):'')
+    +_frRow(kind(m.ok),'Model',m.ok===false&&m.fix&&admin?`${m.text} — ${m.fix}`:m.text,
+       m.ok!==false?'':admin?btn(prov==='ollama'?'Set up Ollama':'Add API key',`openSettings('${_safeProv(prov)}')`,`Open the ${m.label} settings`)
+         :ask('Ask your administrator to set up a model.'))
+    +(admin?_frRow(k.blocked?'blocked':k.ok===false?'todo':kind(k.ok),'Knowledge',k.ok===false?`${k.text} to “${k.target}” — answers then cite them`:k.text,
+       k.ok===false?btn('Add documents','_frAddDocuments()',`Add documents to the knowledge base ${k.target}`):'')
+     :_frRow(k.blocked?'blocked':k.ok===false?'info':kind(k.ok),'Knowledge',k.ok===false?'No documents in the knowledge bases yet':k.text,
+       k.ok===false?ask('Ask your administrator to add documents.'):''))
+    +`</ul>`;
+}
+// The knowledge step: open the upload with the instance the documents will go into already
+// chosen — the one the chat searches, else "default" (created on a fresh store).
+async function _frAddDocuments(){
+  if(!_isAdmin())return void toast('Adding documents is for administrators — ask yours to add them.','info');
+  let t=_frTarget();
+  if(!t){await loadRagInstances();t=_frTarget();}
+  openSettings('rag');
+  const sel=document.getElementById('ingest-target-rag');
+  if(t&&sel){const key=_ragKey(t);if([...sel.options].some(o=>o.value===key))sel.value=key;}
+  // After the panel's own focus move (_focusDialog, 40 ms): the drop zone is the next step.
+  setTimeout(()=>{
+    const drop=document.getElementById('ingest-drop');
+    if(!drop)return;
+    drop.scrollIntoView({block:'center'});
+    drop.focus({preventScroll:true});
+  },80);
+  if(t)announce(`Choose files to add to ${t.name}`);
+}
+
+// ── The strip (under the composer) ──
+function _hsItem(cls,ico,name,detail,label,act){
+  const inner=`<span class="hs-ico" aria-hidden="true">${ico}</span><span class="hs-name">${escHtml(name)}</span>`
+    +(detail?`<span class="hs-detail">${escHtml(detail)}</span>`:'');
+  return act
+    ?`<button type="button" class="hs-item hs-${cls}" onclick="${act}" aria-label="${escHtml(label)}" title="${escHtml(label)}">${inner}</button>`
+    :`<span class="hs-item hs-${cls}" title="${escHtml(label)}">${inner}</span>`;
+}
+function _renderHealthStrip(){
+  const el=document.getElementById('health-strip');
+  if(!el)return;
+  const h=_healthModel(), s=h.storage, m=h.model, w=h.socket;
+  const cls=v=>v===true?'ok':v===false?'bad':'wait', ico=v=>v===true?'✓':v===false?'✗':'…';
+  const prov=S.provider||'ollama';
+  const sDetail=s.ok===false?`${s.label} unreachable`:s.label;
+  const sLabel=`Storage: ${s.label} ${s.ok===true?'is reachable':s.ok===false?'cannot be reached':'is being checked'}. Open Settings, Status`;
+  // The provider settings are for administrators: anyone else gets the state, not a button.
+  const admin=_isAdmin();
+  const mLabel=admin?`Model: ${m.text}${m.ok===false&&m.fix?' — '+m.fix:''}. Open the ${m.label} settings`
+    :`Model: ${m.text}${m.ok===false?'. Ask your administrator to set up a model':''}`;
+  let wCls, wIco, wName, wLabel;
+  if(w.state==='open'){wCls='ok';wIco='✓';wName='connected';wLabel='Server: connected';}
+  else if(w.state==='signedout'){wCls='bad';wIco='✗';wName='signed out — reload to sign in';
+    wLabel='Signed out: reload the page to sign in again';}
+  else if(w.state==='offline'){wCls='bad';wIco='✗';
+    wName=w.net?'unreachable':'offline — no network';
+    wLabel=(w.net?'Server: cannot be reached — retrying every 2 seconds':'Offline: this device has no network connection')
+      +(w.queued?'. Your message is waiting to be sent':'');}
+  else if(w.state==='reconnecting'){wCls='wait';wIco='⟳';wName='reconnecting…';
+    wLabel='Server: connection lost — reconnecting'+(w.queued?'. Your message will be sent when it is back':'');}
+  else{wCls='wait';wIco='…';wName='connecting…';wLabel='Server: connecting';}
+  const retry=w.state==='reconnecting'||w.state==='offline';
+  const key=[cls(s.ok),sDetail,cls(m.ok),m.text,w.state,w.queued,w.net,prov,admin].join('|');
+  if(el.dataset.state!==key){
+    el.dataset.state=key;
+    el.innerHTML=_hsItem(cls(s.ok),ico(s.ok),'Storage',sDetail,sLabel,"openSettings('status')")
+      +_hsItem(cls(m.ok),ico(m.ok),'Model',m.text,mLabel,admin?`openSettings('${_safeProv(prov)}')`:'')
+      +_hsItem(wCls,wIco,'Server',wName+(w.queued?(w.state==='offline'?' · message waiting':' · your message will be sent when it is back'):''),wLabel,'')
+      +(retry?`<button type="button" class="hs-retry" onclick="_wsRetryNow()">Retry now</button>`:'')
+      +(w.state==='signedout'?`<button type="button" class="hs-retry" onclick="location.reload()">Reload</button>`:'');
+  }
+  // Changes are announced once, briefly; the strip itself is not a live region (it is
+  // rewritten on every poll and would be read out each time).
+  const now={s:s.ok,m:m.ok,w:w.state,q:w.queued};
+  const p=_healthPrev;
+  _healthPrev=now;
+  if(!p)return;
+  const said=[];
+  if(p.w!==now.w&&now.w==='signedout')said.push('Signed out — reload the page to sign in again');
+  else if(p.w!==now.w&&p.w!=='connecting'){
+    if(now.w==='reconnecting')said.push('Connection to the server lost — reconnecting');
+    else if(now.w==='offline')said.push(w.net?'The server cannot be reached':'This device is offline');
+    else if(now.w==='open')said.push('Connected to the server again');
+  }
+  if(now.q&&!p.q&&now.w!=='open')said.push('Your message will be sent when the connection is back');
+  if(p.s!==null&&now.s!==null&&p.s!==now.s)said.push(now.s?`Storage reachable again: ${s.label}`:`Storage cannot be reached: ${s.label}`);
+  if(p.m!==null&&now.m!==null&&p.m!==now.m)said.push(now.m?`Model ready: ${m.text}`:`Model not available: ${m.text}`);
+  if(said.length)announce(said.join('. '));
+}
+function _renderHealth(){_renderHealthStrip();_renderFirstRunChecklist();}
+// The socket's state, set by connectWS. A drop that lasts _WS_OFFLINE_MS turns
+// "reconnecting" into "server unreachable" (the reconnects carry on underneath).
+let _wsOfflineTimer=null;
+function _wsSetState(st){
+  if(st==='reconnecting'&&S.wsState!=='reconnecting'&&S.wsState!=='offline'){
+    clearTimeout(_wsOfflineTimer);
+    _wsOfflineTimer=setTimeout(()=>{if(S.wsState==='reconnecting'){S.wsState='offline';_renderHealth();}},_WS_OFFLINE_MS);
+  }
+  if(st==='reconnecting'&&S.wsState==='offline')st='offline';   // still away: keep saying so
+  if(S.signedOut)st='signedout';
+  if(st==='open')clearTimeout(_wsOfflineTimer);
+  S.wsState=st;
+  _renderHealth();
+}
+function _wsRetryNow(){
+  if(S.signedOut||S.ws&&S.ws.readyState===WebSocket.OPEN)return;
+  connectWS(S.sessionId);
+}
+window.addEventListener('online',()=>{_renderHealth();if(S.ws?.readyState!==WebSocket.OPEN&&S.sessionId)connectWS(S.sessionId);});
+window.addEventListener('offline',()=>_renderHealth());
+// The selected provider, re-checked with the 30-s storage poll: Ollama every time (the
+// server answers from its 30-s model cache), a hosted provider every 5 minutes (its check
+// is a real request to the provider). A change of verdict reloads the model list.
+const _HS_CLOUD_PROBE_MS=300000;
+let _hsProbeAt={};
+async function _healthProbeProvider(){
+  const p=S.provider||'ollama';
+  if(p!=='ollama'&&Date.now()-(_hsProbeAt[p]||_mpProbedAt||0)<_HS_CLOUD_PROBE_MS)return;
+  _hsProbeAt[p]=Date.now();
+  let st;
+  try{st=await fetch(`/api/status/${encodeURIComponent(p)}`).then(r=>{if(!_statusOk(r))throw new Error('HTTP '+r.status);return r.json();});}catch(e){return;}
+  if(!st||typeof st!=='object'||(S.provider||'ollama')!==p)return;
+  const was=(S.providerStatus||{})[p]||{};
+  S.providerStatus={...(S.providerStatus||{}),[p]:st};
+  if(typeof renderModelPicker==='function')renderModelPicker();
+  if(!!was.ok!==!!st.ok&&was.ok!==undefined)await loadModels();
+  _renderHealth();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -2100,6 +2549,7 @@ window.addEventListener('load',async()=>{
   const savedTheme=localStorage.getItem('theme')||'light';
   themeIdx=themes.indexOf(savedTheme);if(themeIdx<0)themeIdx=0;
   applyTheme(savedTheme);
+  await loadMe();       // first: what this user may do decides what the page offers
   await loadConfig();
   applyTheme(S.config.ui?.theme||savedTheme);
   // Per-browser preferences win over server config: provider and model are a working
@@ -2122,11 +2572,14 @@ window.addEventListener('load',async()=>{
   if(resumed&&S.sessions[resumed]) await switchSession(resumed);
   else newSession();
   loadStorage();   // not awaited: it re-renders what depends on it when it lands
-  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates()]);
+  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates(),loadProjects()]);
   _restoreRagScope(_prefs.ragScope);   // after loadRagInstances — the instances must exist
+  // The open conversation's own selection (or its project's) over the browser's preference.
+  // Never in the way of the rest of start-up (keyboard shortcuts are set up below).
+  try{await _applyConversationScope();}catch(e){console.warn('conversation scope:',e);}
   _refreshWelcomeSetupState();   // models are known now — the welcome screen can be honest
   // Paint the picker's availability dot without waiting for the menu to be opened.
-  _probeProviders().then(st=>{S.providerStatus=st;_mpProbedAt=Date.now();renderModelPicker();}).catch(()=>{});
+  _probeProviders().then(st=>{S.providerStatus=st;_mpProbedAt=Date.now();renderModelPicker();_renderHealth();}).catch(()=>{});
   setInterval(checkLocalStatus, 30000);   // Redis health + RAG-instance refresh — every 30 s
   setupKeyboardShortcuts();
   setupClipboardPaste();
@@ -2172,6 +2625,445 @@ async function loadConfig(){
   }catch(e){}
 }
 
+// ── Who is signed in ─────────────────────────────────────────────────────────
+// Sign-in through a reverse proxy (DOCS.md "Sign-in"). With it off /api/me answers
+// {auth:false, admin:true} and nothing here changes the page. With it on the sidebar
+// names the user, and someone who is not an administrator gets no control that only an
+// administrator may use (html.vw-user hides every [data-admin] element).
+// Until /api/me has answered, who this is is unknown and the page offers no administrator
+// control (the page starts with html.vw-user): a failed request (network, 5xx, a proxy's
+// login page instead of JSON) is asked again — after 1 s, then twice as long each time, up
+// to 30 s — rather than taken for an administrator, so a single-user install gets its
+// controls back as soon as the server answers. A 404 is a server without sign-in.
+function _isAdmin(){ return S.me?.admin===true; }
+let _meRetryMs=0;
+async function loadMe(){
+  let me=null;
+  try{
+    const r=await fetch('/api/me',{cache:'no-store'});
+    if(r.status===401)me={auth:true,user:null,admin:false};
+    else if(r.status===404)me={auth:false,user:null,admin:true};
+    else if(r.ok){
+      const d=await r.json();
+      me=d&&d.auth===true?{auth:true,user:typeof d.user==='string'?d.user:null,admin:d.admin===true}
+                         :{auth:false,user:null,admin:true};
+    }
+  }catch(e){}
+  if(me){
+    const retried=_meRetryMs>0, was=_isAdmin();
+    S.me=me;_meRetryMs=0;
+    // Learnt on a retry: what was drawn without administrator controls is drawn again.
+    if(retried&&_isAdmin()!==was){try{_renderFirstRunChecklist();_renderHealthStrip();}catch(e){}}
+  }else if(!S.me){
+    _meRetryMs=Math.min(30000,_meRetryMs?_meRetryMs*2:1000);
+    setTimeout(()=>{loadMe().catch(()=>{});},_meRetryMs);
+  }
+  _applySignedIn();
+}
+function _applySignedIn(){
+  document.documentElement.classList.toggle('vw-user',!_isAdmin());
+  const el=document.getElementById('signed-in');
+  if(!el)return;
+  el.hidden=!S.me?.auth;
+  if(el.hidden)return;
+  const name=S.me.user||'Not signed in';
+  el.querySelector('.signed-in-name').textContent=name;            // text, never markup
+  el.querySelector('.signed-in-role').textContent=S.me.admin?'admin':'';
+  el.title=S.me.user?`Signed in as ${name}${S.me.admin?' (administrator)':''}`:'Sign in again through your proxy';
+}
+
+// ── Projects and each conversation's own selection ───────────────────────────
+// A project (GET /api/projects) is a set of knowledge bases, a prompt template, a default
+// model and a Documents only default. A conversation belongs to at most one: a chat
+// started while the sidebar shows a project is filed under it on its first message.
+// Every stored conversation remembers its knowledge-base selection, template and model on
+// the server, and reopening it — in any browser — restores them. A new conversation
+// starts from its project's settings, or, without a project, from this browser's
+// preference (rr.prefs), which changes made in a conversation without a project still
+// update as before; changes inside a project stay with that conversation.
+function _project(id){return id?(S.projects||[]).find(p=>p.id===id)||null:null;}
+function _curSess(){return S.sessions?.[S.sessionId]||null;}
+function _inProject(){return !!_project(_curSess()?.project);}
+function _projectLabel(p){return (p.icon?p.icon+' ':'')+p.name;}
+const _LS_PROJECT='rr.projectFilter';
+async function loadProjects(){
+  try{
+    const r=await fetch('/api/projects');
+    if(!r.ok)return;
+    const list=await r.json();
+    if(!Array.isArray(list))return;
+    S.projects=list.filter(p=>p&&typeof p.id==='string'&&typeof p.name==='string');
+  }catch(e){return;}
+  if(S.projectFilter&&S.projectFilter!=='__none__'&&!_project(S.projectFilter))S.projectFilter='';
+  _renderProjectBar();renderSessionList();renderSourceScope();
+}
+function _renderProjectBar(){
+  const sel=document.getElementById('project-filter');
+  if(sel){
+    sel.innerHTML='';
+    const opt=(v,t)=>{const o=document.createElement('option');o.value=v;o.textContent=t;sel.appendChild(o);};
+    opt('','All conversations');
+    if(S.projects.length)opt('__none__','No project');
+    S.projects.forEach(p=>opt(p.id,_projectLabel(p)));         // text, never markup
+    sel.value=S.projectFilter||'';
+    const p=_project(S.projectFilter);
+    sel.style.borderColor=p?.color||'';
+    sel.title=p?`Showing the conversations in “${p.name}”. New chats start in it.`:'Show the conversations of one project';
+  }
+  const bar=document.getElementById('project-bar');
+  if(bar)bar.hidden=!S.projects.length;
+  const edit=document.getElementById('project-edit-btn');
+  if(edit){const p=_project(S.projectFilter);edit.hidden=!p;if(p)edit.setAttribute('aria-label',`Edit project ${p.name}`);}
+  // Settings → RAG: advice for one project's knowledge bases
+  const adv=document.getElementById('adv-scope'), advRow=document.getElementById('adv-scope-row');
+  if(adv&&advRow){
+    const keep=adv.value;
+    adv.innerHTML='';
+    const o=document.createElement('option');o.value='';o.textContent='All knowledge bases';adv.appendChild(o);
+    S.projects.forEach(p=>{const x=document.createElement('option');x.value=p.id;x.textContent=_projectLabel(p);adv.appendChild(x);});
+    adv.value=_project(keep)?keep:'';
+    advRow.hidden=!S.projects.length;
+  }
+}
+function setProjectFilter(v){
+  S.projectFilter=v==='__none__'||_project(v)?v:'';
+  try{localStorage.setItem(_LS_PROJECT,S.projectFilter);}catch(e){}
+  _renderProjectBar();renderSessionList();
+  // An empty conversation follows the switcher: it starts in the project now shown.
+  const s=_curSess();
+  if(s&&!s.messages.length&&!s._stub){
+    _fileNewConversation(s,_project(S.projectFilter));
+    _applyConversationScope();
+  }
+}
+// A new conversation in project p takes the project's settings; without one it has none.
+function _fileNewConversation(s,p){
+  delete s.project;delete s.kbSelect;delete s.template;delete s.docsOnly;delete s.model;delete s.provider;
+  if(!p)return;
+  s.project=p.id;
+  if(Array.isArray(p.kbs)&&p.kbs.length)s.kbSelect=[...p.kbs];
+  if(p.template)s.template=p.template;
+  if(typeof p.documents_only==='boolean')s.docsOnly=p.documents_only;
+  if(p.model){s.model=p.model;s.provider=p.provider||'';}
+  else if(p.provider)s.provider=p.provider;
+}
+
+// The knowledge-base selection: "none", "all", or a list of names (one = a single KB).
+function _kbSelection(){
+  if(S.noRag)return 'none';
+  if(S.ragAllMode)return 'all';
+  if(Array.isArray(S.ragSet)&&S.ragSet.length)return [...S.ragSet];
+  return [S.activeRag?.name||'default'];
+}
+function _setKbSelection(sel){
+  if(sel==='none'){S.noRag=true;S.ragAllMode=false;S.ragSet=null;}
+  else if(sel==='all'){S.noRag=false;S.ragAllMode=true;S.ragSet=null;}
+  else if(Array.isArray(sel)&&sel.length){
+    S.noRag=false;S.ragAllMode=false;
+    const names=[...new Set(sel.filter(n=>typeof n==='string'&&n))];
+    if(names.length===1){
+      const r=_ragList().find(x=>x.name===names[0]);
+      S.activeRag={name:names[0],ep:r?.redis_endpoint||'default'};S.ragSet=null;
+    }else S.ragSet=names;
+  }else return;
+  populateRagSelects();_applyRagAllUI();renderRagSidebar();
+}
+function _sameSel(a,b){return JSON.stringify(a??null)===JSON.stringify(b??null);}
+function _templateName(){
+  const sel=document.getElementById('template-select');
+  return sel?.dataset.pick||'';
+}
+function _setTemplateByName(name){
+  const sel=document.getElementById('template-select');
+  if(!sel)return;
+  if(name&&Array.isArray(S.templates)&&S.templates.some(t=>t.name===name))sel.dataset.pick=name;else delete sel.dataset.pick;
+  populateTemplateSelect();
+}
+// Switch to a provider/model without touching this browser's preference.
+async function _useModel(provider,model){
+  const p=provider||S.provider||'ollama';
+  if(!PROVIDER_META[p])return;
+  if(model){S.providerModels={...(S.providerModels||{}),[p]:model};}
+  if(p!==S.provider){
+    if(S.provider&&S.currentModel)S.providerModels={...(S.providerModels||{}),[S.provider]:S.currentModel};
+    S.provider=p;S.currentModel=(S.providerModels||{})[p]||'';
+    applyProvider(p);await loadModels();
+  }else if(model&&model!==S.currentModel&&(S.models||[]).some(m=>m.id===model))selectModel(model);
+}
+let _scopeApplying=false, _scopeFor=null;
+// What the open conversation searches, which template and which model: its own (stored,
+// or set by its project when new); a new conversation without a project: this browser's
+// preference. Never written into the preference itself.
+async function _applyConversationScope(){
+  const id=S.sessionId, s=_curSess();
+  if(!s)return;
+  _scopeApplying=true;
+  try{
+    const p=_project(s.project);
+    const stored=!!(s._stub||s.messages.length);
+    let sel=s.kbSelect;
+    if(sel==null&&p&&Array.isArray(p.kbs)&&p.kbs.length)sel=[...p.kbs];
+    if(sel==null&&stored&&Array.isArray(s.kbs)&&s.kbs.length)sel=[...s.kbs];   // stored before kb_select
+    const prefs=_loadPrefs();
+    if(sel!=null)_setKbSelection(sel);
+    else if(!p){                                   // a new conversation without a project
+      if(prefs.ragScope){S.ragSet=null;_restoreRagScope(prefs.ragScope);}
+      else _setKbSelection([S.config?.active_rag||'default']);
+    }
+    // Template: its own; else the project's; else (no project) the one last picked outside
+    // a project — a project's template does not follow you out of it.
+    const tpl=s.template!==undefined?s.template:p?(p.template||undefined):(S.tplPref||'');
+    if(tpl!==undefined)_setTemplateByName(tpl);
+    if(s.model||s.provider)await _useModel(s.provider||'',s.model||'');
+    else if(!p&&!stored&&(prefs.provider||prefs.model))await _useModel(prefs.provider||'',prefs.model||'');
+  }catch(e){console.warn('conversation scope:',e);}
+  finally{_scopeApplying=false;}
+  if(S.sessionId!==id)return;
+  _scopeFor=id;
+  _renderDocsOnly();
+}
+// A change of the selection inside a conversation is the conversation's: kept with it,
+// stored on the server once it has a message, sent with its next question.
+const _kbPatchTimer={};
+function _noteConversationSelection(){
+  const s=_curSess(), id=S.sessionId;
+  if(!s||_scopeFor!==id)return;
+  // A new conversation without a project follows this browser's preference until its
+  // first question, which stores the selection it was asked with.
+  if(!s.project&&!(s._stub||s.messages.length))return;
+  const sel=_kbSelection(), tpl=_templateName();
+  const changed=!_sameSel(s.kbSelect,sel);
+  s.kbSelect=sel;s.template=tpl;
+  if(changed&&(s._stub||s.messages.length)){
+    clearTimeout(_kbPatchTimer[id]);
+    _kbPatchTimer[id]=setTimeout(()=>{
+      fetch(`/api/sessions/${encodeURIComponent(id)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({kb_select:S.sessions[id]?.kbSelect})}).catch(()=>{});
+    },400);
+  }
+}
+// The fields a chat turn carries for its conversation (routes_chat._conversation_fields).
+function _conversationPayload(){
+  const s=_curSess();
+  const out={kb_select:_kbSelection(),template:_templateName()};
+  if(s?.project&&_project(s.project))out.project=s.project;
+  return out;
+}
+// The conversation fields of a hydrated transcript (its first user turn), for a server
+// that listed it without them.
+function _readConversationFields(s){
+  const m=(s.messages.find(x=>x.role==='user')||{}).meta||{};
+  if(s.project===undefined&&typeof m.project==='string')s.project=m.project;
+  if(s.kbSelect===undefined&&(m.kb_select==='all'||m.kb_select==='none'||Array.isArray(m.kb_select)))s.kbSelect=m.kb_select;
+  if(s.template===undefined&&typeof m.template==='string')s.template=m.template;
+  if(!s.model){
+    const last=[...s.messages].reverse().find(x=>x.role==='assistant'&&x.meta?.model);
+    if(last){s.model=last.meta.model;s.provider=last.meta.provider||'';}
+  }
+}
+
+// ── Project editor (administrators) ──────────────────────────────────────────
+function _kbNames(){return [...new Set(_ragList().map(r=>r.name))];}
+function openProjectEditor(id,draft){
+  const p=_project(id);
+  const d=draft||{name:p?.name||'',icon:p?.icon||'',color:p?.color||'#7c6ff7',kbs:p?.kbs||[],
+    template:p?.template||'',provider:p?.provider||'',model:p?.model||'',
+    documents_only:p?p.documents_only:null};
+  const kbs=[...new Set([..._kbNames(),...d.kbs])];
+  const provOpts=['',...Object.keys(PROVIDER_META)].map(k=>`<option value="${escHtml(k)}">${k?escHtml(PROVIDER_META[k].label):'— keep the one in use —'}</option>`).join('');
+  const tplOpts=['',...(Array.isArray(S.templates)?S.templates:[]).map(t=>t.name)].map(n=>`<option value="${escHtml(n)}">${n?escHtml(n):'— keep the one in use —'}</option>`).join('');
+  const body=`<div class="project-form">
+    <div class="form-group"><label for="pj-name">Name</label><input type="text" id="pj-name" maxlength="60" autocomplete="off"/></div>
+    <div class="form-row">
+      <div class="form-group"><label for="pj-icon">Icon</label><input type="text" id="pj-icon" maxlength="8" placeholder="📁" autocomplete="off"/></div>
+      <div class="form-group"><label for="pj-color">Colour</label><input type="color" id="pj-color"/></div>
+    </div>
+    <fieldset class="form-group pj-kbs"><legend>Knowledge bases</legend>
+      ${kbs.length?kbs.map((n,i)=>`<label class="pj-kb"><input type="checkbox" id="pj-kb-${i}" data-kb="${escHtml(n)}"/> <span>${escHtml(n)}</span>${_kbNames().includes(n)?'':' <em>(missing)</em>'}</label>`).join(''):'<div class="form-hint">No knowledge bases yet.</div>'}
+      <div class="form-hint">None ticked: a new chat keeps the selection in use.</div>
+    </fieldset>
+    <div class="form-group"><label for="pj-template">Prompt template</label><select id="pj-template">${tplOpts}</select></div>
+    <div class="form-row">
+      <div class="form-group"><label for="pj-provider">Provider</label><select id="pj-provider">${provOpts}</select></div>
+      <div class="form-group"><label for="pj-model">Model</label><input type="text" id="pj-model" maxlength="200" autocomplete="off" placeholder="the provider's default"/></div>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" id="pj-use-current">Use the model in use</button>
+    <div class="form-group"><label for="pj-docs">Documents only</label><select id="pj-docs">
+      <option value="">The Settings default</option><option value="on">On</option><option value="off">Off</option></select></div>
+  </div>`;
+  const read=()=>({name:document.getElementById('pj-name').value,icon:document.getElementById('pj-icon').value,
+    color:document.getElementById('pj-color').value,
+    kbs:[...document.querySelectorAll('.pj-kb input:checked')].map(x=>x.dataset.kb),
+    template:document.getElementById('pj-template').value,provider:document.getElementById('pj-provider').value,
+    model:document.getElementById('pj-model').value,
+    documents_only:{on:true,off:false}[document.getElementById('pj-docs').value]??null});
+  const actions=[{label:'Cancel',cls:'btn-secondary'}];
+  if(p)actions.push({label:'Delete project',cls:'btn-danger',cb:()=>deleteProject(p.id)});
+  actions.push({label:p?'Save':'Create',cls:'btn-primary',cb:()=>_saveProject(p?.id,read())});
+  showModal(p?'Edit project':'New project',body,actions);
+  // Values set as values, never parsed as markup.
+  document.getElementById('pj-name').value=d.name;
+  document.getElementById('pj-icon').value=d.icon;
+  document.getElementById('pj-color').value=/^#[0-9a-f]{6}$/i.test(d.color)?d.color:'#7c6ff7';
+  document.querySelectorAll('.pj-kb input').forEach(x=>{x.checked=d.kbs.includes(x.dataset.kb);});
+  document.getElementById('pj-template').value=d.template;
+  document.getElementById('pj-provider').value=d.provider;
+  document.getElementById('pj-model').value=d.model;
+  document.getElementById('pj-docs').value=d.documents_only===true?'on':d.documents_only===false?'off':'';
+  document.getElementById('pj-use-current').onclick=()=>{
+    document.getElementById('pj-provider').value=S.provider||'';
+    document.getElementById('pj-model').value=S.currentModel||'';
+  };
+  setTimeout(()=>document.getElementById('pj-name')?.focus(),60);
+}
+async function _saveProject(id,body){
+  try{
+    const r=await fetch(id?`/api/projects/${encodeURIComponent(id)}`:'/api/projects',
+      {method:id?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const out=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(out?.detail||`HTTP ${r.status}`);
+    await loadProjects();
+    if(!id)setProjectFilter(out.id);
+    toast(id?`Project “${out.name}” saved`:`Project “${out.name}” created — new chats in it start with its settings`,'success');
+  }catch(e){
+    toast('Could not save the project: '+e.message,'error');
+    openProjectEditor(id,body);                  // what was typed is kept
+  }
+}
+function deleteProject(id){
+  const p=_project(id);if(!p)return;
+  const n=Object.values(S.sessions).filter(s=>s.project===id&&(s._stub||s.messages.length)).length;
+  showModal('Delete project?',
+    `<p>“${escHtml(p.name)}” will be deleted.</p><p>Its conversations${n?` (${n} in this browser)`:''} are kept: they become conversations without a project.</p>`,
+    [{label:'Cancel',cls:'btn-secondary'},
+     {label:'Delete project',cls:'btn-danger',cb:async()=>{
+       try{
+         const r=await fetch(`/api/projects/${encodeURIComponent(id)}`,{method:'DELETE'});
+         const out=await r.json().catch(()=>({}));
+         if(!r.ok)throw new Error(out?.detail||`HTTP ${r.status}`);
+         Object.values(S.sessions).forEach(s=>{if(s.project===id)delete s.project;});
+         if(S.projectFilter===id)S.projectFilter='';
+         try{localStorage.setItem(_LS_PROJECT,S.projectFilter);}catch(e){}
+         await loadProjects();
+         toast(`Project deleted — ${out.unfiled|0} conversation${(out.unfiled|0)===1?'':'s'} kept without a project`,'success');
+       }catch(e){toast('Could not delete the project: '+e.message,'error');}
+     }}]);
+}
+
+// ── # mentions ───────────────────────────────────────────────────────────────
+// Typing # in the message box offers the knowledge bases; picking one restricts THIS
+// question to the mentioned ones (shown as chips above the box). The conversation's own
+// selection is unchanged, and the next question searches it again.
+// The mention being typed at the caret: "#" at the start or after a space, then no space
+// and no "#" up to the caret. "C#", "issue#4" and "##" are not mentions.
+function _mentionAt(text,caret){
+  const before=String(text||'').slice(0,caret);
+  const m=/(^|\s)#([^\s#]*)$/.exec(before);
+  return m?{start:caret-m[2].length-1,query:m[2]}:null;
+}
+// Names containing the query (case-insensitive), names that start with it first, then in
+// list order; without a query, all of them.
+function _mentionMatches(query,names,exclude=[],max=8){
+  const q=String(query||'').toLowerCase();
+  const out=[];
+  (names||[]).forEach((n,i)=>{
+    if(typeof n!=='string'||exclude.includes(n))return;
+    const at=n.toLowerCase().indexOf(q);
+    if(at<0)return;
+    out.push([q&&at===0?0:1,i,n]);
+  });
+  return out.sort((a,b)=>a[0]-b[0]||a[1]-b[1]).slice(0,max).map(x=>x[2]);
+}
+// The text with the typed "#query" (start..end) taken out, and where the caret goes.
+function _removeMention(text,start,end){
+  const a=String(text).slice(0,start);
+  let b=String(text).slice(end);
+  if(!a||/\s$/.test(a))b=b.replace(/^[ \t]+/,'');
+  return {text:a+b,caret:a.length};
+}
+let _mention=null;     // {start, query, items, index, dismissed}
+function _mentionNames(){
+  return [...new Set(_ragList().filter(r=>r.enabled!==false&&r.reachable!==false).map(r=>r.name))];
+}
+function _mentionUpdate(){
+  const ta=document.getElementById('msg-input');
+  const at=ta?_mentionAt(ta.value,ta.selectionStart):null;
+  if(!at||ta.selectionStart!==ta.selectionEnd){_mentionClose();return;}
+  if(_mention?.dismissed===at.start){_mentionRender(null);return;}
+  const items=_mentionMatches(at.query,_mentionNames(),S.mentions);
+  const keep=_mention&&_mention.start===at.start?_mention.index:0;
+  _mention={start:at.start,query:at.query,items,index:Math.min(keep,Math.max(0,items.length-1)),dismissed:null};
+  _mentionRender(_mention);
+}
+function _mentionClose(){
+  _mention=null;_mentionRender(null);
+}
+function _mentionRender(m){
+  const menu=document.getElementById('mention-menu'), ta=document.getElementById('msg-input');
+  if(!menu||!ta)return;
+  if(!m){menu.hidden=true;menu.innerHTML='';ta.removeAttribute('aria-activedescendant');return;}
+  menu.innerHTML='';
+  if(!m.items.length){
+    const e=document.createElement('div');e.className='mention-empty';
+    e.textContent=_mentionNames().length?'No knowledge base matches':'No knowledge bases to mention';
+    menu.appendChild(e);
+  }
+  m.items.forEach((n,i)=>{
+    const o=document.createElement('div');
+    o.className='mention-opt';o.id='mention-opt-'+i;o.setAttribute('role','option');
+    o.setAttribute('aria-selected',i===m.index?'true':'false');
+    const h=document.createElement('span');h.className='mention-hash';h.textContent='#';h.setAttribute('aria-hidden','true');
+    const t=document.createElement('span');t.className='mention-name';t.textContent=n;    // text, never markup
+    o.append(h,t);
+    o.addEventListener('mousedown',e=>e.preventDefault());        // keep the caret in the box
+    o.addEventListener('click',()=>{_mention.index=i;_mentionPick();});
+    menu.appendChild(o);
+  });
+  menu.hidden=false;
+  if(m.items.length)ta.setAttribute('aria-activedescendant','mention-opt-'+m.index);
+  else ta.removeAttribute('aria-activedescendant');
+  menu.querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});
+}
+function _mentionPick(){
+  const m=_mention, ta=document.getElementById('msg-input');
+  if(!m||!ta||!m.items.length)return false;
+  const name=m.items[m.index];
+  const out=_removeMention(ta.value,m.start,ta.selectionStart);
+  ta.value=out.text;ta.setSelectionRange(out.caret,out.caret);
+  if(!S.mentions.includes(name))S.mentions.push(name);
+  _mentionClose();
+  autoResize(ta);updateCharCount();renderSourceScope();
+  announce(`Only ${name} will be searched for this question.`);
+  ta.focus();
+  return true;
+}
+// Keys while the menu is open; true when the key was the menu's.
+function _mentionKey(e){
+  if(!_mention||document.getElementById('mention-menu')?.hidden)return false;
+  const n=_mention.items.length;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    if(!n)return false;
+    e.preventDefault();
+    _mention.index=(_mention.index+(e.key==='ArrowDown'?1:n-1))%n;
+    _mentionRender(_mention);return true;
+  }
+  if((e.key==='Enter'&&!e.shiftKey&&!e.metaKey&&!e.ctrlKey)||e.key==='Tab'){
+    if(!n)return false;
+    e.preventDefault();_mentionPick();return true;
+  }
+  if(e.key==='Escape'){
+    e.preventDefault();e.stopPropagation();
+    _mention.dismissed=_mention.start;_mentionRender(null);return true;
+  }
+  return false;
+}
+function removeMention(i){
+  const name=S.mentions[i];
+  S.mentions.splice(i,1);renderSourceScope();
+  if(name)announce(`${name} removed from this question.`);
+  document.getElementById('msg-input')?.focus();
+}
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 function newSession(){
   _pendingRegen=null;
@@ -2183,9 +3075,14 @@ function newSession(){
   // recording it would fill the capped id list with empty sessions and push real
   // conversations out of the sidebar. sendMessage() records it on the first turn.
   S.sessions[id]={title:'New Conversation',messages:[],updated:Date.now()/1000};
+  // Started while the sidebar shows a project: filed under it, with its settings.
+  _fileNewConversation(S.sessions[id],_project(S.projectFilter));
+  S.mentions=[];_mentionClose();
   _closeMobileSidebar();
   clearChat(true);
   connectWS(id);
+  _applyConversationScope();
+  _renderDocsOnly();           // a new conversation starts from the Settings default
   renderSessionList();
   const t=document.getElementById('session-title');if(t)t.textContent='New Conversation';
 }
@@ -2207,10 +3104,19 @@ function _closeMobileSidebar(){
 function _mySessionIds(){
   try{ return JSON.parse(localStorage.getItem('mySessionIds')||'[]'); }catch(e){ return []; }
 }
+// Opening a conversation moves it to the end (the most recently used). At most MAX ids
+// are kept besides the pinned ones, which are never dropped — and nothing is dropped
+// before the server's list has said which ones are pinned.
 function _rememberSessionId(id){
+  const MAX=1000;
   try{
-    const ids=_mySessionIds();
-    if(!ids.includes(id)){ ids.push(id); localStorage.setItem('mySessionIds',JSON.stringify(ids.slice(-200))); }
+    let ids=_mySessionIds().filter(x=>x!==id);
+    ids.push(id);
+    if(S.sessionsLoaded&&ids.length>MAX){
+      let drop=ids.length-MAX-ids.filter(x=>S.sessions?.[x]?.pinned).length;
+      ids=ids.filter(x=>drop<=0||S.sessions?.[x]?.pinned||x===id||!(drop--));
+    }
+    localStorage.setItem('mySessionIds',JSON.stringify(ids));
   }catch(e){}
 }
 function _forgetSessionId(id){
@@ -2226,24 +3132,86 @@ async function loadSessionsFromServer(){
     // session on the server (there is no auth or ownership concept), so listing it
     // wholesale would show — and let anyone delete — other users' conversations on
     // a shared/LAN deployment.
+    // With sign-in on the server lists only the signed-in user's own conversations, so
+    // all of them are listed — in every browser they sign in from.
     const mine=new Set(_mySessionIds());
+    const everyRow=!!S.me?.auth;
     const rows=Array.isArray(list)?list:[];
     // A server that sends `updated` also sends the list newest first: keep its order
     // (by that time) rather than reversing what arrived. An older one sends neither.
     S.sessionsServerOrdered=rows.some(s=>s&&s.updated!=null);
     rows.forEach(s=>{
       const id=s.id||s.session_id; if(!id)return;
-      if(!mine.has(id))return;
+      if(!everyRow&&!mine.has(id))return;
       if((s.messages||0)===0)return;                 // never-used session, don't list it
       // The persisted auto-title when the server has one, else a label from the preview.
       const title=typeof s.title==='string'&&s.title.trim()?s.title.trim():'';
       const label=title||(s.preview||'').trim().replace(/\s+/g,' ').slice(0,40)||'Conversation';
       const upd=Number.isFinite(+s.updated)&&s.updated!=null?+s.updated:undefined;
-      // Keep anything already in memory (it is newer than the stored copy).
+      // Keep anything already in memory (it is newer than the stored copy) — except what
+      // only the server knows: the pin, the expiry and what the conversation used.
       if(!S.sessions[id])S.sessions[id]={title:label,messages:[],_stub:true,updated:upd};
+      Object.assign(S.sessions[id],_serverSessionFields(s));
     });
+    S.sessionsLoaded=true;            // the pins are known: _rememberSessionId may trim
+    S.unlistedSessions=everyRow?[]:rows.filter(s=>{const id=s&&(s.id||s.session_id);
+      return id&&!mine.has(id)&&(s.messages||0)>0;});
     renderSessionList();
+    _renderUnlisted();
   }catch(e){ /* offline / Redis down — sidebar just shows this page's sessions */ }
+}
+
+// Sign-in off: the sidebar lists the conversations started in this browser, and the server
+// stores every browser's. The ones this browser does not list (started elsewhere, or
+// before its site data was cleared) are counted in Settings → General, where they can be
+// added to this sidebar or deleted. With sign-in on every one of the user's own is listed.
+function _renderUnlisted(){
+  const el=document.getElementById('unlisted-sessions');if(!el)return;
+  const on=!S.me?.auth&&_isAdmin()&&!!S.sessionsLoaded;
+  el.hidden=!on;if(!on)return;
+  const n=(S.unlistedSessions||[]).length;
+  document.getElementById('unlisted-text').textContent=n
+    ?`${n} stored conversation${n===1?' is':'s are'} not listed in this browser's sidebar — started in another browser, or before this browser's site data was cleared. They are kept on the server like every other conversation.`
+    :'Every stored conversation is listed in this browser\'s sidebar.';
+  el.querySelector('.unl-acts').hidden=!n;
+}
+async function showUnlistedSessions(){
+  const rows=[...(S.unlistedSessions||[])];if(!rows.length)return;
+  // Oldest first, so the newest end up last in the list (the last to be trimmed).
+  rows.reverse().forEach(r=>_rememberSessionId(r.id||r.session_id));
+  await loadSessionsFromServer();
+  toast(`${rows.length} conversation${rows.length===1?'':'s'} added to the sidebar`,'success');
+  announce(`${rows.length} conversation${rows.length===1?'':'s'} added to the sidebar`);
+}
+function deleteUnlistedSessions(){
+  const rows=[...(S.unlistedSessions||[])];if(!rows.length)return;
+  const n=rows.length;
+  showModal(`Delete ${n} conversation${n===1?'':'s'}?`,
+    `The ${n} stored conversation${n===1?'':'s'} not listed in this browser's sidebar will be permanently removed from the server, pinned ones included. This cannot be undone.`,
+    [{label:'Cancel',cls:'btn-secondary',cb:()=>{}},
+     {label:`Delete ${n}`,cls:'btn-danger',cb:async()=>{
+       let failed=0;
+       for(const r of rows){
+         const id=r.id||r.session_id;
+         try{const res=await fetch(`/api/sessions/${encodeURIComponent(id)}`,{method:'DELETE'});if(!res.ok)failed++;}
+         catch(e){failed++;}
+       }
+       await loadSessionsFromServer();
+       if(failed)toast(`${failed} of ${n} conversations could not be deleted`,'error');
+       else{toast(`${n} conversation${n===1?'':'s'} deleted`,'success');announce(`${n} conversation${n===1?'':'s'} deleted`);}
+     }}]);
+}
+
+function _serverSessionFields(s){
+  const exp=Number.isFinite(+s.expires)&&s.expires!=null?+s.expires:null;
+  return {pinned:s.pinned===true,expires:exp,model:typeof s.model==='string'?s.model:'',
+          kbs:Array.isArray(s.kbs)?s.kbs.filter(k=>typeof k==='string'):[],
+          created:Number.isFinite(+s.created)&&s.created!=null?+s.created:undefined,
+          provider:typeof s.provider==='string'?s.provider:'',
+          // the conversation's project, knowledge-base selection and template (undefined: none stored)
+          project:typeof s.project==='string'&&s.project?s.project:undefined,
+          kbSelect:s.kb_select==='all'||s.kb_select==='none'||(Array.isArray(s.kb_select)&&s.kb_select.length)?s.kb_select:undefined,
+          template:typeof s.template==='string'?s.template:undefined};
 }
 
 async function hydrateSession(id){
@@ -2290,6 +3258,7 @@ const _WS_QUEUE_MS=10000;
 let _wsQueued=null;    // {data, sid, msgId, content, timer}
 
 function connectWS(sid){
+  if(S.signedOut)return;      // reload to sign in again; reconnecting would be refused
   // Detach before closing: the old socket's onclose scheduled a reconnect, and for the
   // same conversation that reconnect replaced the live socket again — every 2 s, forever,
   // each close able to cancel an answer in flight.
@@ -2299,16 +3268,30 @@ function connectWS(sid){
   const ws=new WebSocket(`${proto}://${location.host}/ws/chat/${sid}`);
   S.ws=ws;
   ws.onmessage=e=>handleWSMsg(JSON.parse(e.data));
-  ws.onerror=()=>toast('WebSocket error','error',{scope:'ws-send'});
+  // No toast: a server that is away fails every 2-s reconnect, and the status strip under
+  // the composer already says so. A message that could not be sent still raises one.
+  ws.onerror=()=>{};
+  let opened=false;
   ws.onopen=()=>{
+    opened=true;
+    if(S.ws===ws){
+      // Back after a drop: what the server can reach may have changed while it was away.
+      if(S.wsState==='reconnecting'||S.wsState==='offline')checkLocalStatus().catch(()=>{});
+      _wsSetState('open');
+    }
     const q=_wsQueued;
     if(!q||S.ws!==ws)return;
     if(q.sid!==sid){_wsSendFailed();return;}
     clearTimeout(q.timer);_wsQueued=null;
     try{ws.send(q.data);updateTypingPhase('');_dismissErrors('ws-send');}catch(e){_wsQueued=q;_wsSendFailed();}
+    _renderHealth();
   };
-  ws.onclose=()=>{
+  ws.onclose=ev=>{
     const current=S.ws===ws;   // false when connectWS replaced it on purpose
+    // Refused (code 1008 when the server closes it; a refused handshake reads as a socket
+    // that never opened) with sign-in on: is the user still signed in?
+    if(current&&(ev?.code===1008||(!opened&&S.me?.auth)))_checkSignedIn(ev?.code===1008).catch(()=>{});
+    if(current)_wsSetState('reconnecting');
     // A drop mid-regenerate must not leave the pending version history armed,
     // nor the composer stuck in "streaming".
     if(_pendingRegen){_pendingRegen=null;_setStreamingUI(false);removeTyping();
@@ -2320,8 +3303,38 @@ function connectWS(sid){
       if(currentAiMsgId&&streamingContent[currentAiMsgId]!==undefined)finalizeStreamingMsg(currentAiMsgId);
       toast('Connection to the server was lost — the answer was interrupted. Ask again once it reconnects.','error',{scope:'ws-send'});
     }
-    setTimeout(()=>{if(S.sessionId===sid&&S.ws===ws)connectWS(sid);},2000);
+    setTimeout(()=>{if(S.sessionId===sid&&S.ws===ws&&!S.signedOut)connectWS(sid);},2000);
   };
+}
+
+// ── Signed out (sign-in on) ──
+// A request answered 401/403, or a socket refused: /api/me says whether the sign-in is
+// gone. If it is, the page says so and stops reconnecting (each attempt would be refused
+// too); a message waiting to be sent goes back into the message box.
+let _authCheckAt=0;
+async function _checkSignedIn(force){
+  if(S.signedOut)return false;
+  if(!force&&Date.now()-_authCheckAt<10000)return true;
+  _authCheckAt=Date.now();
+  let r;
+  try{r=await fetch('/api/me',{cache:'no-store'});}catch(e){return true;}   // away: not a sign-in matter
+  if(r.status===401||r.status===403){_setSignedOut();return false;}
+  return true;
+}
+function _setSignedOut(){
+  if(S.signedOut)return;
+  S.signedOut=true;
+  const ws=S.ws;
+  if(ws){ws.onopen=ws.onmessage=ws.onerror=ws.onclose=null;try{ws.close();}catch(e){}}
+  if(S.streaming&&!_wsQueued){_setStreamingUI(false);removeTyping();}
+  if(_wsQueued)_wsSendFailed();
+  _wsSetState('signedout');
+}
+// A response from a status poll: 401/403 starts the sign-in check (and is not read as
+// "the storage is down"). True when the response can be used.
+function _statusOk(r){
+  if(r.status===401||r.status===403){_checkSignedIn(true).catch(()=>{});return false;}
+  return true;
 }
 
 // Send now if the socket is open, else hold the message until the reconnect (connectWS's
@@ -2331,12 +3344,16 @@ function _wsSendOrQueue(payload,msgId,content){
   if(S.ws&&S.ws.readyState===WebSocket.OPEN){
     try{S.ws.send(data);_dismissErrors('ws-send');return;}catch(e){/* fall through to the queue */}
   }
+  if(S.signedOut){_wsQueued={data,sid:S.sessionId,msgId,content,timer:0};_wsSendFailed();return;}
   _wsQueued={data,sid:S.sessionId,msgId,content,timer:setTimeout(_wsSendFailed,_WS_QUEUE_MS)};
   const ph=document.getElementById('typing-phase');
   if(ph)ph.textContent='Reconnecting to the server…';
-  announce('Reconnecting to the server');
   // A closed socket is already reconnecting (its onclose); one never opened is not.
   if(!S.ws)connectWS(S.sessionId);
+  // Said once, by the strip: the socket is not open, so it is reconnecting whether or not
+  // its close event has arrived yet — and the waiting message is part of that one notice.
+  if(S.wsState==='open'||S.wsState==='connecting')_wsSetState('reconnecting');
+  else _renderHealth();
 }
 
 // The reconnect did not come in time: undo the send. The question goes back into the box
@@ -2358,7 +3375,10 @@ function _wsSendFailed(quiet=false){
     updateTokenCounter();
     if(sess&&!sess.messages.length&&!document.querySelector('#chat-area .msg-wrap'))clearChat(true);
   }
-  if(!quiet)toast('Not connected to the server — your message was not sent.'
+  _renderHealth();
+  if(!quiet&&S.signedOut)toast('You are signed out — your message was not sent.'
+    +(back?' It is back in the message box.':'')+' Reload the page to sign in again.','error',{scope:'ws-send'});
+  else if(!quiet)toast('Not connected to the server — your message was not sent.'
     +(back?' It is back in the message box; send it again once the connection returns.':''),'error',{scope:'ws-send'});
 }
 
@@ -2370,25 +3390,156 @@ function _orderedSessions(){
   if(!S.sessionsServerOrdered)return rows.reverse();
   return rows.map((r,i)=>[r,i]).sort((a,b)=>((b[0][1].updated??-Infinity)-(a[0][1].updated??-Infinity))||(a[1]-b[1])).map(x=>x[0]);
 }
+// Sidebar groups: Pinned first, then by the day of the last message (local calendar
+// days). An older server sends no times — its list stays one ungrouped column.
+const _SESSION_GROUPS=['Pinned','Today','Yesterday','Previous 7 days','Previous 30 days','Older'];
+function _sessionGroup(s,now=new Date()){
+  if(s.pinned)return 'Pinned';
+  const t=s.updated!=null?s.updated*1000:now.getTime();
+  const day=n=>{const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-n);return d.getTime();};
+  if(t>=day(0))return 'Today';
+  if(t>=day(1))return 'Yesterday';
+  if(t>=day(7))return 'Previous 7 days';
+  if(t>=day(30))return 'Previous 30 days';
+  return 'Older';
+}
+// "expires in …" — only while a retention limit applies to this conversation.
+function _expiresIn(exp,now=Date.now()/1000){
+  if(exp==null)return '';
+  const s=Math.max(0,exp-now);
+  if(s<3600)return `expires in ${Math.max(1,Math.round(s/60))} min`;
+  if(s<48*3600)return `expires in ${Math.round(s/3600)} h`;
+  return `expires in ${Math.round(s/86400)} days`;
+}
+function _durationLabel(sec){
+  if(sec>=86400&&sec%86400===0)return sec===86400?'1 day':`${sec/86400} days`;
+  if(sec>=3600)return `${+(sec/3600).toFixed(1)} h`;
+  return `${Math.max(1,Math.round(sec/60))} min`;
+}
+// The retention <select>: a value set by hand in config.json that is not one of the
+// choices is shown as its own option, so saving Settings does not replace it.
+function _setRetention(ttl){
+  const sel=document.getElementById('s-session-retention');
+  if(!sel)return;
+  sel.querySelector('option[data-custom]')?.remove();
+  const v=String(Math.max(0,parseInt(ttl)||0));
+  if(![...sel.options].some(o=>o.value===v)){
+    const o=document.createElement('option');
+    o.value=v;o.dataset.custom='1';o.textContent=`${_durationLabel(+v)} (set in config.json)`;
+    sel.appendChild(o);
+  }
+  sel.value=v;
+}
+let _renamingSid=null, _renderPending=false;
 function renderSessionList(){
-  // The row is a <div role="button">, not a <button>. A <button> nested inside a
-  // <button> is invalid — the parser implicitly closes the outer one, so the ✕
-  // escaped the row and rendered on its own line beneath every session.
-  document.getElementById('sessions-list').innerHTML=_orderedSessions().map(([id,s])=>`
-    <div class="sidebar-btn session-row ${id===S.sessionId?'active':''}" role="button" tabindex="0"
-         aria-label="Open conversation: ${escHtml(s.title)}"
-         data-sid="${escHtml(id)}"
-         onclick="openSession(this.dataset.sid)"
-         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openSession(this.dataset.sid);}">
-      <span class="icon" aria-hidden="true">💬</span>
-      <div style="flex:1;overflow:hidden">
-        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(s.title)}</div>
-        <div class="session-preview">${escHtml((s.messages[s.messages.length-1]?.content||'').slice(0,40))}</div>
-      </div>
+  // A rename in progress owns its row: re-rendering would throw the typed name away.
+  if(_renamingSid&&document.querySelector('#sessions-list .session-rename')){_renderPending=true;return;}
+  _renamingSid=null;
+  // The row is a plain container: the conversation opens from its main button, and the
+  // rename / pin / delete buttons are that button's siblings — a <button> (or a
+  // role="button") holding other buttons is invalid, and its inner buttons are hidden from
+  // a screen reader's view of it. The date groups are headings.
+  // The project switcher filters the list (the date groups stay); "All" shows every one.
+  const pf=S.projectFilter;
+  const rows=_orderedSessions().filter(([,s])=>!pf?true:pf==='__none__'?!_project(s.project):s.project===pf),
+        now=new Date();
+  const grouped=!!S.sessionsServerOrdered;
+  const byGroup=grouped?_SESSION_GROUPS.map(g=>[g,rows.filter(([,s])=>_sessionGroup(s,now)===g)]).filter(([,r])=>r.length)
+                       :[[null,rows]];
+  const row=([id,s])=>{
+    // Rename and pin need the stored conversation: not offered before its first message.
+    const stored=s._stub||s.messages.length>0;
+    const exp=s.pinned?'':_expiresIn(s.expires);
+    const pj=_project(s.project);
+    return `
+    <div class="sidebar-btn session-row ${id===S.sessionId?'active':''}" data-sid="${escHtml(id)}"
+         onclick="if(event.target===this)openSession(this.dataset.sid)">
+      <button type="button" class="session-open" data-sid="${escHtml(id)}"${id===S.sessionId?' aria-current="true"':''}
+         aria-label="Open conversation: ${escHtml(s.title)}${pj?` (project ${escHtml(pj.name)})`:''}"
+         onclick="openSession(this.dataset.sid)">
+      ${pj?`<span class="icon session-proj" aria-hidden="true" title="Project: ${escHtml(pj.name)}" style="--pc:${_safeColor(pj.color||'#7c6ff7')}">${escHtml(pj.icon||'●')}</span>`
+          :'<span class="icon" aria-hidden="true">💬</span>'}
+      <span class="session-text">
+        <span class="session-title">${escHtml(s.title)}</span>
+        <span class="session-preview">${escHtml((s.messages[s.messages.length-1]?.content||'').slice(0,40))}</span>${exp?`
+        <span class="session-exp" title="${escHtml(new Date(s.expires*1000).toLocaleString())}">${escHtml(exp)}</span>`:''}
+      </span></button>${stored?`
+      <button class="session-act" aria-label="Rename conversation: ${escHtml(s.title)}" title="Rename"
+              data-sid="${escHtml(id)}" onclick="event.stopPropagation();renameSession(this.dataset.sid)">✎</button>
+      <button class="session-act${s.pinned?' on':''}" aria-pressed="${s.pinned?'true':'false'}"
+              aria-label="${s.pinned?'Unpin':'Pin'} conversation: ${escHtml(s.title)}" title="${s.pinned?'Unpin':'Pin'}"
+              data-sid="${escHtml(id)}" onclick="event.stopPropagation();togglePinSession(this.dataset.sid)">📌</button>`:''}
       <button class="session-del" aria-label="Delete conversation: ${escHtml(s.title)}"
               title="Delete conversation" data-sid="${escHtml(id)}"
               onclick="event.stopPropagation();deleteSession(this.dataset.sid)">✕</button>
-    </div>`).join('');
+    </div>`;
+  };
+  document.getElementById('sessions-list').innerHTML=byGroup.map(([g,r])=>
+    (g?`<div class="session-group" role="heading" aria-level="3">${escHtml(g)}</div>`:'')+r.map(row).join('')).join('')
+    +(pf&&!rows.length?`<div class="session-empty">${pf==='__none__'?'No conversations without a project.'
+       :'No conversations in this project yet — New Chat starts one.'}</div>`:'');
+}
+
+// Rename in place: the title becomes a text box (Enter or leaving it saves, Esc cancels).
+function renameSession(id){
+  const s=S.sessions[id];
+  const row=[...document.querySelectorAll('#sessions-list .session-row')].find(r=>r.dataset.sid===id);
+  const label=row?.querySelector('.session-title');
+  if(!s||!label)return;
+  const input=document.createElement('input');
+  input.type='text';input.className='session-rename';input.maxLength=120;
+  input.value=s.title||'';
+  input.setAttribute('aria-label','New name for the conversation');
+  let done=false;
+  const finish=async save=>{
+    if(done)return;done=true;
+    const name=input.value.replace(/\s+/g,' ').trim();
+    _renamingSid=null;
+    if(save&&name&&name!==s.title)await _patchSession(id,{title:name});
+    else renderSessionList();
+    if(_renderPending){_renderPending=false;renderSessionList();}
+  };
+  // Keys and clicks stay in the box: the row would open the conversation on Enter/Space
+  // (and swallow the space), and Esc would close whatever panel is open.
+  input.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){e.preventDefault();finish(true);}
+    else if(e.key==='Escape'){e.preventDefault();finish(false);}
+  });
+  input.addEventListener('click',e=>e.stopPropagation());
+  input.addEventListener('blur',()=>finish(true));
+  _renamingSid=id;
+  // Not inside the main button (a text box in a button cannot be typed into everywhere):
+  // the button steps aside while the box is up.
+  const open=row.querySelector('.session-open');
+  if(open){open.hidden=true;open.after(input);}else label.replaceWith(input);
+  input.focus();input.select();
+}
+function togglePinSession(id){
+  const s=S.sessions[id];
+  if(s)return _patchSession(id,{pinned:!s.pinned});
+}
+// Rename / pin, stored on the server with the conversation, so both last across reloads
+// and show in every browser that lists it.
+async function _patchSession(id,body){
+  try{
+    const r=await fetch(`/api/sessions/${encodeURIComponent(id)}`,{method:'PATCH',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error((await r.json().catch(()=>({})))?.detail||`HTTP ${r.status}`);
+    const row=await r.json();
+    const s=S.sessions[id];
+    if(s){
+      if(typeof row.title==='string'&&row.title)s.title=row.title;
+      Object.assign(s,_serverSessionFields(row));
+    }
+    if(id===S.sessionId&&s)document.getElementById('session-title').textContent=s.title;
+    renderSessionList();
+    return row;
+  }catch(e){
+    toast('Could not update the conversation: '+e.message,'error');
+    renderSessionList();
+    return null;
+  }
 }
 
 // A click on a conversation in the sidebar. The one already open is left alone: switching
@@ -2401,8 +3552,10 @@ function openSession(id){
 async function switchSession(id){
   _pendingRegen=null;          // belongs to the conversation we are leaving
   setSourceScope('');          // the scope chip is per-conversation, not global
+  S.mentions=[];_mentionClose();   // #mentions belong to the question being typed
   S.sessionId=id;
   try{localStorage.setItem('sessionId',id);}catch(e){}
+  if(!S.me?.auth)_rememberSessionId(id);   // the most recently opened: last to be dropped
   S.sessions[id]=S.sessions[id]||{title:'Session',messages:[]};
   _closeMobileSidebar();   // the overlay covered the conversation that was just picked
   connectWS(id);
@@ -2421,18 +3574,30 @@ async function switchSession(id){
     // as a bare bubble.
     const mm=m.meta||{};
     if(m.role==='assistant'&&mm.id){
-      if(mm.chunks){
+      // A stored turn with no chunks but a recorded search is a no-match: it gets its
+      // badge back too (turns stored before rag_used existed are left as they were).
+      if(mm.chunks||mm.rag_used===true){
         if(mm.ragTargets)_msgMeta[mm.id]={...(_msgMeta[mm.id]||{}),ragTargets:mm.ragTargets};
-        updateRagContext(mm.id,mm.chunks,mm.latency,mm.query||'');
+        updateRagContext(mm.id,mm.chunks||[],mm.latency,mm.query||'',mm.rag_used,
+          {docs_only:mm.docs_only,not_found:mm.not_found,search_failed:mm.search_failed,
+           reused_sources:mm.reused_sources});
         delete _msgMeta[mm.id];
-      }
+      }else _renderGrounding(mm.id);
       if(mm.versions?.length>1)renderVersionSwitcher(mm.id,mm.versions,mm.versions.length-1);
     }
   });
   if(msgs.length)scrollToBottom();
+  // The conversation's Documents only setting is the mode its latest answer ran under
+  // (none recorded: the default from Settings).
+  {const last=[...msgs].reverse().find(m=>m.role==='assistant'&&typeof m.meta?.docs_only==='boolean');
+   if(last&&typeof S.sessions[id].docsOnly!=='boolean')S.sessions[id].docsOnly=last.meta.docs_only;}
+  // Its own knowledge bases, template and model, as stored with it.
+  _readConversationFields(S.sessions[id]);
+  _renderDocsOnly();
   renderSessionList();
   document.getElementById('session-title').textContent=S.sessions[id].title;
   updateTokenCounter();   // pills reflect the session being viewed, not the last one
+  await _applyConversationScope();   // may wait for another provider's model list
 }
 
 async function forkSession(msgId){
@@ -2593,6 +3758,7 @@ function renderModelPicker(){
     // colour, so without this neither the model nor its status reaches a screen reader.
     btn.setAttribute('aria-label',`Model: ${desc}`);
   }
+  _renderHealthStrip();
 }
 
 async function toggleModelPicker(force){
@@ -2699,7 +3865,7 @@ function renderModelPickerList(){
   // an install with one key never learns the other six exist, and offers no route to
   // setting one up from the place you would look for it.
   if(unconfigured.length&&!q)
-    html+=`<button class="mp-setup" data-setup="1"><span class="dot"></span>`
+    html+=`<button class="mp-setup" data-admin data-setup="1"><span class="dot"></span>`
         + `${escHtml(unconfigured.join(' · '))} — no key, <u>set up</u></button>`;
   if(!html)html='<div class="mp-empty">No models match.</div>';
   list.innerHTML=html;
@@ -3076,7 +4242,9 @@ function _renderStorageDownNote(){
 
 async function checkLocalStatus(){
   try{
-    const r=await fetch('/api/status/redis').then(r=>r.json());
+    const res=await fetch('/api/status/redis');
+    if(!_statusOk(res))throw new Error('HTTP '+res.status);
+    const r=await res.json();
     if(r.type)S.defaultType=r.type;
     S.defaultStatus={ok:!!r.ok,version:r.version||null};
     _renderStorageDownNote();
@@ -3088,14 +4256,16 @@ async function checkLocalStatus(){
     loadRagInstances().catch(()=>{});
   }
   catch{}
+  _renderHealth();
+  _healthProbeProvider().catch(()=>{});
   // Probe named Redis endpoints for Search availability (fire-and-forget)
   const eps=(S.config.redis_endpoints||[]).filter(e=>!e.primary).map(e=>e.name).filter(Boolean);
   eps.forEach(ep=>{
-    fetch(`/api/status/redis/${encodeURIComponent(ep)}`).then(r=>r.json()).then(d=>{
+    fetch(`/api/status/redis/${encodeURIComponent(ep)}`).then(r=>{if(!_statusOk(r))throw new Error('HTTP '+r.status);return r.json();}).then(d=>{
       S.searchAvail=S.searchAvail||{};S.epOk=S.epOk||{};
       S.searchAvail[ep]=d.ok ? (d.search_available!==false) : null;
       S.epOk[ep]=!!d.ok;
-      if(ep===_appConn())_renderStorageDownNote();
+      if(ep===_appConn()){_renderStorageDownNote();_renderHealth();}
     }).catch(()=>{});
   });
 }
@@ -3170,7 +4340,7 @@ async function loadRagInstances(){
     let list=await _fetchRagList();
     if(!list)return;
     // A built-in store that is down lists nothing, which is not the same as "no default".
-    if(!list.some(r=>r.name==='default')&&!_defaultEnsured&&S.defaultStatus?.ok!==false){
+    if(!list.some(r=>r.name==='default')&&!_defaultEnsured&&S.defaultStatus?.ok!==false&&_isAdmin()){
       _defaultCreate=_defaultCreate||fetch('/api/rag/instances',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({name:'default',color:'#7c6ff7'})})
         .then(r=>{if(r.ok||r.status===409)_defaultEnsured=true;}).catch(()=>{})
@@ -3185,6 +4355,7 @@ async function loadRagInstances(){
       if(!found&&S.ragInstances.length){const f0=S.ragInstances[0];S.activeRag={name:f0.name,ep:f0.redis_endpoint||'default'};}
     }
     renderRagSidebar();renderRagInstances();populateRagSelects();
+    _renderHealth();
   }catch(e){}
 }
 
@@ -3196,15 +4367,25 @@ function _activeRagKey(){return S.activeRag?S.activeRag.name+'§'+(S.activeRag.e
 // list, which the server reads as "answer without retrieval"; All -> every enabled,
 // reachable instance; otherwise the single active instance.
 function _ragPayload(){
-  if(S.noRag)return {rag_instances:[]};
+  // Every send path builds its request from this, so the conversation's Documents only
+  // setting reaches the server on a send, a rerun, a regenerate and a re-run fresh alike.
+  const documents_only=_docsOnly();
+  // ...and its project, knowledge-base selection and template, stored with it.
+  const conv=_conversationPayload();
+  if(S.noRag)return {rag_instances:[],documents_only,...conv};
+  // A project's set of knowledge bases: the ones of them that exist (none left: no search).
+  if(!S.ragAllMode&&Array.isArray(S.ragSet)&&S.ragSet.length){
+    const have=new Set(_ragList().map(r=>r.name));
+    return {rag_instances:S.ragSet.filter(n=>have.has(n)),documents_only,...conv};
+  }
   return S.ragAllMode
-    ? {rag_instances:S.ragInstances.filter(r=>r.enabled!==false&&r.reachable!==false).map(r=>r.name)}
-    : {rag_instance:S.activeRag?.name||'default'};
+    ? {rag_instances:S.ragInstances.filter(r=>r.enabled!==false&&r.reachable!==false).map(r=>r.name),documents_only,...conv}
+    : {rag_instance:S.activeRag?.name||'default',documents_only,...conv};
 }
 
 function renderRagSidebar(){
   document.getElementById('rag-sidebar-list').innerHTML=S.ragInstances.map((r,i)=>`
-    <button class="sidebar-btn ${_isActiveRag(r)&&!S.ragAllMode&&!S.noRag?'active':''}" onclick="setActiveRag(${i})" ${r.reachable===false?'title="Storage unreachable — offline"':''}>
+    <button class="sidebar-btn ${(S.ragSet?S.ragSet.includes(r.name):_isActiveRag(r))&&!S.ragAllMode&&!S.noRag?'active':''}" onclick="setActiveRag(${i})" ${r.reachable===false?'title="Storage unreachable — offline"':''}>
       <span style="width:8px;height:8px;border-radius:50%;background:${r.reachable===false?'var(--red)':r.enabled===false?'#888':_safeColor(r.color)};flex-shrink:0;display:inline-block"></span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;${r.reachable===false?'color:var(--text2)':''}">${escHtml(r.name)}</span>
       ${r.redis_endpoint&&r.redis_endpoint!=='default'?`<span class="ep-badge" title="${escHtml(r.redis_endpoint)}">🗄</span>`:''}
@@ -3267,8 +4448,11 @@ function populateRagSelects(){
     if(!el)return;
     const prev=el.value;
     if(id==='rag-select'){
-      el.innerHTML=`<option value="__all__">✦ All RAGs</option><option value="__none__">⊘ No RAG</option>`+instanceOpts;
-      el.value=S.noRag?'__none__':(S.ragAllMode?'__all__':_activeRagKey());
+      // A project's set of several knowledge bases is one more choice, shown while in use.
+      const setOpt=Array.isArray(S.ragSet)&&S.ragSet.length
+        ?`<option value="__set__">⧉ ${escHtml(S.ragSet.join(', '))}</option>`:'';
+      el.innerHTML=`<option value="__all__">✦ All RAGs</option><option value="__none__">⊘ No RAG</option>`+setOpt+instanceOpts;
+      el.value=S.noRag?'__none__':(S.ragAllMode?'__all__':(setOpt?'__set__':_activeRagKey()));
     } else {
       el.innerHTML=instanceOpts;
       if(prev&&S.ragInstances.find(r=>_ragKey(r)===prev)){el.value=prev;}
@@ -3282,6 +4466,7 @@ function populateRagSelects(){
 // rather than going through setActiveRag/toggleRagAll, which toast.
 function _restoreRagScope(scope){
   if(!scope)return;
+  S.ragSet=null;
   if(scope==='__none__'){S.noRag=true;S.ragAllMode=false;}
   else if(scope==='__all__'){S.noRag=false;S.ragAllMode=true;}
   else{
@@ -3296,6 +4481,8 @@ function _restoreRagScope(scope){
 }
 
 function onRagSelectChange(val){
+  if(val==='__set__')return;
+  if(S.ragSet){S.ragSet=null;populateRagSelects();}
   if(val==='__none__'){
     S.noRag=true;S.ragAllMode=false;_applyRagAllUI();_savePrefs();
     toast('No RAG — answering without retrieval','info');
@@ -3315,6 +4502,7 @@ function setActiveRag(i){
   const r=S.ragInstances[i];
   if(!r)return;
   S.activeRag={name:r.name,ep:r.redis_endpoint||'default'};
+  if(S.ragSet){S.ragSet=null;populateRagSelects();}
   if(S.ragAllMode||S.noRag){S.ragAllMode=false;S.noRag=false;_applyRagAllUI();}
   const sel=document.getElementById('rag-select');
   if(sel)sel.value=_activeRagKey();
@@ -3331,6 +4519,7 @@ function _ragSetProcessing(i, on){
 
 function toggleRagAll(){
   S.noRag=false;
+  if(S.ragSet){S.ragSet=null;populateRagSelects();}
   S.ragAllMode=!S.ragAllMode;
   _applyRagAllUI();_savePrefs();
   const enabled=S.ragInstances.filter(r=>r.enabled!==false);
@@ -3352,7 +4541,7 @@ function _applyRagAllUI(){
     if(sel){sel.value='__all__';sel.style.opacity='1';}
   } else {
     if(btn){btn.classList.remove('all-active');btn.title='Query all enabled RAG instances in parallel (multi-server)';}
-    if(sel){sel.value=_activeRagKey();sel.style.opacity='1';}
+    if(sel){sel.value=S.ragSet?'__set__':_activeRagKey();sel.style.opacity='1';}
   }
   renderRagSidebar();
 }
@@ -4436,7 +5625,9 @@ function handleWSMsg(msg){
       S.chatMetrics.hits++;
       break;
     case 'rag_context':
-      if(currentAiMsgId)updateRagContext(currentAiMsgId,msg.chunks,msg.latency,S.currentQuery||'',msg.rag_used);
+      if(currentAiMsgId)updateRagContext(currentAiMsgId,msg.chunks,msg.latency,S.currentQuery||'',msg.rag_used,
+        {docs_only:msg.docs_only,not_found:msg.not_found,search_failed:msg.search_failed,
+         reused_sources:msg.reused_sources});
       break;
     case 'error':
       _setStreamingUI(false);
@@ -4516,6 +5707,7 @@ function finalizeStreamingMsg(id){
     // in the bubble to link — and every stream frame rewrites innerHTML, discarding
     // anything that had been. This is the first moment the final text exists.
     _linkCitations(el,id,_citationCount(id));
+    _renderGrounding(id);
   }
   const sess=S.sessions[S.sessionId];
   // Merge the side-channel meta (chunks/latency/cache) and record which model
@@ -4523,7 +5715,7 @@ function finalizeStreamingMsg(id){
   // switching providers mid-conversation, where any given answer came from.
   const regen=_pendingRegen; _pendingRegen=null;
   const versions=regen
-    ? [...regen.versions,{content:raw,provider:S.provider,model:S.currentModel}]
+    ? [...regen.versions,{content:raw,provider:S.provider,model:S.currentModel,..._versionMeta(_msgMeta[id])}]
     : null;
   if(sess)sess.messages.push({role:'assistant',content:raw,meta:{
     id, ts:Date.now(), provider:S.provider, model:S.currentModel,
@@ -4542,16 +5734,28 @@ function _emptyRagTargets(names){
   const hits=names.map(n=>list.find(r=>r.name===n));
   return hits.every(r=>r&&!(r.chunks>0))?names:null;
 }
-function updateRagContext(msgId,chunks,latency,query='',ragUsed=undefined){
+function updateRagContext(msgId,chunks,latency,query='',ragUsed=undefined,mode=null){
   // Park the retrieval result even when it is EMPTY — finalizeStreamingMsg needs
   // it, and a zero-chunk retrieval is itself meaningful (see the no-match badge).
-  _msgMeta[msgId]={...(_msgMeta[msgId]||{}),chunks:chunks||[],latency,query};
+  // rag_used / docs_only / not_found go with it into the stored turn (grounding badge).
+  _msgMeta[msgId]={...(_msgMeta[msgId]||{}),chunks:chunks||[],latency,query,
+    ...(typeof ragUsed==='boolean'?{rag_used:ragUsed}:{}),
+    ...(mode&&typeof mode.docs_only==='boolean'?{docs_only:mode.docs_only}:{}),
+    ...(mode?.not_found===true?{not_found:true}:{}),
+    ...(mode?.search_failed===true?{search_failed:true}:{}),
+    // A documents-only follow-up answered from the previous answer's cited sources.
+    ...(mode&&typeof mode.reused_sources==='boolean'?{reused_sources:mode.reused_sources}:{})};
   const el=document.getElementById(msgId);if(!el)return;
+  // A finished bubble (a cached answer, a restored one) is graded now; a live one when its
+  // text is final (finalizeStreamingMsg).
   if(!chunks?.length){
     // Only when a search actually RAN and matched nothing. An empty list also
     // covers "RAG was switched off", and warning there sent the user to tune a
     // threshold that had no bearing on the answer.
-    if(ragUsed===false) return;
+    if(ragUsed===false){if(el.getAttribute('data-raw'))_renderGrounding(msgId);return;}
+    // The search itself failed: the grounding badge says so ("No KB match" would send the
+    // user to tune a threshold that had no part in it).
+    if(mode?.search_failed===true){if(el.getAttribute('data-raw')){_linkCitations(el,msgId,0);_renderGrounding(msgId);}return;}
     // Retrieval ran and matched nothing. Without this the answer looks exactly
     // like a grounded one, which is the moment the user most needs to be told.
     const meta=el.querySelector('.msg-meta');
@@ -4573,19 +5777,22 @@ function updateRagContext(msgId,chunks,latency,query='',ragUsed=undefined){
                +`(${(S.config?.rag?.similarity_threshold ?? 0.35)}). `
                +`This answer is not grounded in your documents. Lower the threshold in Settings → RAG to widen matching.`;
       }
-      b.onclick=()=>openSettings('rag');
+      if(_isAdmin())b.onclick=()=>openSettings('rag');   // Settings → RAG is for administrators
+      else b.style.cursor='default';
       meta.appendChild(b);
     }
+    if(el.getAttribute('data-raw')){_linkCitations(el,msgId,0);_renderGrounding(msgId);}
     return;
   }
   if(!el.querySelector('.rag-inspector')){
     const showByDefault=S.config?.ui?.show_rag_matches??false;
     const body=el.querySelector('.msg-body');
     const outputBar=el.querySelector('.msg-output-bar');
-    const ragEl=buildRagInspector(chunks,latency,showByDefault,query,msgId);
+    const ragEl=buildRagInspector(chunks,latency,showByDefault,query,msgId,_turnMetaOf(msgId).reused_sources===true);
     if(outputBar) body.insertBefore(ragEl,outputBar);
     else body.appendChild(ragEl);
     _linkCitations(el,msgId,chunks.length);
+    if(el.getAttribute('data-raw'))_renderGrounding(msgId);
     // "See also" — top-5 unique web source links, inserted after the bubble text
     const seeAlsoEl=_buildSeeAlso(chunks);
     if(seeAlsoEl){
@@ -4595,44 +5802,337 @@ function updateRagContext(msgId,chunks,latency,query='',ragUsed=undefined){
   }
 }
 
+// ── Citations: parsing, grounding, source cards ──────────────────────────────
+// One parser for both the rendered markers and the grounding badge, so the two can never
+// disagree about what counts as a citation. A marker is "[n]" or "[n, m, …]". A group with
+// at least one number in 1..maxN is a citation (its out-of-range numbers are broken ones);
+// a group with none is a broken citation only when it stands on its own — "argv[1]" or
+// "m[2][3]" right after a word or bracket is code-like text, not a citation, and stays text.
+// [0] and "[1](url)" (a Markdown link) are never citations. A group made only of numbers
+// beyond twice the number of sources is a reference quoted from a document — and stays
+// text — when it is inside a quotation on its line ("…", “…”, «…») or opens a line as a
+// reference-list entry ("[12] Smith, J. …"); anywhere else it is a broken citation (a
+// made-up "[9]" with 3 sources is shown as one).
+function _citeParse(text,maxN){
+  const out=[];const re=/\[(\d+(?:\s*,\s*\d+)*)\](?!\()/g;let last=0,m;
+  while((m=re.exec(text))!==null){
+    const nums=m[1].split(',').map(x=>+x.trim()).filter(n=>n>=1);
+    if(!nums.length)continue;
+    const ok=nums.filter(n=>n<=maxN);
+    if(!ok.length&&nums.every(n=>n>2*maxN)){
+      const line=text.slice(text.lastIndexOf('\n',m.index-1)+1,m.index);
+      const cnt=r=>(line.match(r)||[]).length;
+      const quoted=cnt(/"/g)%2===1||cnt(/“/g)>cnt(/”/g)||cnt(/«/g)>cnt(/»/g);
+      const listEntry=!line.trim()&&/^\s+\S/.test(text.slice(m.index+m[0].length));
+      if(quoted||listEntry)continue;                    // a reference quoted from a document
+    }
+    const prev=m.index>0?text[m.index-1]:'';
+    if(!ok.length&&/[\w\])]/.test(prev))continue;     // code-like: x[3], m[2][3], f(x)[1]
+    if(m.index>last)out.push({text:text.slice(last,m.index)});
+    out.push({cite:nums.map(n=>({n,ok:n<=maxN}))});
+    last=m.index+m[0].length;
+  }
+  if(last<text.length)out.push({text:text.slice(last)});
+  return out;
+}
+
+// How well an answer is backed by the sources it was given. The rule, on the raw Markdown:
+//  * code (fenced blocks, inline code) and display maths are ignored;
+//  * the rest is cut into units — each paragraph, each list item, each table body row
+//    (headings, rules and table header/separator rows are not units);
+//  * a unit is substantive when, without its markers, it has at least 6 words and does
+//    not end with ":" (a lead-in such as "The steps are:");
+//  * a unit is cited when it holds at least one VALID marker (a number of a source this
+//    answer was given); an invalid number — [7] when there were 5 — counts against.
+// States: grounded = some valid citation, every substantive unit cited and no invalid
+// number; partly = some valid citation but not grounded; uncited = no valid citation;
+// norag = no knowledge base was searched; noretrieval = a search ran and retrieved nothing;
+// missing = nothing was retrieved, yet the answer cites source numbers;
+// searchfailed = the search itself failed; notfound = the documents-only "not in your
+// documents" answer; null = not known (a turn stored before this was recorded).
+// In scripts written without spaces (Chinese, Japanese, Thai, Lao, Khmer, Myanmar) every
+// two characters count as one word.
+function _groundingOf(raw,maxN,ragUsed,notFound,searchFailed){
+  if(searchFailed)return {state:'searchfailed',units:0,cited:0,valid:0,invalid:0};
+  if(notFound)return {state:'notfound',units:0,cited:0,valid:0,invalid:0};
+  if(ragUsed===false)return {state:'norag',units:0,cited:0,valid:0,invalid:0};
+  if(!maxN&&ragUsed!==true)return null;
+  let prose=String(raw||'')
+    .replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(\n[ \t]*\2[ \t]*(?=\n|$)|$)/g,'$1')
+    .replace(/\$\$[\s\S]*?\$\$/g,' ').replace(/`[^`\n]*`/g,' ');
+  const units=[];let cur=null;
+  const flush=()=>{if(cur!==null&&cur.trim())units.push(cur);cur=null;};
+  for(const line0 of prose.split('\n')){
+    const line=line0.replace(/^\s*(>\s?)+/,'');
+    if(!line.trim()){flush();continue;}
+    if(/^\s*#{1,6}\s/.test(line)||/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)){flush();continue;}
+    if(/^\s*\|/.test(line)){
+      flush();
+      if(/^\s*\|?\s*:?-{2,}/.test(line)){units.pop();continue;}   // the row above was the header
+      units.push(line);continue;
+    }
+    if(/^\s*([-*+]|\d+[.)])\s+/.test(line)){flush();cur=line;continue;}
+    cur=cur===null?line:cur+' '+line;
+  }
+  flush();
+  let valid=0,invalid=0,subst=0,cited=0;
+  for(const u of units){
+    let hasValid=false,words='';
+    for(const seg of _citeParse(u,maxN)){
+      if(seg.cite){for(const c of seg.cite){if(c.ok){valid++;hasValid=true;}else invalid++;}}
+      else words+=seg.text;
+    }
+    const t=words.replace(/[*_~]+/g,'').trim();
+    const ns=/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/gu;
+    const nWords=(t.replace(ns,' ').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)||[]).length
+      +Math.floor((t.match(ns)||[]).length/2);
+    if(nWords>=6&&!/[:：]\s*$/.test(t)){subst++;if(hasValid)cited++;}
+  }
+  // Nothing retrieved: neutral, unless the answer cites sources anyway — numbers with no
+  // source behind any of them ("missing").
+  const state=!valid?(maxN?'uncited':invalid?'missing':'noretrieval'):(!invalid&&cited===subst)?'grounded':'partly';
+  return {state,units:subst,cited,valid,invalid};
+}
+
+// The stored turn's meta merged with the live side channel (a turn still streaming has
+// its retrieval result only in _msgMeta).
+function _turnMetaOf(msgId){
+  const msgs=S.sessions[S.sessionId]?.messages||[];
+  return {...(msgs.find(m=>m.meta?.id===msgId)?.meta||{}),...(_msgMeta[msgId]||{})};
+}
+
+const _GROUND_LABEL={grounded:'● Grounded',partly:'◐ Partly grounded',uncited:'○ Uncited',
+  norag:'– No documents used',noretrieval:'– Nothing retrieved',searchfailed:'⚠ Search failed',
+  missing:'○ Cites missing sources',
+  notfound:'∅ Not in your documents'};
+function _renderGrounding(msgId){
+  const el=document.getElementById(msgId);if(!el)return;
+  const meta=el.querySelector('.msg-meta');if(!meta)return;
+  meta.querySelector('.ground-badge')?.remove();
+  const tm=_turnMetaOf(msgId);
+  const n=_citationCount(msgId);
+  const ragUsed=tm.rag_used??(n?true:undefined);
+  const g=_groundingOf(el.getAttribute('data-raw')||'',n,ragUsed,tm.not_found===true,tm.search_failed===true);
+  if(!g)return;
+  const b=document.createElement('span');
+  b.className='ground-badge g-'+g.state;
+  b.textContent=_GROUND_LABEL[g.state];
+  if(tm.docs_only===true){const m=document.createElement('span');m.className='g-mode';m.textContent=' · Documents only';b.appendChild(m);}
+  // A follow-up answered from the previous answer's sources says so (see the source list).
+  const reusedNote=tm.reused_sources===true?' The sources are the previous answer\'s: nothing matched this question on its own wording.':'';
+  const bad=g.invalid?` ${g.invalid} citation${g.invalid===1?'':'s'} point${g.invalid===1?'s':''} to no source.`:'';
+  b.title={grounded:`Every substantive paragraph cites one of the ${n} sources (${g.cited} of ${g.units}).`,
+    partly:`${g.cited} of ${g.units} substantive paragraphs cite a source.${bad}`,
+    uncited:`The answer cites none of the ${n} retrieved sources.${bad}`,
+    noretrieval:`The knowledge base was searched and nothing matched, so the answer has no sources to cite.${bad}`,
+    missing:`The knowledge base was searched and nothing matched, yet the answer cites ${g.invalid} source number${g.invalid===1?'':'s'}: no such sources were given to it.`,
+    searchfailed:'The knowledge base could not be searched for this answer (see the message), so nothing was retrieved.',
+    norag:'No knowledge base was searched for this answer.',
+    notfound:'Documents only: nothing in the knowledge base matched, so no answer was given.'}[g.state];
+  b.title+=reusedNote;
+  b.setAttribute('aria-label',b.textContent+'. '+b.title);
+  meta.insertBefore(b,meta.firstChild);
+}
+
+// The sources this answer was given, from wherever the turn currently lives.
+function _citationChunks(msgId){
+  return _msgMeta[msgId]?.chunks||_turnMetaOf(msgId).chunks||[];
+}
+
+// The source card. One element for the page, attached to <body> and fixed to the viewport.
+let _citeCardFor=null,_citeHideT=0,_citeShowT=0,_citeTouch=false,_citeTouchAt=0,_citeBack=false,_citeKeyFor=null;
+document.addEventListener('keydown',e=>{
+  _citeKeyFor=(e.key==='Enter'||e.key===' ')&&e.target.closest?e.target.closest('.cite-ref'):null;
+},true);
+function _citeCardEl(){
+  let c=document.getElementById('cite-card');
+  if(!c){
+    // A small non-modal dialog, not a tooltip: it holds a link and a button. Hover or focus
+    // on a marker previews it; Enter or Space on the marker moves focus into it (Tab stays
+    // inside, Escape closes it and returns to the marker).
+    c=document.createElement('div');c.id='cite-card';c.setAttribute('role','dialog');c.hidden=true;
+    c.addEventListener('pointerenter',()=>clearTimeout(_citeHideT));
+    c.addEventListener('keydown',e=>{
+      if(e.key!=='Tab')return;
+      const f=[...c.querySelectorAll('a[href],button')];if(!f.length)return;
+      const i=f.indexOf(document.activeElement);
+      if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus();}
+      else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus();}
+    });
+    c.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')_hideCiteCard(160);});
+    document.body.appendChild(c);
+  }
+  return c;
+}
+function _showCiteCard(btn){
+  clearTimeout(_citeHideT);clearTimeout(_citeShowT);
+  const n=+btn.dataset.cite,msgId=btn.dataset.citeMsg;
+  const chunks=_citationChunks(msgId);
+  const c=chunks.find((x,i)=>(x.n??(i+1))===n);
+  if(!c)return;
+  const card=_citeCardEl();
+  card.textContent='';
+  // Built from text nodes only: a document's text and its source name are shown, never
+  // parsed — no markup a document contains can reach the page.
+  const mk=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;};
+  const src=String(c.source||'');
+  let title=src.split(/[\\/]/).filter(Boolean).pop()||src||'Unknown source';
+  const isUrl=/^https?:\/\//i.test(src);
+  if(isUrl){try{const u=new URL(src);title=(u.hostname+u.pathname).replace(/\/$/,'');}catch(e){}}
+  const head=mk('div','cite-card-head');head.append(mk('span','cite-card-n',`[${n}]`),mk('span','cite-card-title',title));
+  card.appendChild(head);
+  const line=mk('div','cite-card-src');
+  if(isUrl){const a=mk('a',null,src);a.href=src;a.target='_blank';a.rel='noopener noreferrer';line.appendChild(a);}
+  else line.textContent=src||'—';
+  if(c.instance)line.append(` · 🗄 ${c.instance}`);
+  card.appendChild(line);
+  const rel=c.relevance??c.score;
+  const parts=[];
+  if(typeof rel==='number'&&isFinite(rel))parts.push(`${c.lexical&&!(c.score>0)?'Keyword match':'Match'} ${(rel*100).toFixed(1)}%`);
+  if(typeof c.reranker_score==='number'&&isFinite(c.reranker_score))parts.push(`rerank ${c.reranker_score.toFixed(3)}`);
+  if(parts.length)card.appendChild(mk('div','cite-card-score',parts.join(' · ')));
+  const text=String(c.text||'').trim();
+  card.appendChild(mk('div','cite-card-text',text.length>600?text.slice(0,600)+'…':(text||'(no text stored)')));
+  const jump=mk('button','cite-card-jump','Show in sources ↓');jump.type='button';
+  jump.addEventListener('click',()=>{_hideCiteCard(0);_jumpToCitation(btn,true);});
+  card.appendChild(jump);
+  card.setAttribute('aria-label',`Source ${n}: ${title}`);
+  card.hidden=false;
+  _citeCardFor=btn;btn.setAttribute('aria-describedby','cite-card');btn.setAttribute('aria-expanded','true');
+  _placeCiteCard(btn,card);
+}
+// Below the marker when it fits, else above; always inside the viewport with a 16px gutter.
+function _placeCiteCard(btn,card){
+  const r=btn.getBoundingClientRect(),vw=document.documentElement.clientWidth,vh=window.innerHeight,G=16;
+  const w=card.offsetWidth,h=card.offsetHeight;
+  let top=r.bottom+6;
+  if(top+h>vh-G&&r.top-6-h>=G)top=r.top-6-h;
+  top=Math.max(G,Math.min(top,vh-G-h));
+  const left=Math.max(G,Math.min(r.left,vw-G-w));
+  card.style.left=Math.round(left)+'px';card.style.top=Math.round(top)+'px';
+}
+function _hideCiteCard(delay){
+  clearTimeout(_citeHideT);clearTimeout(_citeShowT);
+  const go=()=>{
+    const card=document.getElementById('cite-card');if(card)card.hidden=true;
+    if(_citeCardFor){_citeCardFor.removeAttribute('aria-describedby');_citeCardFor.setAttribute('aria-expanded','false');}
+    _citeCardFor=null;
+  };
+  if(delay)_citeHideT=setTimeout(go,delay);else go();
+}
+document.addEventListener('pointerover',e=>{
+  if(e.pointerType==='touch')return;
+  const b=e.target.closest?.('.cite-ref');if(!b)return;
+  clearTimeout(_citeHideT);
+  if(_citeCardFor===b)return;
+  clearTimeout(_citeShowT);_citeShowT=setTimeout(()=>_showCiteCard(b),120);
+});
+document.addEventListener('pointerout',e=>{
+  if(e.pointerType==='touch')return;
+  const b=e.target.closest?.('.cite-ref');if(!b||b.contains(e.relatedTarget))return;
+  clearTimeout(_citeShowT);
+  if(_citeCardFor===b)_hideCiteCard(200);
+});
+document.addEventListener('pointerdown',e=>{
+  _citeTouch=e.pointerType==='touch';
+  if(_citeTouch)_citeTouchAt=Date.now();
+  // A tap or click anywhere outside the marker and its card closes the card.
+  const card=document.getElementById('cite-card');
+  if(_citeCardFor&&!e.target.closest?.('.cite-ref')&&!(card&&card.contains(e.target)))_hideCiteCard(0);
+},true);
+document.addEventListener('focusin',e=>{
+  const b=e.target.closest?.('.cite-ref');
+  // A tap focuses the marker too; the tap itself (click) toggles the card, so the focus
+  // that comes with it must not open it first.
+  if(b){if(_citeCardFor!==b&&Date.now()-_citeTouchAt>800&&!_citeBack)_showCiteCard(b);return;}
+  const card=document.getElementById('cite-card');
+  if(_citeCardFor&&!(card&&card.contains(e.target)))_hideCiteCard(0);
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&_citeCardFor){
+    const b=_citeCardFor;
+    const inside=document.activeElement!==b&&!!document.getElementById('cite-card')?.contains(document.activeElement);
+    _hideCiteCard(0);
+    // Back to the marker, without that focus opening the card again.
+    if(inside){
+      _citeBack=true;try{b.focus();}finally{_citeBack=false;}
+    }
+    e.stopPropagation();
+  }
+},true);
+// A scroll moves the card with its marker, and closes it once the marker has left the
+// visible part of the conversation (focusing a marker scrolls it into view first).
+document.addEventListener('scroll',e=>{
+  const card=document.getElementById('cite-card');
+  if(!_citeCardFor||card?.contains(e.target))return;
+  const r=_citeCardFor.getBoundingClientRect(),a=document.getElementById('chat-area')?.getBoundingClientRect();
+  const inView=_citeCardFor.isConnected&&r.height>0&&(!a||(r.bottom>a.top&&r.top<a.bottom));
+  if(inView)_placeCiteCard(_citeCardFor,card);else _hideCiteCard(0);
+},true);
+window.addEventListener('resize',()=>{if(_citeCardFor)_hideCiteCard(0);});
+
+// ── Documents only (per conversation; Settings → RAG holds the default) ─────
+function _docsOnly(){
+  const s=S.sessions?.[S.sessionId];
+  return typeof s?.docsOnly==='boolean'?s.docsOnly:S.config?.rag?.documents_only===true;
+}
+function toggleDocsOnly(force){
+  const s=S.sessions?.[S.sessionId];if(!s)return;
+  s.docsOnly=typeof force==='boolean'?force:!_docsOnly();
+  _renderDocsOnly();
+  announce(s.docsOnly?'Documents only on.':'Documents only off.');
+}
+function _renderDocsOnly(){
+  const on=_docsOnly();
+  const b=document.getElementById('docs-only-btn');
+  if(b)b.setAttribute('aria-pressed',on?'true':'false');
+  renderSourceScope();
+}
+
 // Turn the model's "[3]" markers into buttons that open the chunk they cite. Operates on
 // text nodes so it cannot disturb the rendered markup, and skips code, links and the
 // inspector itself — a bracketed number inside a code sample is not a citation.
 function _linkCitations(el,msgId,maxN){
   const bubble=el.querySelector('.msg-bubble.ai')||el.querySelector('.msg-bubble');
-  if(!bubble||!maxN)return;
+  if(!bubble)return;
+  // With no sources at all a bracketed number is only a broken citation when a search ran
+  // (it then cites something that was never retrieved); with RAG off it is left as text.
+  if(!maxN&&_turnMetaOf(msgId).rag_used!==true)return;
   const walker=document.createTreeWalker(bubble,NodeFilter.SHOW_TEXT,{
-    acceptNode:n=>n.parentElement&&n.parentElement.closest('pre,code,a,.cite-ref,.rag-inspector,.see-also')
+    acceptNode:n=>n.parentElement&&n.parentElement.closest('pre,code,a,.cite-ref,.cite-broken,.rag-inspector,.see-also')
       ?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   // Grouped markers count. A model asked to cite two passages writes "[3, 4]" as often
   // as "[3] [4]", and matching only a lone number left the grouped form as dead text —
-  // the reader could see the citation but not open either source.
-  const GROUP=/\[(\d+(?:\s*,\s*\d+)*)\]/g;
+  // the reader could see the citation but not open either source. A number with no
+  // source behind it is shown as broken rather than dropped or linked (see _citeParse).
   const targets=[];
   while(walker.nextNode())
     if(/\[\d+(?:\s*,\s*\d+)*\]/.test(walker.currentNode.nodeValue))targets.push(walker.currentNode);
   for(const node of targets){
-    const text=node.nodeValue;
+    const segs=_citeParse(node.nodeValue,maxN);
+    if(!segs.some(x=>x.cite))continue;
     const frag=document.createDocumentFragment();
-    let last=0,re=new RegExp(GROUP),m;
-    re.lastIndex=0;
-    while((m=re.exec(text))!==null){
-      const ns=m[1].split(',').map(x=>+x.trim()).filter(n=>n>=1&&n<=maxN);
-      if(!ns.length)continue;                  // no citation into this answer's sources
-      frag.appendChild(document.createTextNode(text.slice(last,m.index)));
-      ns.forEach((n,i)=>{
+    for(const seg of segs){
+      if(!seg.cite){frag.appendChild(document.createTextNode(seg.text));continue;}
+      seg.cite.forEach(({n,ok},i)=>{
         if(i)frag.appendChild(document.createTextNode(' '));
-        const b=document.createElement('button');
-        b.type='button';b.className='cite-ref';b.textContent='['+n+']';
-        b.title=`Show source ${n} for this answer`;
-        b.setAttribute('aria-label',`Show source ${n}`);
-        b.dataset.cite=String(n);b.dataset.citeMsg=msgId;
-        frag.appendChild(b);
+        if(ok){
+          const b=document.createElement('button');
+          b.type='button';b.className='cite-ref';b.textContent='['+n+']';
+          b.setAttribute('aria-label',`Source ${n}`);b.setAttribute('aria-expanded','false');
+          b.dataset.cite=String(n);b.dataset.citeMsg=msgId;
+          frag.appendChild(b);
+        }else{
+          const x=document.createElement('s');
+          x.className='cite-broken';x.textContent='['+n+']';
+          x.title=maxN?`Broken citation: this answer was given ${maxN} source${maxN===1?'':'s'}, there is no source ${n}`
+                      :`Broken citation: nothing was retrieved for this answer, there is no source ${n}`;
+          const sr=document.createElement('span');sr.className='sr-only';sr.textContent=' (broken citation: no such source)';
+          x.appendChild(sr);
+          frag.appendChild(x);
+        }
       });
-      last=m.index+m[0].length;
     }
-    if(!frag.childNodes.length)continue;
-    frag.appendChild(document.createTextNode(text.slice(last)));
     node.parentNode.replaceChild(frag,node);
   }
 }
@@ -4651,6 +6151,28 @@ function _citationCount(msgId){
 document.addEventListener('click',e=>{
   const b=e.target.closest?.('.cite-ref');
   if(!b)return;
+  // A tap on touch toggles the source card (there is no hover); the card's own button
+  // jumps to the source. A mouse click or Enter (a click with detail 0) jumps straight away.
+  if(_citeTouch&&e.detail!==0){
+    if(_citeCardFor===b)_hideCiteCard(0);else _showCiteCard(b);
+    return;
+  }
+  // Enter or Space on the marker: open the card and move into it, so its link and "Show in
+  // sources" can be reached from the keyboard. (A click from a script also has detail 0;
+  // only the key press that produced this click counts.)
+  if(e.detail===0&&_citeKeyFor===b){
+    _citeKeyFor=null;
+    if(_citeCardFor!==b)_showCiteCard(b);
+    const card=document.getElementById('cite-card');
+    const first=card&&!card.hidden&&card.querySelector('a[href],button');
+    if(first){first.focus();return;}
+  }
+  _hideCiteCard(0);
+  _jumpToCitation(b);
+});
+// Open the answer's source list at chunk [n] and flash it. From the card's button the focus
+// goes along to the source (the button it was on has just been hidden).
+function _jumpToCitation(b,moveFocus){
   const chunk=document.getElementById(`cite-${b.dataset.citeMsg}-${b.dataset.cite}`);
   if(!chunk)return;
   chunk.closest('.rag-inspector')?.classList.add('open');
@@ -4661,7 +6183,9 @@ document.addEventListener('click',e=>{
   chunk.classList.remove('cite-flash');
   void chunk.offsetWidth;                      // restart the highlight on a repeat click
   chunk.classList.add('cite-flash');
-});
+  // once the list is open: a hidden element cannot take focus
+  if(moveFocus){chunk.setAttribute('tabindex','-1');chunk.focus({preventScroll:true});}
+}
 
 // Extract significant keywords from query for highlighting (mirrors backend _keywords_for_bm25)
 const _STOP = new Set(['a','an','the','is','it','in','on','at','to','of','for','and','or','but',
@@ -4723,7 +6247,7 @@ function _sourceLink(source){
   return `<span title="${escHtml(source)}">${escHtml(label)}</span>`;
 }
 
-function buildRagInspector(chunks,latency,openByDefault=false,query='',msgId=''){
+function buildRagInspector(chunks,latency,openByDefault=false,query='',msgId='',reused=false){
   const rel=c=>(c.relevance??c.score??0);
   // `n` is the number the model was shown for this chunk, stamped server-side at the point
   // the prompt was numbered. Deriving it here cannot work: the display order below is by
@@ -4765,9 +6289,12 @@ function buildRagInspector(chunks,latency,openByDefault=false,query='',msgId='')
   }).join('');
 
   div.innerHTML=`
-    <div class="rag-inspector-header" onclick="this.parentElement.classList.toggle('open')">
-      <span>📚</span>
-      <strong>${chunks.length} matched chunk${chunks.length!==1?'s':''}</strong>
+    <div class="rag-inspector-header" onclick="this.parentElement.classList.toggle('open')"${reused
+      ?' title="Nothing matched this question on its own wording, so it was answered from the sources the previous answer cited."':''}>
+      <span>${reused?'↩':'📚'}</span>
+      <strong>${reused
+        ?`${chunks.length} source${chunks.length!==1?'s':''} from the previous answer`
+        :`${chunks.length} matched chunk${chunks.length!==1?'s':''}`}</strong>
       <span class="rag-source-pill" style="margin-left:4px">avg ${(avgScore*100).toFixed(0)}% match</span>
       ${latency?.rag?`<span class="latency-badge" style="margin-left:auto">${latency.rag*1000|0}ms</span>`:''}
       <i class="ri-chevron" style="margin-left:${latency?.rag?'6px':'auto'}">▲</i>
@@ -4838,15 +6365,25 @@ async function sendMessage(){
   // earns its place in the sidebar by being used, not by being opened.
   if(S.sessionId) _rememberSessionId(S.sessionId);
   const msgMeta={id:'msg_'+(++S.msgIdCounter)};
-  appendMessage('user',content,{...msgMeta,images:S.pendingImages,files:S.pendingFiles.map(f=>f.name)});
+  // #mentions restrict this question to the mentioned knowledge bases, this once.
+  const mentions=[...S.mentions];
+  S.mentions=[];_mentionClose();renderSourceScope();
+  appendMessage('user',content,{...msgMeta,images:S.pendingImages,files:S.pendingFiles.map(f=>f.name),mentions});
   const sess=S.sessions[S.sessionId];
-  if(sess){sess.messages.push({role:'user',content,meta:msgMeta});sess.updated=Date.now()/1000;}
+  if(sess){
+    sess.messages.push({role:'user',content,meta:msgMeta});sess.updated=Date.now()/1000;
+    // Each turn counts the retention limit again from now (none while pinned / forever).
+    const ttl=+(S.config.sessions?.ttl)||0;
+    sess.expires=ttl>0&&!sess.pinned?Math.round(sess.updated)+ttl:null;
+  }
   if(S.sessionsServerOrdered)renderSessionList();   // the conversation just used goes to the top
   updateTokenCounter();
   _setStreamingUI(true); // show spinner immediately
   showTyping();scrollToBottom();
   // In parallel mode send all enabled+reachable instances; otherwise send the active single instance
   const ragPayload = _ragPayload();
+  if(sess){sess.kbSelect=ragPayload.kb_select;sess.template=ragPayload.template;}   // as stored with this turn
+  if(mentions.length){delete ragPayload.rag_instance;ragPayload.rag_instances=mentions;}
   S.currentQuery = content;
   const fileCtx=S.pendingFiles.map(f=>({name:f.name,text:f.text}));
   // Which knowledge base(s) this turn searched, so the answer can say "empty" rather than
@@ -4876,6 +6413,7 @@ function appendMessage(role,content,meta={},scroll=true){
       ${meta.images?.length?meta.images.map(img=>`<img src="${img}" class="msg-img" alt="attached"/>`).join(''):''}
       <div class="msg-bubble ${isUser?'user':'ai'}">${isUser?escHtml(content):renderMarkdown(content,{math:true})}</div>
       ${meta.files?.length?`<div class="msg-files">${meta.files.map(n=>`<span class="msg-file-tag">📄 ${escHtml(n)}</span>`).join('')}</div>`:''}
+      ${meta.mentions?.length?`<div class="msg-files" aria-label="Searched only">${meta.mentions.map(n=>`<span class="msg-file-tag mention-tag"># ${escHtml(n)}</span>`).join('')}</div>`:''}
       ${!isUser?`<div class="msg-raw" id="${id}-raw"></div>`:''}
       <div class="msg-meta">
         ${meta.cacheHit?`<span class="cache-badge cache-hit" title="Similarity: ${(meta.score*100).toFixed(1)}%">⚡ Cached ${(meta.score*100).toFixed(0)}%</span>`:''}
@@ -4892,10 +6430,10 @@ function appendMessage(role,content,meta={},scroll=true){
         <span style="width:1px;height:14px;background:var(--border);display:inline-block;margin:0 2px"></span>
         <button class="msg-action-btn" onclick="thumbs('${id}',1,this)">👍</button>
         <button class="msg-action-btn" onclick="thumbs('${id}',-1,this)">👎</button>
-        <button class="msg-action-btn" onclick="pinMsg('${id}',this)">📌</button>
+        <button class="msg-action-btn" onclick="pinMsg('${id}',this)" title="Bookmark this message (until the page is reloaded)" aria-label="Bookmark this message">🔖</button>
         <button class="msg-action-btn" onclick="regenerate('${id}')" title="Re-run the question that produced this answer">↻</button>
         <button class="msg-action-btn" onclick="forkSession('${id}')" title="Fork the conversation here — a new session containing everything up to this answer">⑂</button>
-        <button class="msg-action-btn" onclick="saveAnswerToKb('${id}')" title="Keep this answer — index it into a knowledge base so it survives the cache and the conversation">💾</button>
+        <button class="msg-action-btn" data-admin onclick="saveAnswerToKb('${id}')" title="Keep this answer — index it into a knowledge base so it survives the cache and the conversation">💾</button>
         ${meta.cacheHit?`<span style="width:1px;height:14px;background:var(--border);display:inline-block;margin:0 2px"></span>
         <button class="msg-action-btn" id="${id}-uncache" onclick="deleteCacheEntry('${id}',this)" title="Remove this response from the cache">🗑 Uncache</button>
         <button class="msg-action-btn" onclick="rerunSkipCache('${id}')" title="Re-generate bypassing the cache (overwrites cached response)">↺ Re-run fresh</button>`:''}
@@ -5018,19 +6556,45 @@ function renderVersionSwitcher(msgId,versions,idx){
   meta.appendChild(wrap);
 }
 
+// What a version was answered from — its own sources, mode and search outcome — so an
+// earlier version is shown with its own source list, citations and badge, not the latest's.
+function _versionMeta(m){
+  m=m||{};
+  const out={chunks:Array.isArray(m.chunks)?m.chunks:[]};
+  for(const k of ['rag_used','docs_only','not_found','search_failed'])if(typeof m[k]==='boolean')out[k]=m[k];
+  out.reused_sources=m.reused_sources===true;
+  if(m.latency)out.latency=m.latency;
+  if(typeof m.query==='string')out.query=m.query;
+  return out;
+}
 function showVersion(msgId,versions,idx){
   if(idx<0||idx>=versions.length)return;
   const el=document.getElementById(msgId); if(!el)return;
   const bubble=el.querySelector('.msg-bubble'); if(!bubble)return;
-  const raw=versions[idx].content||'';
+  const v=versions[idx];
+  const raw=v.content||'';
   destroyRichBlocks(bubble);
   el.setAttribute('data-raw',raw);
   bubble.innerHTML=renderMarkdown(raw,{math:true});
   renderMath(bubble);renderAbcBlocks(bubble);renderPlotBlocks(bubble);
   renderRichBlocks(bubble);highlightCode(bubble);addCopyButtons(bubble);enhanceTables(bubble);
-  // This rewrote the bubble's innerHTML, so the citation buttons that were in it are gone.
-  // Re-link, or stepping to another version of an answer and back leaves the markers inert.
-  _linkCitations(el,msgId,_citationCount(msgId));
+  // This version's own sources, mode and outcome: the source list, the "see also" links and
+  // the no-match note are rebuilt from them (a version recorded before they were kept
+  // shows the answer's current ones). The citation markers are re-linked and graded
+  // against them — rewriting innerHTML dropped the buttons that were there.
+  if(v.chunks){
+    _msgMeta[msgId]={...(_msgMeta[msgId]||{}),..._versionMeta(v)};
+    if(typeof v.not_found!=='boolean')delete _msgMeta[msgId].not_found;
+    if(typeof v.search_failed!=='boolean')delete _msgMeta[msgId].search_failed;
+    el.querySelectorAll('.rag-inspector,.see-also,.rag-nomatch-badge').forEach(n=>n.remove());
+    const tm=_turnMetaOf(msgId);
+    updateRagContext(msgId,v.chunks,v.latency||tm.latency,v.query||tm.query||'',tm.rag_used,
+      {docs_only:tm.docs_only,not_found:tm.not_found,search_failed:tm.search_failed,
+       reused_sources:tm.reused_sources===true});
+  }else{
+    _linkCitations(el,msgId,_citationCount(msgId));
+    _renderGrounding(msgId);
+  }
   renderVersionSwitcher(msgId,versions,idx);
 }
 
@@ -5114,10 +6678,24 @@ function clearSourceScope(){ setSourceScope(''); }
 function renderSourceScope(){
   const row=document.getElementById('scope-row');
   if(!row)return;
-  if(!S.sourceFilter){ row.style.display='none'; row.innerHTML=''; return; }
-  const short=S.sourceFilter.length>52?'…'+S.sourceFilter.slice(-50):S.sourceFilter;
+  const docs=typeof _docsOnly==='function'&&_docsOnly();
+  const pj=typeof _project==='function'?_project(_curSess()?.project):null;
+  const ments=S.mentions||[];
+  if(!S.sourceFilter&&!docs&&!pj&&!ments.length){ row.style.display='none'; row.innerHTML=''; return; }
   row.style.display='flex';
-  row.innerHTML=`<span class="scope-chip" title="${escHtml(S.sourceFilter)}">`
+  // The conversation's project, and the knowledge bases #mentioned for this question.
+  const pre=(pj?`<span class="scope-chip project-chip" style="--pc:${_safeColor(pj.color||'#7c6ff7')}" title="This conversation is in the project “${escHtml(pj.name)}”">`
+      +`${escHtml(pj.icon||'🗂')} <strong>${escHtml(pj.name)}</strong></span>`:'')
+    +ments.map((n,i)=>`<span class="scope-chip mention-chip" title="Only ${escHtml(n)} is searched for this question">`
+      +`# <strong>${escHtml(n)}</strong><button class="scope-chip-x" onclick="removeMention(${i})" `
+      +`title="Search the conversation's knowledge bases again" aria-label="Remove #${escHtml(n)}">✕</button></span>`).join('');
+  // Documents only is said in words here: the 📚 button alone is easy to miss.
+  const chip=docs?`<span class="scope-chip docs-only-chip" title="Answers come only from your documents; when nothing matches, the answer says so">`
+    +`📚 <strong>Documents only</strong>`
+    +`<button class="scope-chip-x" onclick="toggleDocsOnly(false)" title="Turn Documents only off" aria-label="Turn Documents only off">✕</button></span>`:'';
+  if(!S.sourceFilter){ row.innerHTML=pre+chip; return; }
+  const short=S.sourceFilter.length>52?'…'+S.sourceFilter.slice(-50):S.sourceFilter;
+  row.innerHTML=pre+chip+`<span class="scope-chip" title="${escHtml(S.sourceFilter)}">`
     +`⌖ only <strong>${escHtml(short)}</strong>`
     +`<button class="scope-chip-x" onclick="clearSourceScope()" title="Remove scope">✕</button></span>`;
 }
@@ -5132,14 +6710,15 @@ function _noModelDialog(){
     '<p>There is no model to send this to yet — the provider in use has no usable model.</p>'
     +'<p style="color:var(--text2);font-size:12px">Add an API key for a hosted provider, or '
     +'start Ollama and pull a model, then pick one from the model selector in the top bar.</p>',
-    [{label:'Not now',cls:'btn-secondary'},
-     {label:'Open provider settings',cls:'btn-primary',cb:()=>openSettings('providers')}]);
+    _isAdmin()?[{label:'Not now',cls:'btn-secondary'},
+     {label:'Open provider settings',cls:'btn-primary',cb:()=>openSettings('providers')}]
+    :[{label:'OK',cls:'btn-secondary'}]);
 }
 
 // ── Keeping an answer ────────────────────────────────────────────────────────
 // Nothing in the app retained an answer. The semantic cache expires (cache.ttl, one hour
-// by default), the conversation expires (sessions.ttl, one day), and 📌 Pin is an
-// in-memory array that does not survive a reload. Indexing the answer into a RAG instance
+// by default), the conversation can expire (sessions.ttl; kept forever by default) or be
+// deleted, and 📌 Pin on a message is an in-memory array that does not survive a reload. Indexing the answer into a RAG instance
 // is the only storage here that has no clock on it — and it makes the answer retrievable
 // again, which a bookmark would not.
 //
@@ -5161,7 +6740,8 @@ function _answerForSaving(id){
   // data-raw is the markdown as the model wrote it; the rendered bubble has lost the
   // fences, the table pipes and the citation markers to HTML.
   const raw=(document.getElementById(id)?.dataset.raw)||answer?.content||'';
-  const chunks=(answer?.meta?.chunks)||(_msgMeta[id]?.chunks)||[];
+  // _msgMeta first: it holds the shown version's sources when an earlier version is on screen.
+  const chunks=(_msgMeta[id]?.chunks)||(answer?.meta?.chunks)||[];
   return {question:(question?.content||'').trim(), answer:raw.trim(), chunks};
 }
 
@@ -5323,8 +6903,8 @@ function renderPinned(){
   document.getElementById('pinned-list').innerHTML=S.pinnedMsgs.map((p,i)=>`
     <div class="glass-card" style="font-size:13px;cursor:pointer" role="button" tabindex="0"
          onclick="togglePinned();openPin(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePinned();openPin(${i});}">
-      <div style="color:var(--text2);font-size:10px;margin-bottom:4px">📌 Pinned</div>${escHtml(p.preview)}…
-    </div>`).join('')||'<div style="color:var(--text2);font-size:13px">No pinned messages</div>';
+      <div style="color:var(--text2);font-size:10px;margin-bottom:4px">🔖 Bookmarked</div>${escHtml(p.preview)}…
+    </div>`).join('')||'<div style="color:var(--text2);font-size:13px">No bookmarked messages. 🔖 on a message keeps it here until the page is reloaded.</div>';
 }
 
 function scrollToMsg(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'center'});}
@@ -5388,7 +6968,7 @@ async function regenerate(msgId){
         return;
       }
       const prev=sess.messages[ai];
-      const versions=prev.meta?.versions||[{content:prev.content,provider:prev.meta?.provider,model:prev.meta?.model}];
+      const versions=prev.meta?.versions||[{content:prev.content,provider:prev.meta?.provider,model:prev.meta?.model,..._versionMeta(prev.meta)}];
       const ragPayload=_ragPayload();
       S.currentRagTargets=ragPayload.rag_instances||[ragPayload.rag_instance];
       try{
@@ -5423,6 +7003,8 @@ document.addEventListener('change', e=>{
   if(e.target?.id==='template-select'){
     const t=S.templates[parseInt(e.target.value)];
     if(t) e.target.dataset.pick=t.name; else delete e.target.dataset.pick;
+    if(!_inProject())S.tplPref=t?t.name:'';
+    _noteConversationSelection();     // the open conversation's template
   }
 });
 
@@ -5613,7 +7195,10 @@ function toggleMic(){
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
+// The tabs someone who is not an administrator sees (sign-in on): nothing in them saves.
+const _USER_TABS=new Set(['status','analytics','about']);
 function openSettings(tab='general'){
+  if(!_isAdmin()&&!_USER_TABS.has(tab))tab='status';
   const wasOpen=document.getElementById('settings-overlay').classList.contains('open');
   document.getElementById('settings-overlay').classList.add('open');
   _focusDialog('settings-overlay');   // move focus in, and remember where to hand it back
@@ -5724,7 +7309,10 @@ const _ADV_MARK = {ok: '●', warn: '▲', bad: '■', unknown: '○', static: '
 
 async function loadRagAdvice(){
   try{
-    const d = await fetch('/api/rag/advice').then(r=>r.json());
+    // One project's knowledge bases only, when one is chosen above the presets.
+    const pid = document.getElementById('adv-scope')?.value || '';
+    const d = await fetch('/api/rag/advice'+(pid?'?project='+encodeURIComponent(pid):'')).then(r=>r.json());
+    if(!d||!d.advice) return;
     S.ragAdvice = d;
     _renderRagAdvice(d.advice);
     _renderScoreHistogram(d.advice?.settings?.similarity_threshold);
@@ -6043,6 +7631,7 @@ const _READONLY_TABS=new Set(['status','about','analytics','logs']);
 let _settingsTab='general';
 
 function switchTab(tab){
+  if(!_isAdmin()&&!_USER_TABS.has(tab))tab='status';
   _settingsTab=tab;
   document.querySelectorAll('.stab').forEach(b=>{
     const on=b.dataset.tab===tab;
@@ -6077,7 +7666,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 // WAI-ARIA tabs: Left/Right move between tabs (and open them), Home/End jump to the ends.
 function settingsTabKey(e){
-  const tabs=[...document.querySelectorAll('.settings-tabs [role="tab"]')];
+  const tabs=[...document.querySelectorAll('.settings-tabs [role="tab"]')].filter(t=>_isAdmin()||!t.hasAttribute('data-admin'));
   const i=tabs.indexOf(document.activeElement);
   if(i<0)return;
   const to={ArrowRight:(i+1)%tabs.length,ArrowLeft:(i-1+tabs.length)%tabs.length,Home:0,End:tabs.length-1}[e.key];
@@ -6106,6 +7695,7 @@ function populateSettingsForm(){
   setRange('s-top-k',c.rag?.top_k||5);
   setRange('s-rag-threshold',c.rag?.similarity_threshold??0.35);
   setCheck('s-hybrid',c.rag?.hybrid_search??true);
+  setCheck('s-docs-only',c.rag?.documents_only===true);
   setCheck('s-rerank-enabled',c.reranker?.enabled??false);
   setVal('s-rerank-candidates',c.rag?.rerank_candidates??40);
   setVal('s-rerank-topn',c.reranker?.top_n??5);
@@ -6126,6 +7716,8 @@ function populateSettingsForm(){
   setVal('s-watch-interval',c.watch_folders?.interval_minutes??5);
   renderWatchFolders();
   setVal('s-history-budget',c.history_max_tokens??3000);
+  _setRetention(c.sessions?.ttl??0);
+  _renderUnlisted();if(!S.me?.auth)loadSessionsFromServer();   // the count, fresh
   // ── Crawl settings ──
   setVal('crawl-concurrency',c.crawl?.concurrency||10);
   setVal('crawl-js-concurrency',c.crawl?.js_concurrency||3);
@@ -6304,11 +7896,13 @@ function _collectSettings(){
     embedding:{model:getVal('s-embed-model'),max_image_dim:parseInt(getVal('s-max-img-dim'))},
     // The server does a TOP-LEVEL _config.update(), so a section posted here replaces
     // the stored one wholesale: every key a section owns must be emitted or it is lost.
-    rag:{chunk_size:parseInt(getVal('s-chunk-size')),chunk_overlap:parseInt(getVal('s-chunk-overlap')),top_k:parseInt(getVal('s-top-k')),similarity_threshold:parseFloat(getVal('s-rag-threshold')),hybrid_search:getCheck('s-hybrid'),rerank_candidates:parseInt(getVal('s-rerank-candidates'))||40},
+    rag:{chunk_size:parseInt(getVal('s-chunk-size')),chunk_overlap:parseInt(getVal('s-chunk-overlap')),top_k:parseInt(getVal('s-top-k')),similarity_threshold:parseFloat(getVal('s-rag-threshold')),hybrid_search:getCheck('s-hybrid'),rerank_candidates:parseInt(getVal('s-rerank-candidates'))||40,documents_only:getCheck('s-docs-only')},
     // `model` has no control of its own — carry the stored value so the section
     // replacement above does not drop it.
     reranker:{enabled:getCheck('s-rerank-enabled'),
               model:S.config.reranker?.model||'cross-encoder/ms-marco-MiniLM-L-6-v2',
+              // set in config.json only (SETTINGS.md): kept, not dropped, by a save here
+              ...(S.config.reranker?.half_precision===true?{half_precision:true}:{}),
               top_n:parseInt(getVal('s-rerank-topn'))||5},
     cache:{enabled:getCheck('s-cache-enabled'),
            similarity_threshold:getCheck('s-cache-threshold-auto')?null:parseFloat(getVal('s-cache-threshold')),
@@ -6327,6 +7921,8 @@ function _collectSettings(){
     base_instruction:getVal('base-instruction'),
     visual_instructions:getCheck('s-visual-instructions'),
     history_max_tokens:parseInt(getVal('s-history-budget'))||0,
+    // persist has no control: carried so the section is posted whole.
+    sessions:{persist:S.config.sessions?.persist??true,ttl:parseInt(getVal('s-session-retention'))||0},
     prompt_templates:S.templates,
     web_sources:S.config.web_sources||[],
     active_rag:S.activeRag?.name||'default',
@@ -6448,6 +8044,8 @@ async function _postConfig(cfg,force=false){
     S.config=j; S.configLoaded=true;
   }catch(e){ S.config=cfg; console.warn('config reload after save failed:',e); }
   _settingsSnap=null;    // saved: nothing for the close to put back
+  loadSessionsFromServer();   // a new retention changes what the rows say about expiry
+  _renderDocsOnly();          // a new default applies to conversations that never chose
   applyTheme(S.config.ui?.theme||cfg.ui.theme);closeSettings(true);toast('Settings saved','success',{scope:'settings-save'});
   return true;
 }
@@ -6759,7 +8357,7 @@ async function loadAnalytics(){
     <div class="glass-card" style="margin-top:4px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <h4 style="margin:0">📚 RAG Performance — per instance</h4>
-        <button class="btn btn-danger" style="padding:4px 10px;font-size:11px" onclick="resetRagStats()" title="Reset retrieval counters">↺ Reset counters</button>
+        <button class="btn btn-danger" data-admin style="padding:4px 10px;font-size:11px" onclick="resetRagStats()" title="Reset retrieval counters">↺ Reset counters</button>
       </div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:10px">
         Stats persist across restarts · <strong>Hit rate</strong> = queries that returned ≥1 chunk above similarity threshold ·
@@ -6874,7 +8472,7 @@ function _tokenUsageCardHTML(usage){
   return `<div class="glass-card" style="margin-top:4px">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
       <h4 style="margin:0">🔢 Token Usage</h4>
-      <button class="btn btn-danger" style="padding:4px 10px;font-size:11px" onclick="resetTokenUsage()">↺ Reset tally</button>
+      <button class="btn btn-danger" data-admin style="padding:4px 10px;font-size:11px" onclick="resetTokenUsage()">↺ Reset tally</button>
     </div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:12px">
       All-time, across <b>every</b> session — unlike the token pills in the top bar, which
@@ -6957,6 +8555,7 @@ async function loadCacheAnalytics(){
       <div class="stat-card"><div class="stat-num">${res.count}</div><div class="stat-label">Cached Queries</div></div>
       <div class="stat-card"><div class="stat-num">${hitRate}%</div><div class="stat-label">Session Hit Rate</div></div>
     </div>
+    ${Array.isArray(res.by_user)?`<div class="form-hint" id="cache-by-user" style="margin-top:6px">Your cached questions only. All users: ${+res.total||0} cached answer${+res.total===1?'':'s'} — ${res.by_user.map(u=>`${u.user?'user '+escHtml(String(u.user).slice(0,8)):'from before sign-in'}: ${+u.count||0}`).join(' · ')}</div>`:''}
     ${res.entries.length?`<table class="data-table" style="margin-top:8px"><thead><tr><th>Query</th><th>TTL</th></tr></thead><tbody>
       ${res.entries.slice(0,10).map(e=>`<tr><td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.query)}">${escHtml(e.query.slice(0,60))}${e.query.length>60?'…':''}</td><td title="${e.ttl>=0?e.ttl+' s':''}">${_cacheTtlCell(e.ttl)}</td></tr>`).join('')}
     </tbody></table>`:'<div style="color:var(--text2);font-size:13px;margin-top:8px">No cached queries yet.</div>'}`;
@@ -7112,6 +8711,7 @@ async function refreshProviderDots(){
   const st=await _probeProviders();
   S.providerStatus=st;_mpProbedAt=Date.now();   // same data the picker's dots need
   if(typeof renderModelPicker==='function')renderModelPicker();
+  _renderHealth();
   for(const [id] of PROVIDER_LIST){
     const el=document.getElementById(id+'-dot-cfg');
     if(!el)continue;
@@ -7163,7 +8763,7 @@ async function loadStatus(){
         <div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(String(detail))}">${escHtml(String(detail))}</div>
       </div>
       ${pill}
-      ${configured||id==='ollama'?'':`<button class="btn btn-secondary btn-sm" onclick="openSettings('${id}')">Set up</button>`}
+      ${configured||id==='ollama'?'':`<button class="btn btn-secondary btn-sm" data-admin onclick="openSettings('${id}')">Set up</button>`}
     </div>`;
   };
 
@@ -11822,6 +13422,11 @@ function _focusDialog(id){
   if(!dlg)return;
   _pushFocus(id);
   setTimeout(()=>{
+    // Focus already inside the dialog got there after it opened (a click into a field,
+    // typing that began before this ran): moving it now sends the rest of the keystrokes
+    // to the close button and the field silently keeps its old value.
+    const cur=document.activeElement;
+    if(cur&&cur!==dlg&&dlg.contains(cur))return;
     const items=[...dlg.querySelectorAll(_FOCUSABLE)].filter(el=>el.offsetParent!==null);
     if(!items.length)return void dlg.focus();
     // A panel is not a confirm dialog: "the first secondary button" means Cancel in a
@@ -11866,6 +13471,7 @@ function _restoreFocus(id){
 }
 
 function handleKey(e){
+  if(_mentionKey(e))return;          // the # mention menu has the arrows, Enter, Tab and Esc
   if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();sendMessage();}
   else if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}
 }

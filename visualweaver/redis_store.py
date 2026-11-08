@@ -7,6 +7,8 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 import logging
 import asyncio
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 from . import mongo_store, rag, rag_admin, state
 
 log = logging.getLogger(__name__)
@@ -171,6 +173,27 @@ def invalidate_redis_clients():
     state._semantic_cache = None
 
 
+_probe_errors: dict[str, str] = {}     # last health-probe failure per connection
+
+
+def _ping_once(rc) -> None:
+    """PING once, without the client's retries. A redis.Redis client retries a
+    refused connection three times with backoff (~5.7 s per call), so a health
+    probe of a stopped server took seconds to say "down"; this one connection
+    answers in milliseconds. MongoDB connections keep their own ping."""
+    if not isinstance(rc, redis.Redis):
+        rc.ping()
+        return
+    pool = rc.connection_pool
+    conn = pool.connection_class(**{**pool.connection_kwargs, "retry": Retry(NoBackoff(), 0)})
+    try:
+        conn.connect()
+        conn.send_command("PING")
+        conn.read_response()
+    finally:
+        conn.disconnect()
+
+
 def _probe_endpoint(ep_name: str) -> bool:
     """
     Return True if the named Redis endpoint responds to PING within the
@@ -179,11 +202,13 @@ def _probe_endpoint(ep_name: str) -> bool:
     """
     try:
         rc = r_for(ep_name)
-        rc.ping()
+        _ping_once(rc)
         state._endpoint_health[ep_name] = True
+        _probe_errors.pop(ep_name, None)
         return True
-    except Exception:
+    except Exception as e:
         state._endpoint_health[ep_name] = False
+        _probe_errors[ep_name] = str(e)[:300]
         log.warning(f"Storage connection '{ep_name}' is unreachable — RAG instances on it will be marked offline")
         return False
 

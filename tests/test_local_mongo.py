@@ -102,6 +102,11 @@ def test_a_slow_runtime_is_retried_and_reported_busy_not_stopped(tmp_path, monke
     """`docker info` can take longer than its limit on a loaded machine. That is a busy
     runtime, not a stopped one: telling the user to start it sends them the wrong way."""
     monkeypatch.setattr(lm, "_INFO_TIMEOUTS", (0.3, 0.6))
+    # Only the fake CLI written below is visible as docker/podman — a runner with a real
+    # podman (GitHub's ubuntu image has one) must not take part.
+    import shutil as _sh
+    real_which = _sh.which
+    monkeypatch.setattr(lm.shutil, "which", lambda c: real_which(c) if c == "docker" else None)
     # slower than both limits: busy
     monkeypatch.setenv("PATH", str(_script_cli(tmp_path / "a", "docker", "sleep 3")) + ":/usr/bin:/bin")
     cmd, why = lm.runtime()
@@ -451,3 +456,63 @@ def test_a_moved_port_is_followed_by_the_app_config(tmp_path, monkeypatch):
     p.write_text(json.dumps({"mongodb": {"type": "mongodb", "builtin": True,
                                          "uri": f"mongodb://127.0.0.1:{taken}/?authSource=admin"}}))
     assert lm.rewire_config(p, st) and str(moved["port"]) in json.loads(p.read_text())["mongodb"]["uri"]
+
+
+def _runtime_fakes(tmp_path, monkeypatch, others=""):
+    """A fake `colima` that "starts" the engine (a marker file) and a fake `docker` that
+    answers only while it runs; `docker ps -q` lists `others` (other projects' containers)."""
+    d = tmp_path / "rtbin"
+    d.mkdir()
+    up = tmp_path / "engine-up"
+    (d / "colima").write_text(f'#!/bin/sh\ncase "$1" in start) touch "{up}";; stop) rm -f "{up}";; esac\n')
+    (d / "docker").write_text(f'''#!/bin/sh
+case "$1" in
+  context) echo colima ;;
+  info) [ -f "{up}" ] && echo {{}} || {{ echo "Cannot connect" >&2; exit 1; }} ;;
+  compose) echo "Docker Compose version v2.30.0" ;;
+  ps) [ -f "{up}" ] && printf '%s' "{others}" ;;
+esac
+''')
+    for f in d.iterdir():
+        f.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{d}:/usr/bin:/bin")
+    monkeypatch.setattr(lm.shutil, "which", lambda c: str(d / c) if (d / c).exists() else None)
+    monkeypatch.setattr(lm.time, "sleep", lambda s: None)
+    return up
+
+
+def test_a_stopped_runtime_is_started_waited_for_and_stopped_again(tmp_path, monkeypatch):
+    up = _runtime_fakes(tmp_path, monkeypatch)
+    monkeypatch.setenv("VISUALWEAVER_DATA_DIR", str(tmp_path / "data"))
+    base = tmp_path / "data"
+    lm.init(port=27130, base=base)
+    r = lm.ensure_runtime(base)
+    assert r["started"] is True and r["name"] == "Colima" and up.exists()
+    assert json.loads((lm.state_dir(base) / "runtime.json").read_text())["name"] == "Colima"
+    assert lm.ensure_runtime(base)["started"] is False, "already running: nothing to start"
+    rel = lm.release_runtime(base)
+    assert rel["stopped"] is True and not up.exists()
+    assert not (lm.state_dir(base) / "runtime.json").exists()
+    assert lm.release_runtime(base) == {"stopped": False, "reason": "not started by VisualWeaver"}
+
+
+def test_a_runtime_others_still_use_is_left_running(tmp_path, monkeypatch):
+    up = _runtime_fakes(tmp_path, monkeypatch, others="abc123 def456")
+    monkeypatch.setenv("VISUALWEAVER_DATA_DIR", str(tmp_path / "data"))
+    base = tmp_path / "data"
+    lm.init(port=27131, base=base)
+    lm.ensure_runtime(base)
+    rel = lm.release_runtime(base)
+    assert rel["stopped"] is False and "2 other containers still running" in rel["reason"] and up.exists()
+    monkeypatch.setenv("VISUALWEAVER_KEEP_RUNTIME", "1")
+    assert lm.release_runtime(base)["reason"] == "VISUALWEAVER_KEEP_RUNTIME=1"
+
+
+def test_a_runtime_that_cannot_be_started_here_says_how(tmp_path, monkeypatch):
+    """A Linux daemon needs sudo: no start is attempted, the message keeps the fix."""
+    _runtime_fakes(tmp_path, monkeypatch)
+    monkeypatch.setattr(lm, "_startable_runtime", lambda: None)
+    monkeypatch.setenv("VISUALWEAVER_DATA_DIR", str(tmp_path / "data"))
+    with pytest.raises(lm.LocalMongoError) as ei:
+        lm.ensure_runtime(tmp_path / "data")
+    assert "installed but not running" in str(ei.value)

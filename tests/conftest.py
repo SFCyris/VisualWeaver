@@ -17,6 +17,9 @@ import pytest
 
 _TMP_DATA = tempfile.mkdtemp(prefix="visualweaver-tests-")
 os.environ["VISUALWEAVER_DATA_DIR"] = _TMP_DATA
+# TestClient's requests name the host "testserver": a name the DNS-rebinding guard only
+# answers browsers for when it is listed (read when appcore is imported).
+os.environ.setdefault("VISUALWEAVER_ALLOWED_HOSTS", "testserver")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Redis used by the integration tests.
@@ -337,11 +340,18 @@ def pytest_unconfigure(config):
 def pytest_report_header(config):
     """Say which Redis the run is using — the difference between a private server
     and someone's live one should never be silent."""
+    lines = []
     if _REDIS_PORT_ENV:
-        return f"redis: {REDIS_HOST}:{REDIS_PORT} db{REDIS_DB} (pinned by env)"
-    if _private_redis is not None:
-        return f"redis: private throwaway server on port {REDIS_PORT}"
-    return f"redis: none started ({_boot_reason or 'unknown'}) — integration tests will skip"
+        lines.append(f"redis: {REDIS_HOST}:{REDIS_PORT} db{REDIS_DB} (pinned by env)")
+    elif _private_redis is not None:
+        lines.append(f"redis: private throwaway server on port {REDIS_PORT}")
+    else:
+        lines.append(f"redis: none started ({_boot_reason or 'unknown'}) — integration tests will skip")
+    if os.environ.get("VISUALWEAVER_TEST_MONGO_URI"):
+        lines.append("mongodb: " + ("the mutation sweep's shared server; this run owns databases "
+                                    f"vwtest_*{os.getpid()}_*" if _MONGO_SHARED
+                                    else "VISUALWEAVER_TEST_MONGO_URI"))
+    return lines
 
 
 @pytest.fixture(scope="session")
@@ -386,6 +396,15 @@ def _purge(rc):
     for pattern in (f"{KEY_PREFIX}*", f"*{KEY_PREFIX}*"):
         for key in rc.scan_iter(pattern, count=500):
             rc.delete(key)
+    # Instances a test created are also named in the app's instance registry, a key
+    # without the prefix: remove only this run's names from it, never the key.
+    try:
+        from visualweaver import instance_registry
+        mine = [m for m in rc.smembers(instance_registry.REDIS_KEY) if KEY_PREFIX.encode() in m]
+        if mine:
+            rc.srem(instance_registry.REDIS_KEY, *mine)
+    except Exception:
+        pass
     try:
         for name in rc.execute_command("FT._LIST"):
             name = name.decode() if isinstance(name, bytes) else name
@@ -433,7 +452,18 @@ def mongo_uri(tmp_path_factory):
     import subprocess
     uri = os.environ.get("VISUALWEAVER_TEST_MONGO_URI")
     if uri:
-        yield uri
+        shared = _MONGO_SHARED
+        if shared:
+            # tests/mutation_sweep.py runs many labs against this one server. A lab that
+            # died earlier with this pid could have left databases behind; nothing of it
+            # may be visible to this run.
+            _drop_own_test_databases(uri)
+        try:
+            yield uri
+        finally:
+            if shared:
+                _drop_own_test_databases(uri)
+                _warn_unqualified_databases(uri)
         return
     from visualweaver import local_mongo
     cmd, why = local_mongo.runtime()
@@ -452,6 +482,64 @@ def mongo_uri(tmp_path_factory):
         yield local_mongo.admin_uri(st)
     finally:
         _compose_down(cmd, st["project"], local_mongo.state_dir(base) / "compose.yml")
+
+
+# Set by tests/mutation_sweep.py together with VISUALWEAVER_TEST_MONGO_URI: the server is
+# one stack shared by every lab of a sweep. Isolation between labs rests on the database
+# names — every MongoDB fixture names its database vwtest_[<tag>_]<pid>_<ms> — so this
+# run owns exactly the databases carrying its own pid.
+_MONGO_SHARED = os.environ.get("VISUALWEAVER_TEST_MONGO_SHARED") == "1"
+_OWN_DB = re.compile(rf"^vwtest_(?:[a-z]+_)*{os.getpid()}_")
+_ANY_TEST_DB = re.compile(r"^vwtest_(?:[a-z]+_)*\d+_")
+_SYSTEM_DBS = {"admin", "config", "local"}
+
+
+def _own_test_databases(names) -> list:
+    """The database names (of `names`) that belong to this pytest process."""
+    return [n for n in names if _OWN_DB.match(n)]
+
+
+def _drop_own_test_databases(uri: str) -> list:
+    """Drop this process's test databases on a shared server; returns their names.
+    Best effort: a failure is reported, never raised into the session."""
+    import warnings
+    try:
+        from pymongo import MongoClient
+        c = MongoClient(uri, directConnection=True, serverSelectionTimeoutMS=5000)
+        try:
+            mine = _own_test_databases(c.list_database_names())
+            for n in mine:
+                c.drop_database(n)
+            return mine
+        finally:
+            c.close()
+    except Exception as e:                                       # pragma: no cover
+        warnings.warn(f"could not clean this run's databases on the shared MongoDB: {e}")
+        return []
+
+
+def _warn_unqualified_databases(uri: str) -> list:
+    """Databases on the shared server that no pid scopes. Two labs writing one would see
+    each other's data, so a test that creates one must be fixed; warned, not failed,
+    because a parallel lab may be the one that made it."""
+    import warnings
+    try:
+        from pymongo import MongoClient
+        c = MongoClient(uri, directConnection=True, serverSelectionTimeoutMS=5000)
+        try:
+            names = c.list_database_names()
+        finally:
+            c.close()
+    except Exception:                                            # pragma: no cover
+        return []
+    loose = [n for n in names if n not in _SYSTEM_DBS and not n.startswith("__")
+             and not _ANY_TEST_DB.match(n)]
+    if loose:
+        msg = (f"databases on the shared test MongoDB that carry no pid: {loose} — a test "
+               "that writes one is not isolated from parallel labs")
+        sys.stderr.write(f"\n{msg}\n")
+        warnings.warn(msg)
+    return loose
 
 
 def _compose_down(cmd: list, project: str, compose_file: Path, tries: int = 3) -> bool:

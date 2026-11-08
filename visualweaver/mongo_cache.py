@@ -237,16 +237,17 @@ class MongoSemanticCache:
         return v
 
     def check(self, prompt: str, num_results: int = 1, filters: dict | None = None,
-              distance_threshold: float | None = None) -> list[dict]:
+              distance_threshold: float | None = None, vector: list | None = None) -> list[dict]:
         """Entries nearest to ``prompt`` within the distance threshold, nearest first.
 
         One aggregate: exact nearest neighbour, pre-filtered on the filters and on expiry,
         and expiry checked again on the documents themselves.
         Hits are shaped like redisvl's (entry_id, prompt, response, vector_distance,
-        inserted_at, updated_at, metadata, the filter fields, key).
+        inserted_at, updated_at, metadata, the filter fields, key). ``vector``, when
+        given, is the prompt's vector already computed (redisvl's check takes it too).
         """
         dist_max = distance_threshold or self._distance_threshold
-        vec = self._vectorize(prompt)
+        vec = self._vectorize(prompt) if vector is None else [float(x) for x in vector]
         if _rebuild_key(self.ep) in _rebuilding:
             return []
         now = _now()
@@ -282,11 +283,12 @@ class MongoSemanticCache:
         return hits
 
     def store(self, prompt: str, response: str, metadata: dict | None = None,
-              filters: dict | None = None, ttl: int | None = None) -> str:
+              filters: dict | None = None, ttl: int | None = None,
+              vector: list | None = None) -> str:
         """Store (or replace) the entry for ``prompt`` under ``filters``; returns its id."""
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Metadata must be a dictionary.")
-        vec = self._vectorize(prompt)
+        vec = self._vectorize(prompt) if vector is None else [float(x) for x in vector]
         entry_id = hashify(prompt, filters)
         t = time.time()
         doc = {"_id": entry_id, "entry_id": entry_id, "prompt": prompt, "response": response,
@@ -307,21 +309,30 @@ class MongoSemanticCache:
 # ── what the cache analytics routes need ─────────────────────────────────────
 
 def entries(ep) -> list[dict]:
-    """[{query, ttl}] for every live entry, newest first (ttl −1 = never expires)."""
+    """[{query, ttl, owner}] for every live entry, newest first (ttl −1 = never expires;
+    owner = the cache partition of the user it was cached for, "" with sign-in off)."""
     out = []
-    for d in (ep.col(COLLECTION).find({"exp": {"$gt": _now()}}, {"prompt": 1, "exp": 1, "inserted_at": 1})
+    for d in (ep.col(COLLECTION).find({"exp": {"$gt": _now()}},
+                                      {"prompt": 1, "exp": 1, "inserted_at": 1, "owner": 1})
               .sort("inserted_at", -1)):
-        out.append({"query": d.get("prompt") or "", "ttl": _remaining(d.get("exp"))})
+        out.append({"query": d.get("prompt") or "", "ttl": _remaining(d.get("exp")),
+                    "owner": d.get("owner") or ""})
     return out
 
 
-def delete_entry(ep, entry_id: str) -> bool:
+def delete_entry(ep, entry_id: str, owner: str | None = None) -> bool:
     """True when a live entry was removed — an expired one counts as already gone, as on
-    Redis (it is removed all the same)."""
+    Redis (it is removed all the same). ``owner`` (a user's cache partition, not None)
+    removes the entry only when it was cached for that user."""
     col = ep.col(COLLECTION)
-    if col.delete_one({"_id": entry_id, "exp": {"$gt": _now()}}).deleted_count:
+    q = {"_id": entry_id}
+    if owner is not None:
+        if not owner:
+            return False
+        q["owner"] = owner
+    if col.delete_one({**q, "exp": {"$gt": _now()}}).deleted_count:
         return True
-    col.delete_one({"_id": entry_id})
+    col.delete_one(q)
     return False
 
 

@@ -40,6 +40,14 @@ APP_STORE="$(app_store_type)"
 store_required() { [ "${DEFAULT_TYPE}" = "$1" ] || [ "${APP_STORE}" = "$1" ]; }
 store_failed() {   # $1 = redis|mongodb, $2 = what is unavailable without it
   if store_required "$1"; then
+    local what="Redis"; [ "$1" = mongodb ] && what="MongoDB"
+    if [ "${DEFAULT_TYPE}" = "$1" ]; then
+      c_err "The built-in ${what} is VisualWeaver's main storage, so the app cannot start without it."
+    else
+      c_err "VisualWeaver keeps its app data (conversations, the answer cache) on the built-in ${what},"
+      c_err "so the app cannot start without it."
+    fi
+    c_err "Fix the cause above and run ./start.sh again."
     exit 1
   fi
   c_warn "Continuing without it: $2 until it runs (./start.sh again starts it)."
@@ -75,7 +83,24 @@ fi
 # failure its message says why: the runtime is not running (and how to start
 # it), or the containers' last log lines.
 MONGO_OK=0
+MONGO_RUNTIME_OK=1
+MPORT=""
 if [ "${STORE_MONGO}" = 1 ]; then
+  MPORT="$(mongo_port)"
+  # The container runtime is started here when it is installed but stopped (after a
+  # reboot, typically), and waited for; stop.sh stops it again if it was started here
+  # and nothing else runs in it.
+  c_info "Checking the container runtime for the built-in MongoDB (starting it if needed)…"
+  _rt="$(lm ensure-runtime 2>&1)" || MONGO_RUNTIME_OK=0
+  if [ "${MONGO_RUNTIME_OK}" = 1 ] && [ "$(printf '%s' "${_rt}" | json_field started)" = "True" ]; then
+    c_ok "Started $(printf '%s' "${_rt}" | json_field name) (container runtime) in $(printf '%s' "${_rt}" | json_field seconds) s."
+  fi
+fi
+if [ "${STORE_MONGO}" = 1 ] && [ "${MONGO_RUNTIME_OK}" = 0 ]; then
+  c_err "The built-in MongoDB cannot start: its container runtime is not available."
+  printf '%s\n' "${_rt}" | tail -n 5 >&2
+  store_failed mongodb "RAG instances on the built-in MongoDB are unavailable"
+elif [ "${STORE_MONGO}" = 1 ]; then
   # Another program may have taken the port since the install: move to the next free
   # one and point the app's connection at it (before the app starts and reads it).
   _avoid=(--avoid "${APP_PORT}"); [ -n "${RPORT:-}" ] && _avoid+=(--avoid "${RPORT}")
@@ -136,8 +161,11 @@ else
   # without a wrapping subshell, so $! is the uvicorn process itself. (The subshell
   # form captured the wrapper's PID, so stop.sh killed the wrapper and orphaned the
   # real server.) After the package split this becomes the `visualweaver` console script.
-  VISUALWEAVER_PORT="${APP_PORT}" nohup "${PY}" -m uvicorn visualweaver.main:app \
-    --app-dir "${REPO_DIR}" --host "${APP_HOST}" --port "${APP_PORT}" >>"${APP_LOG}" 2>&1 &
+  # --no-proxy-headers: the sign-in check (auth.trusted_proxies) must see each connection's
+  # real peer address, not one taken from an X-Forwarded-For header.
+  _log_off="$( [ -f "${APP_LOG}" ] && wc -c <"${APP_LOG}" | tr -d ' ' || echo 0)"
+  VISUALWEAVER_HOST="${APP_HOST}" VISUALWEAVER_PORT="${APP_PORT}" nohup "${PY}" -m uvicorn visualweaver.main:app \
+    --app-dir "${REPO_DIR}" --host "${APP_HOST}" --port "${APP_PORT}" --no-proxy-headers >>"${APP_LOG}" 2>&1 &
   echo $! > "${APP_PID}"
   # Poll /api/health until ready.
   up=0
@@ -162,8 +190,8 @@ fi
 # Version: ask the RUNNING server what it is — the repo file only says what the
 # next start would serve, and quoting it after a skipped start announced a
 # version that was not actually running. File value is the fallback only.
-APP_VERSION="$(curl -fsS -m 2 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null \
-  | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+_health="$(curl -fsS -m 2 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null || true)"
+APP_VERSION="$(printf '%s' "${_health}" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
 [ -z "${APP_VERSION}" ] && APP_VERSION="$(sed -n 's/^__version__ *= *["'"'"']\(.*\)["'"'"']/\1/p' "${REPO_DIR}/visualweaver/__init__.py" 2>/dev/null)"
 [ -z "${APP_VERSION}" ] && APP_VERSION="?"
 
@@ -227,9 +255,31 @@ if [ "${STORE_MONGO}" = 1 ]; then
   c_info "  MongoDB log: cd \"${REPO_DIR}\" && ${_lmenv}venv/bin/python -m visualweaver.local_mongo logs"
 fi
 c_info "  Stop:     ${REPO_DIR}/stop.sh"
+# Sign-in through a reverse proxy (auth in config.json / VISUALWEAVER_AUTH): without the
+# proxy's header /api/me answers 401 when it is on, 503 when its settings are broken.
+SIGNIN=off
+case "$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:${APP_PORT}/api/me" 2>/dev/null)" in
+  401) SIGNIN=on ;;
+  503) SIGNIN=broken ;;
+esac
+if [ "${SIGNIN}" != off ]; then
+  if [ "${SIGNIN}" = broken ]; then
+    c_err "  Sign-in:  MISCONFIGURED — every request is refused until the auth settings are fixed (see the app log)."
+    # /api/health still answers then: "status": "misconfigured" and the reason.
+    _why="$(printf '%s' "${_health}" | sed -n 's/.*"detail" *: *"\([^"]*\)".*/\1/p')"
+    [ -n "${_why}" ] && c_err "            ${_why}"
+  else
+    c_info "  Sign-in:  through your reverse proxy (trusted header) — open VisualWeaver at the proxy's address."
+  fi
+  # The app's own checks, from this start's log lines (bind address vs trusted proxies, no admins).
+  if [ -n "${_log_off:-}" ]; then
+    tail -c +"$((_log_off + 1))" "${APP_LOG}" 2>/dev/null | sed -n 's/.*SIGN-IN WARNING: //p' \
+      | while IFS= read -r _l; do c_warn "  WARNING: ${_l}"; done
+  fi
+fi
 # The guard for an unauthenticated service on all interfaces: say exactly which
 # address other devices can reach, and how to restrict it, every single start.
-case "${APP_HOST}" in
+if [ "${SIGNIN}" = off ]; then case "${APP_HOST}" in
   0.0.0.0|::|"")
     c_warn "  NOTE: reachable from other devices on your network at ${APP_URLS[1]:-the LAN address above} — VisualWeaver has NO built-in auth."
     c_warn "        On an untrusted network run it localhost-only:  VISUALWEAVER_HOST=127.0.0.1 ./start.sh"
@@ -241,4 +291,4 @@ case "${APP_HOST}" in
   *)
     c_warn "  NOTE: bound to ${APP_HOST} — VisualWeaver has NO built-in auth; put a reverse proxy with auth in front before exposing it."
     ;;
-esac
+esac; fi

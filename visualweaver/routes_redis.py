@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timezone
 import redis
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from . import appcore, appstore, config, constants, mongo_store, rag, rag_admin, rag_advice, redis_store, routes_settings, state
+from . import appcore, appstore, auth, config, constants, mongo_store, projects, rag, rag_admin, rag_advice, redis_store, routes_settings, state
 from . import mongo_cache
 from . import cache as _ns_cache
 
@@ -345,7 +345,31 @@ def api_cache_stats():
     Return a summary of entries in the SemanticCache, on whichever store holds the app's
     data: {"count", "entries": [{"query", "ttl"}]} (ttl -1 = never expires).
     redisvl stores the prompt in a field named 'prompt' (previously 'query').
+
+    With sign-in on, every answer is cached for its user only (cache.private_partition)
+    and a cached question is that user's own words: everyone — administrators included —
+    gets only their own entries and their count. Administrators also get ``total`` and
+    ``by_user`` ([{"user": partition tag, "count"}]; "" = cached before sign-in), counts
+    only, never another user's questions.
     """
+    out = _cache_stats()
+    rows = out.get("entries") or []
+    me = auth.current()
+    if me is None:
+        return {**out, "entries": [{k: v for k, v in e.items() if k != "owner"} for e in rows]}
+    mine = auth.partition(me.id)
+    own = [{k: v for k, v in e.items() if k != "owner"} for e in rows if e.get("owner") == mine]
+    res = {**out, "count": len(own), "entries": own}
+    if me.admin:
+        per: dict = {}
+        for e in rows:
+            per[e.get("owner") or ""] = per.get(e.get("owner") or "", 0) + 1
+        res["total"] = out.get("count", len(rows))
+        res["by_user"] = [{"user": u, "count": n} for u, n in sorted(per.items(), key=lambda x: -x[1])]
+    return res
+
+
+def _cache_stats() -> dict:
     try:
         kind, rc = _ns_cache._cache_backend()
         if kind == "mongodb":
@@ -357,12 +381,15 @@ def api_cache_stats():
         for k in keys:
             pipe.hget(k, "prompt")
             pipe.ttl(k)
+            pipe.hget(k, "owner")       # the user it was cached for (sign-in on), else none
         results = pipe.execute()
-        for i in range(0, len(results), 2):
+        for i in range(0, len(results), 3):
             prompt_raw = results[i]
             ttl        = results[i + 1]
+            owner_raw  = results[i + 2]
             prompt     = prompt_raw.decode() if isinstance(prompt_raw, bytes) else (prompt_raw or "")
-            entries.append({"query": prompt, "ttl": ttl})
+            owner      = owner_raw.decode() if isinstance(owner_raw, bytes) else (owner_raw or "")
+            entries.append({"query": prompt, "ttl": ttl, "owner": owner})
         return {"count": len(keys), "entries": entries}
     except Exception as e:
         return {"count": 0, "entries": [], "error": str(e)}
@@ -404,12 +431,21 @@ def api_delete_cache_entry(entry_id: str):
     """
     if not entry_id:
         return {"ok": False, "error": "entry_id required"}
+    # With sign-in on, a user removes only answers cached for them (their partition, see
+    # cache.private_partition); an administrator any. Someone else's entry is answered
+    # like one that does not exist.
+    owner = None if auth.is_admin() else auth.cache_partition()
     try:
         kind, rc = _ns_cache._cache_backend()
         if kind == "mongodb":
-            return {"ok": mongo_cache.delete_entry(rc, entry_id)}
+            return {"ok": mongo_cache.delete_entry(rc, entry_id, owner=owner)}
         # SemanticCache name is CACHE_PREFIX stripped of the trailing ":"
         key = f"{constants.CACHE_PREFIX.rstrip(':')}:{entry_id}"
+        if owner is not None:
+            got = rc.hget(key, "owner")
+            got = got.decode() if isinstance(got, bytes) else got
+            if not owner or got != owner:
+                return {"ok": False}
         deleted = rc.delete(key)
         return {"ok": bool(deleted)}
     except Exception as e:
@@ -417,16 +453,27 @@ def api_delete_cache_entry(entry_id: str):
 
 
 @appcore.app.get("/api/rag/advice")
-def api_rag_advice():
+def api_rag_advice(project: str = ""):
     """Per-setting verdicts for the RAG controls, measured from this deployment.
 
     Everything here comes from observed retrieval behaviour — the distribution of
     pre-threshold scores and which chunk ranks answers actually cited. A setting with
     no measurement behind it is returned as ``unknown`` or ``static`` so the UI can
     show no colour rather than a guess.
+
+    ``?project=<id>``: measured on that project's knowledge bases only (404 when there
+    is no such project); the response then names the project and its knowledge bases.
     """
-    return {"advice": rag_advice.build_advice(),
-            "presets": [rag_advice.preset_diff(p["id"]) for p in rag_advice.RAG_PRESETS]}
+    if not project:
+        return {"advice": rag_advice.build_advice(),
+                "presets": [rag_advice.preset_diff(p["id"]) for p in rag_advice.RAG_PRESETS]}
+    stats = projects.advice_stats(project)
+    if stats is None:
+        raise HTTPException(404, "project not found")
+    p = projects.get(project) or {}
+    return {"advice": rag_advice.build_advice(stats=stats),
+            "presets": [rag_advice.preset_diff(x["id"], stats=stats) for x in rag_advice.RAG_PRESETS],
+            "project": {"id": project, "name": p.get("name", ""), "kbs": sorted(stats)}}
 
 
 @appcore.app.get("/api/rag/stats")

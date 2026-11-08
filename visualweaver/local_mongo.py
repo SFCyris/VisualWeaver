@@ -201,6 +201,125 @@ def runtime() -> tuple[list[str] | None, str]:
                   "Rancher Desktop, OrbStack or Docker Desktop.")
 
 
+# ── starting and stopping the runtime ───────────────────────────────────────
+# The container runtime is started when it is installed but stopped — the usual state
+# after a reboot — instead of telling the user to do it. Which one: the runtime the
+# `docker` CLI is pointed at (its context), else Podman's machine. It is stopped again
+# only if it was started here and nothing else runs in it.
+
+def _docker_context() -> str:
+    try:
+        r = subprocess.run(["docker", "context", "show"], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def _startable_runtime() -> dict | None:
+    """{name, start, stop} for the installed runtime that `docker`/`podman` would use."""
+    app = lambda a: Path(f"/Applications/{a}.app").exists()
+    if shutil.which("docker"):
+        ctx = _docker_context()
+        if ctx.startswith("colima") and shutil.which("colima"):
+            prof = ctx.split("-", 1)[1] if "-" in ctx else ""
+            extra = ["--profile", prof] if prof else []
+            return {"name": "Colima", "start": ["colima", "start", *extra], "stop": ["colima", "stop", *extra]}
+        if ctx == "orbstack" and app("OrbStack"):
+            return {"name": "OrbStack", "start": ["open", "-a", "OrbStack"],
+                    "stop": ["osascript", "-e", 'quit app "OrbStack"']}
+        if ctx.startswith("rancher-desktop") and app("Rancher Desktop"):
+            return {"name": "Rancher Desktop", "start": ["open", "-a", "Rancher Desktop"],
+                    "stop": ["osascript", "-e", 'quit app "Rancher Desktop"']}
+        if ctx in ("desktop-linux", "default") and app("Docker"):
+            return {"name": "Docker Desktop", "start": ["open", "-a", "Docker"],
+                    "stop": ["osascript", "-e", 'quit app "Docker"']}
+        if shutil.which("colima") and ctx in ("", "default"):
+            return {"name": "Colima", "start": ["colima", "start"], "stop": ["colima", "stop"]}
+    if shutil.which("podman") and sys.platform == "darwin":
+        return {"name": "Podman", "start": ["podman", "machine", "start"], "stop": ["podman", "machine", "stop"]}
+    return None
+
+
+def _runtime_mark(base: Path | None = None) -> Path:
+    """Where "VisualWeaver started the runtime" is recorded — its own file, so the
+    installer can record it before the built-in MongoDB's state exists."""
+    return state_dir(base) / "runtime.json"
+
+
+def ensure_runtime(base: Path | None = None, timeout: float = 300) -> dict:
+    """Make sure the container runtime answers; start it when it is installed but
+    stopped, and wait for it. {runtime, started, seconds}. Raises LocalMongoError with
+    what to do when it cannot be started here (Linux daemon, busy, not installed)."""
+    cmd, why = runtime()
+    if cmd:
+        return {"runtime": why, "started": False, "seconds": 0}
+    if "is installed but not running" not in why:
+        raise LocalMongoError(why)                    # busy, no permission, no compose, none installed
+    rt = _startable_runtime()
+    if rt is None:
+        raise LocalMongoError(why)                    # e.g. a Linux daemon: needs sudo
+    t0 = time.time()
+    log_path = data_dir() / "log" / "container-runtime.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as logf:
+        logf.write(f"\n── {time.strftime('%Y-%m-%d %H:%M:%S')} starting {rt['name']}: {' '.join(rt['start'])}\n")
+        logf.flush()
+        try:
+            r = subprocess.run(rt["start"], stdout=logf, stderr=subprocess.STDOUT, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            r = None
+    while time.time() - t0 < timeout:
+        cmd, why2 = runtime()
+        if cmd:
+            _write_private(_runtime_mark(base), json.dumps({
+                "name": rt["name"], "stop": rt["stop"], "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}) + "\n")
+            return {"runtime": why2, "started": True, "name": rt["name"],
+                    "seconds": round(time.time() - t0, 1)}
+        if r is not None and r.returncode not in (0, None) and rt["name"] in ("Colima", "Podman"):
+            break                                     # the start command itself failed
+        time.sleep(2)
+    raise LocalMongoError(f"{rt['name']} did not start within {int(time.time() - t0)} s. "
+                          f"Its output is in {log_path}; start it by hand ({' '.join(rt['start'])}) "
+                          f"and run this again.")
+
+
+def release_runtime(base: Path | None = None, timeout: float = 180) -> dict:
+    """Stop the container runtime again if ensure_runtime started it and no container
+    is running in it any more (other projects' containers keep it up). Set
+    VISUALWEAVER_KEEP_RUNTIME=1 to always leave it running."""
+    mark = _runtime_mark(base)
+    try:
+        rs = json.loads(mark.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rs = None
+    if not rs:
+        return {"stopped": False, "reason": "not started by VisualWeaver"}
+    if os.environ.get("VISUALWEAVER_KEEP_RUNTIME", "").strip() == "1":
+        return {"stopped": False, "name": rs["name"], "reason": "VISUALWEAVER_KEEP_RUNTIME=1"}
+    cmd, _ = runtime()
+    if cmd:
+        r = subprocess.run([cmd[0], "ps", "-q"], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0 and r.stdout.strip():
+            n = len(r.stdout.split())
+            return {"stopped": False, "name": rs["name"],
+                    "reason": f"{n} other container{'s' if n != 1 else ''} still running"}
+        t0 = time.time()
+        try:
+            subprocess.run(rs["stop"], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"stopped": False, "name": rs["name"], "reason": f"did not stop within {timeout} s"}
+        for _ in range(int(timeout / 2)):
+            if runtime()[0] is None:
+                break
+            time.sleep(2)
+        else:
+            return {"stopped": False, "name": rs["name"], "reason": "still answering after the stop command"}
+        mark.unlink(missing_ok=True)
+        return {"stopped": True, "name": rs["name"], "seconds": round(time.time() - t0, 1)}
+    mark.unlink(missing_ok=True)                      # already stopped by someone else
+    return {"stopped": False, "name": rs["name"], "reason": "already stopped"}
+
+
 def runtime_info() -> dict:
     """{runtime, runtime_version}: the runtime that would be used and its server version."""
     cmd, why = runtime()
@@ -572,10 +691,31 @@ def _digest(st: dict) -> str:
     return hashlib.sha256(render_compose(st).encode()).hexdigest()
 
 
-def stop(base: Path | None = None) -> None:
+def stop(base: Path | None = None) -> dict:
+    """Stop the containers and check they are down. {was_running, seconds, mongod_exit}:
+    mongod_exit 0 is a clean shutdown (137 = killed after the grace period)."""
+    st = load_state(base)
+    t0 = time.time()
+    running = _compose(["ps", "-q", "--status", "running"], base, timeout=60)
+    was_running = bool((running.stdout or "").strip())
     r = _compose(["stop"], base)
     if r.returncode:
         raise LocalMongoError("Could not stop the built-in MongoDB:\n" + (r.stderr or "")[-600:])
+    left = _compose(["ps", "-q", "--status", "running"], base, timeout=60)
+    if (left.stdout or "").strip():
+        raise LocalMongoError("The built-in MongoDB's containers are still running after the stop.")
+    code = None
+    try:
+        ids = _compose(["ps", "-aq", "mongod"], base, timeout=60).stdout.split()
+        if ids:
+            cmd, _ = runtime()
+            ins = subprocess.run([cmd[0], "inspect", "-f", "{{.State.ExitCode}}", ids[0]],
+                                 capture_output=True, text=True, timeout=30)
+            code = int(ins.stdout.strip()) if ins.returncode == 0 and ins.stdout.strip() else None
+    except Exception:
+        code = None
+    return {"was_running": was_running, "seconds": round(time.time() - t0, 1), "mongod_exit": code,
+            "project": (st or {}).get("project")}
 
 
 def down(base: Path | None = None) -> None:
@@ -686,7 +826,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("pull", help="download the pinned images")
     p_up = sub.add_parser("up", help="start and wait until search is ready")
     p_up.add_argument("--timeout", type=float, default=240)
-    sub.add_parser("stop", help="stop the containers (data kept)")
+    sub.add_parser("stop", help="stop the containers (data kept); JSON: was_running, seconds, mongod_exit")
+    p_rt = sub.add_parser("ensure-runtime", help="start the container runtime if it is installed but stopped (JSON)")
+    p_rt.add_argument("--timeout", type=float, default=300)
+    sub.add_parser("release-runtime", help="stop the runtime again if VisualWeaver started it and nothing else runs (JSON)")
     sub.add_parser("down", help="remove the containers (data kept in volumes)")
     p_logs = sub.add_parser("logs", help="the containers' recent log lines")
     p_logs.add_argument("--tail", type=int, default=40)
@@ -723,7 +866,11 @@ def main(argv: list[str] | None = None) -> int:
             out.update(disk_note())
             print(json.dumps(out))
         elif a.cmd == "stop":
-            stop()
+            print(json.dumps(stop()))
+        elif a.cmd == "ensure-runtime":
+            print(json.dumps(ensure_runtime(timeout=a.timeout)))
+        elif a.cmd == "release-runtime":
+            print(json.dumps(release_runtime()))
         elif a.cmd == "down":
             down()
         elif a.cmd == "logs":

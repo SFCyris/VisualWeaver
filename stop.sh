@@ -77,7 +77,7 @@ if [ "${STORE_REDIS}" = 1 ]; then
       sleep 0.5
     done
     if [ "${down}" = "1" ]; then
-      c_ok "Redis stopped."
+      c_ok "Redis stopped cleanly (data saved to disk)."
       rm -f "${REDIS_PID}"
     else
       c_warn "Redis still responding — forcing via pidfile."
@@ -90,17 +90,57 @@ if [ "${STORE_REDIS}" = 1 ]; then
 fi
 
 # ── 3. Built-in MongoDB (containers stopped, data kept in their volumes) ──────
+# `local_mongo stop` checks the containers are down and reads mongod's exit code:
+# 0 is a clean shutdown; 137 means it was killed after the grace period.
+STOP_OK=1
 if [ "${STORE_MONGO}" = 1 ]; then
-  c_info "Stopping the built-in MongoDB (data kept)…"
-  _rc=0
-  _out="$(lm stop 2>&1)" || _rc=$?
-  if [ "${_rc}" = 0 ]; then
-    c_ok "MongoDB stopped."
-  elif ! lm runtime >/dev/null 2>&1; then
-    c_info "MongoDB is not running: the container runtime is not running (data kept)."
+  if ! lm runtime >/dev/null 2>&1; then
+    c_info "MongoDB is not running (its container runtime is stopped; data kept)."
   else
-    c_warn "$(printf '%s' "${_out}" | tail -n 5)"
+    c_info "Stopping the built-in MongoDB (data kept)…"
+    _rc=0
+    _out="$(lm stop 2>&1)" || _rc=$?
+    if [ "${_rc}" = 0 ]; then
+      _code="$(printf '%s' "${_out}" | json_field mongod_exit)"
+      _secs="$(printf '%s' "${_out}" | json_field seconds)"
+      if [ "$(printf '%s' "${_out}" | json_field was_running)" != "True" ]; then
+        c_info "MongoDB was not running (data kept)."
+      elif [ "${_code}" = "0" ]; then
+        c_ok "MongoDB stopped cleanly (exit 0, ${_secs} s; data kept)."
+      else
+        c_warn "MongoDB stopped, but not cleanly (exit ${_code:-unknown}) — it was killed after the grace period."
+        c_warn "Its data is kept; it checks itself on the next start."
+        STOP_OK=0
+      fi
+    else
+      c_warn "$(printf '%s' "${_out}" | tail -n 5)"
+      STOP_OK=0
+    fi
+    # The container runtime goes back to how start.sh found it: stopped again if
+    # start.sh started it and nothing else runs in it (VISUALWEAVER_KEEP_RUNTIME=1 keeps it).
+    _rr="$(lm release-runtime 2>&1)" || _rr=""
+    if [ "$(printf '%s' "${_rr}" | json_field stopped)" = "True" ]; then
+      c_ok "Stopped $(printf '%s' "${_rr}" | json_field name) (container runtime, started by VisualWeaver) in $(printf '%s' "${_rr}" | json_field seconds) s."
+    elif [ -n "$(printf '%s' "${_rr}" | json_field name)" ]; then
+      c_info "$(printf '%s' "${_rr}" | json_field name) (container runtime) left running: $(printf '%s' "${_rr}" | json_field reason)."
+    fi
   fi
 fi
 
-c_ok "══ VisualWeaver stopped ══"
+# ── 4. Check: nothing of VisualWeaver is still listening ───────────────────────
+_left=""
+pid_alive "${APP_PID}" && _left="${_left} app (pid $(cat "${APP_PID}"))"
+[ "${STORE_REDIS}" = 1 ] && rcli -p "${RPORT}" ping >/dev/null 2>&1 && _left="${_left} Redis :${RPORT}"
+if [ "${STORE_MONGO}" = 1 ]; then
+  _mp="$(mongo_port)"
+  [ -n "${_mp}" ] && port_in_use "${_mp}" && _left="${_left} MongoDB :${_mp}"
+fi
+if [ -n "${_left}" ]; then
+  c_warn "Still answering:${_left}. Run ./stop.sh again, or check the logs (see DOCS.md → Running and Maintenance)."
+  exit 1
+fi
+if [ "${STOP_OK}" = 1 ]; then
+  c_ok "══ VisualWeaver stopped — everything shut down cleanly ══"
+else
+  c_ok "══ VisualWeaver stopped ══"
+fi

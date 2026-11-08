@@ -838,7 +838,7 @@ def preset_values(preset: dict, sample: list[float] | None) -> tuple[dict, str |
 
 
 def preset_diff(preset_id: str, cfg: dict | None = None,
-                sample: list[float] | None = None) -> dict | None:
+                sample: list[float] | None = None, stats: dict | None = None) -> dict | None:
     """What applying a preset would change, so it can be shown before it is applied.
 
     A button that silently rewrites six settings is alarming; one that says which six is
@@ -848,15 +848,17 @@ def preset_diff(preset_id: str, cfg: dict | None = None,
     if preset is None:
         return None
     cfg = cfg if cfg is not None else state._config
+    # `stats`: the corpora to read (a project's knowledge bases); default every corpus.
+    stats = stats if stats is not None else state._rag_stats
     conflict = None
     if sample is None:
         thr_now = float((cfg.get("rag") or {}).get(
             "similarity_threshold", constants.DEFAULT_CONFIG["rag"]["similarity_threshold"]))
-        rows = corpus_rows(state._rag_stats, thr_now, preset["pass_target"])
+        rows = corpus_rows(stats, thr_now, preset["pass_target"])
         for r in rows:                       # the sample the row was built from
-            r["_sample"] = _sample_of(state._rag_stats, r["id"])
-            r["_hist"] = list((state._rag_stats.get(r["id"]) or {}).get("raw_hist") or [])
-        tot = _totals(state._rag_stats)
+            r["_sample"] = _sample_of(stats, r["id"])
+            r["_hist"] = list((stats.get(r["id"]) or {}).get("raw_hist") or [])
+        tot = _totals(stats)
         values, note, conflict = preset_values_for(
             preset, rows, tot["cited_hist"], tot["answers_with_citations"])
         for r in rows:

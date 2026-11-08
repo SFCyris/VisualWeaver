@@ -50,11 +50,6 @@ try:
 except ImportError:
     HAS_CRAWL4AI = False
 try:
-    from sentence_transformers import CrossEncoder
-    HAS_CROSSENCODER = True
-except ImportError:
-    HAS_CROSSENCODER = False
-try:
     from docx import Document as _DocxDocument   # python-docx — DOCX text extraction
     HAS_PYTHON_DOCX = True
 except ImportError:
@@ -64,7 +59,7 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
-from . import appcore, cache, config, constants, embeddings, mongo_store, providers, rag_admin, redis_store, state
+from . import appcore, auth, cache, config, constants, embeddings, mongo_store, providers, rag_admin, redis_store, sessions, state
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +114,32 @@ def api_get_config():
     Includes boolean flags indicating whether API keys came from env vars
     so the UI can show the correct hint without ever seeing the actual keys.
     """
-    return {**config._redact_secrets(state._config), **_computed_config_fields()}
+    out = {**config._redact_secrets(state._config), **_computed_config_fields()}
+    if not auth.is_admin():
+        out = _for_user(out)
+    return out
+
+
+# What a signed-in user who is not an administrator does not get from GET /api/config:
+# the sign-in section (administrators' names, proxy addresses), where the data is stored
+# (hosts, ports, connection strings), and what the knowledge bases are fed from (web
+# sources, scheduled sources, watched folders). The chat page reads none of them.
+_ADMIN_ONLY_SECTIONS = ("auth", "redis", "mongodb", "security", "web_sources", "scheduled_sources")
+
+
+def _for_user(cfg: dict) -> dict:
+    out = {k: v for k, v in cfg.items() if k not in _ADMIN_ONLY_SECTIONS}
+    out["web_sources"], out["scheduled_sources"] = [], []
+    wf = cfg.get("watch_folders")
+    if isinstance(wf, dict):
+        out["watch_folders"] = {**wf, "folders": []}
+    eps = cfg.get("redis_endpoints")
+    out["redis_endpoints"] = [{k: e[k] for k in ("name", "type", "primary", "builtin") if k in e}
+                              for e in (eps if isinstance(eps, list) else []) if isinstance(e, dict)]
+    for prov in ("ollama", "claude", "openai", "qwen", "mistral", "groq", "gemini"):
+        if isinstance(out.get(prov), dict):
+            out[prov] = {k: v for k, v in out[prov].items() if k not in ("host", "port", "base_url")}
+    return out
 
 
 @appcore.app.post("/api/config")
@@ -132,6 +152,24 @@ async def api_save_config(payload: dict):
     # Restore any secrets the UI posted back as sentinels before applying,
     # so a settings save never wipes a stored key/password it never received.
     config._unredact_secrets(payload, state._config)
+
+    # Conversation retention: a number of seconds (0 = forever), merged into the stored
+    # section (persist has no control), and marked as chosen so a later load never takes
+    # a chosen one day for the old default (config.normalise_session_retention).
+    retention_before = sessions.retention_ttl()
+    if "sessions" in payload:
+        sess = payload["sessions"]
+        if not isinstance(sess, dict):
+            raise HTTPException(400, "sessions must be an object")
+        if "ttl" in sess:
+            t = sess["ttl"]
+            if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+                raise HTTPException(400, "sessions.ttl must be a whole number of seconds (0 = forever)")
+            if 0 < t < sessions.MIN_RETENTION:
+                raise HTTPException(400, f"sessions.ttl must be 0 (forever) or at least "
+                                         f"{sessions.MIN_RETENTION} seconds (one hour)")
+            sess = {**sess, "retention_chosen": True}
+        payload["sessions"] = {**(state._config.get("sessions") or {}), **sess}
 
     # ── Embedding-model change guard ────────────────────────────────────────
     # An index is created with the dimension of whatever model was loaded at the
@@ -212,6 +250,7 @@ async def api_save_config(payload: dict):
     config.invalidate_provider_clients()   # keys/base URLs may have changed
     state._embed_model = None       # force model reload on next request
     await config.save_config_async(state._config)   # strips env keys before writing to disk
+    await _apply_retention_if_changed(retention_before)
 
     log.info(
         f"Config saved — provider={state._config.get('provider')} "
@@ -229,6 +268,18 @@ async def api_save_config(payload: dict):
     asyncio.create_task(_rewarm())
 
     return {"ok": True}
+
+
+async def _apply_retention_if_changed(before: int) -> None:
+    """A new retention applies to the stored conversations at once. If the store cannot
+    be reached now, the next listing applies it (sessions.ensure_index)."""
+    if sessions.retention_ttl() == before:
+        return
+    try:
+        n = await asyncio.to_thread(sessions.apply_retention)
+        log.info(f"Conversation retention {sessions.retention_ttl()} s applied to {n} conversation(s)")
+    except Exception as e:
+        log.warning(f"Conversation retention not applied yet ({str(e)[:200]}); the next listing applies it")
 
 
 @appcore.app.get("/api/config/export")
@@ -262,6 +313,15 @@ async def api_import_config(file: UploadFile = File(...)):
     for k, v in constants.DEFAULT_CONFIG.items():
         if isinstance(v, dict):
             merged[k] = {**v, **(cfg.get(k) or {})}
+    # The same retention rule as a Settings save: refused, not clamped, so the file's
+    # author learns the value was not taken.
+    sess_in = cfg.get("sessions")
+    if sess_in is not None and not isinstance(sess_in, dict):
+        raise HTTPException(400, "sessions must be an object")
+    if isinstance(sess_in, dict) and "ttl" in sess_in and config.session_ttl_error(sess_in["ttl"]):
+        raise HTTPException(400, config.session_ttl_error(sess_in["ttl"]))
+    config.normalise_session_retention(cfg, merged)
+    retention_before = sessions.retention_ttl()
 
     # Importing a config that changes the embedding model has the same consequence
     # as changing it in Settings: every existing vector is the wrong dimension and
@@ -286,6 +346,7 @@ async def api_import_config(file: UploadFile = File(...)):
     redis_store.invalidate_redis_clients()
     config.invalidate_provider_clients()
     await config.save_config_async(state._config)
+    await _apply_retention_if_changed(retention_before)
     return {"ok": True}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -294,11 +355,15 @@ async def api_import_config(file: UploadFile = File(...)):
 
 @appcore.app.get("/api/health")
 def api_health():
-    """Lightweight liveness probe (no I/O) for the Docker HEALTHCHECK and run.sh.
+    """Lightweight liveness probe (no I/O) for the Docker HEALTHCHECK, start.sh and docker.sh.
 
-    Always returns 200 while the process is up. The ``services`` booleans report
-    which optional capabilities were importable at startup so run.sh can show
-    them in its status banner. Redis reachability lives on /api/status/redis
+    Returns 200 while the process is up: ``status`` is "ok", or "degraded" when
+    config.json failed to load and the app runs on the defaults. While sign-in is
+    misconfigured (or config.json could not be loaded and named sign-in) this handler is
+    not reached: auth.AuthGuard answers 200 with ``status: "misconfigured"`` and only the
+    refusal message, and every other route is 503. The ``services`` booleans report
+    which optional capabilities were importable at startup (``reranker``: installed,
+    imported on first use) so run.sh can show them in its status banner. Redis reachability lives on /api/status/redis
     (kept out of here so this probe never blocks on a slow connection).
     """
     return {
@@ -321,7 +386,9 @@ def api_health():
             "xlsx":        HAS_OPENPYXL,
             "web_extract": HAS_TRAFILATURA,
             "html_parse":  HAS_BS4,
-            "reranker":    HAS_CROSSENCODER,
+            # Read live: the class is imported on first use (embeddings), and a failed
+            # import turns the flag off after startup.
+            "reranker":    embeddings.HAS_CROSSENCODER,
             "js_crawl":    HAS_CRAWL4AI,
             "anthropic":   _ANTHROPIC_AVAILABLE,
             "openai_sdk":  _OPENAI_SDK_AVAILABLE,
@@ -396,6 +463,10 @@ def api_redis_status():
         if p.get("error"):
             out["error"] = p["error"]
         return out
+    if not state._endpoint_health.get("default", True):
+        # The probe just failed: asking again would wait out the client's retries.
+        return {"ok": False, "type": "redis", "endpoint_health": dict(state._endpoint_health),
+                "error": redis_store._probe_errors.get("default") or "Redis is unreachable"}
     try:
         rc = redis_store.get_redis()
         info = rc.info()
@@ -441,12 +512,19 @@ def api_redis_endpoint_status(endpoint_name: str):
 
 @appcore.app.get("/api/status/ollama")
 async def api_ollama_status():
-    """Ping the Ollama server (reuses the cached model list to avoid a redundant /api/tags call)."""
+    """Ping the Ollama server (reuses the cached model list to avoid a redundant /api/tags call).
+
+    ``ollama_models()`` answers [] both for an Ollama with no models and for one that is
+    not running; the error it records tells the two apart. ``models`` is how many it lists.
+    """
     try:
-        await providers.ollama_models()
-        return {"ok": True}
+        models = await providers.ollama_models()
     except Exception as e:
         return {"ok": False, "error": str(e)}
+    if not models and state._ollama_models_error:
+        return {"ok": False, "error": f"Ollama is not reachable at {providers.ollama_base()} "
+                                      f"({state._ollama_models_error})"}
+    return {"ok": True, "models": len(models)}
 
 
 async def _probe_key(request: Request) -> str | None:

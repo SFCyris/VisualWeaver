@@ -301,8 +301,11 @@ def test_mongodb_does_not_wait_for_the_ttl_monitor(both):
     for _ in range(8):                            # and a lookup did not revive it
         time.sleep(0.25)
         assert _lookup(Q) is None
-    assert both.ep.col(mongo_cache.COLLECTION).find_one({})["exp"].replace(
-        tzinfo=dt.timezone.utc) < dt.datetime.now(dt.timezone.utc)
+    left = both.ep.col(mongo_cache.COLLECTION).find_one({})
+    # Gone is fine: the monitor's minute may have come round meanwhile. Present, it must
+    # still be expired (a lookup that revived it would have moved exp forward).
+    if left is not None:
+        assert left["exp"].replace(tzinfo=dt.timezone.utc) < dt.datetime.now(dt.timezone.utc)
 
 
 def test_a_hit_keeps_the_entry_alive(store, cfg):

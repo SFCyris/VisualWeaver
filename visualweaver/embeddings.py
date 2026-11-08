@@ -4,17 +4,30 @@
 Split out mechanically for maintainability; cross-module references are
 module-qualified so runtime rebinding and test monkeypatching stay live.
 """
+import importlib.util
 import logging
 import os
 import threading
 from typing import Any, Optional
 import numpy as np
-try:
-    from sentence_transformers import CrossEncoder
-    HAS_CROSSENCODER = True
-except ImportError:
-    HAS_CROSSENCODER = False
 from . import config, state, textutil
+
+
+def _installed(*names: str) -> bool:
+    """Whether every named package can be found, WITHOUT importing any of them."""
+    try:
+        return all(importlib.util.find_spec(n) is not None for n in names)
+    except (ImportError, ValueError):
+        return False
+
+
+# Not imported here: `from sentence_transformers import CrossEncoder` pulls in
+# transformers and torch, about 2.5 s of a 4.4 s start, before /api/health can answer —
+# on every start, reranker on or off. The class is imported by _cross_encoder_cls() the
+# first time a reranker is loaded. HAS_CROSSENCODER says whether the packages are
+# installed, and turns False if that import then fails after all.
+CrossEncoder = None
+HAS_CROSSENCODER = _installed("sentence_transformers", "transformers", "torch")
 
 log = logging.getLogger(__name__)
 
@@ -299,6 +312,57 @@ def embed(text: str, is_query: bool = False) -> np.ndarray:
                                     show_progress_bar=False)
 
 
+class QueryVectors:
+    """The question's vectors for ONE chat turn, from one model call made on first use.
+
+    A turn needs the question embedded for three things: the answer-cache lookup, the
+    retrieval legs, and storing the answer in the cache afterwards. Each embedded it
+    again — three passes through the model on a cache miss. The cache and retrieval
+    still see different text (the cache embeds the casefolded, whitespace-collapsed
+    question it was calibrated on; retrieval keeps the question as typed, acronyms and
+    all), so both are encoded together in one batch, or once when they are the same.
+
+    Thread-safe: the first consumer may run in a worker thread.
+    """
+
+    def __init__(self, query: str, cache_text: str):
+        self.query, self.cache_text = query, cache_text
+        self._lock = threading.Lock()
+        self._vecs: "tuple[np.ndarray, np.ndarray] | None" = None
+
+    def _compute(self) -> "tuple[np.ndarray, np.ndarray]":
+        if self._vecs is None:
+            with self._lock:
+                if self._vecs is None:
+                    prefix = embedding_spec()["query_prefix"]
+                    texts = [prefix + self.query]
+                    if self.cache_text != self.query:
+                        texts.append(prefix + self.cache_text)
+                    out = np.asarray(get_embed_model().encode(
+                        texts, normalize_embeddings=True, show_progress_bar=False),
+                        dtype=np.float32)   # see embed() for show_progress_bar
+                    self._vecs = (out[0], out[-1])
+        return self._vecs
+
+    def retrieval(self) -> np.ndarray:
+        """The vector of the question as typed (what embed(query, is_query=True) gave)."""
+        return self._compute()[0]
+
+    def cache(self) -> list:
+        """The vector the answer cache looks up and stores under, as a list of floats."""
+        return [float(x) for x in self._compute()[1]]
+
+
+def query_vector(query: str, query_vec: Any = None) -> np.ndarray:
+    """The retrieval vector: a precomputed one (HyDE's), the turn's QueryVectors, or —
+    for a caller that has neither — the query embedded here."""
+    if query_vec is None:
+        return embed(query, is_query=True).astype(np.float32)
+    if isinstance(query_vec, QueryVectors):
+        return query_vec.retrieval()
+    return np.asarray(query_vec, dtype=np.float32)
+
+
 def embed_batch(texts: list[str]) -> np.ndarray:
     """
     Embed a list of strings in one model call.
@@ -322,11 +386,27 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 # CROSS-ENCODER RERANKER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def get_reranker() -> "CrossEncoder | None":
+def _cross_encoder_cls() -> Any:
+    """The CrossEncoder class, imported on first use (see the note at the top).
+    None when it cannot be imported; HAS_CROSSENCODER is then turned off."""
+    global CrossEncoder, HAS_CROSSENCODER
+    if CrossEncoder is None:
+        try:
+            from sentence_transformers import CrossEncoder as _cls  # noqa: PLC0415
+        except Exception as e:      # ImportError, or a broken torch raising anything else
+            HAS_CROSSENCODER = False
+            log.warning(f"sentence-transformers CrossEncoder could not be imported: {e}")
+            return None
+        CrossEncoder = _cls
+    return CrossEncoder
+
+
+def get_reranker() -> "Any | None":
     """Lazy-load the cross-encoder reranker model if enabled in config."""
     if not state._config.get("reranker", {}).get("enabled", False):
         return None
-    if not HAS_CROSSENCODER:
+    cls = _cross_encoder_cls() if HAS_CROSSENCODER else None
+    if cls is None:
         log.warning("cross-encoder reranking requested but sentence-transformers CrossEncoder not available")
         return None
     model = state._config.get("reranker", {}).get("model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
@@ -335,12 +415,82 @@ def get_reranker() -> "CrossEncoder | None":
             if state._reranker is None or state._reranker_model_name != model:
                 log.info(f"Loading cross-encoder reranker: {model}")
                 try:
-                    state._reranker = _load_model(CrossEncoder, model, "reranker")
+                    state._reranker = _prepare_reranker(_load_model(cls, model, "reranker"))
                     state._reranker_model_name = model
                 except Exception as e:
                     log.warning(f"Cross-encoder load failed: {e}")
                     return None
+    r = state._reranker
+    if r is not None and bool(getattr(r, "_vw_half_req", False)) != _half_wanted():
+        with _load_lock:                  # reranker.half_precision changed: follow it in place
+            _set_precision(r, _half_wanted())
     return state._reranker
+
+
+# Pairs per cross-encoder batch. A batch is padded to its longest pair, so with the
+# pairs sorted by length each batch pads only to its own neighbours instead of to the
+# 512-token chunk somewhere in the list. Measured on 40 candidates (66-512 tokens):
+# CPU 641 ms unsorted -> 380 ms sorted in eights; Apple GPU 94 -> 73 ms sorted in
+# sixteens, 67 ms in half precision. Same top 5 in every case.
+_RERANK_BATCH = {"cpu": 8}
+_RERANK_BATCH_GPU = 16
+
+
+def _reranker_device(model: Any) -> str:
+    """"cpu", "cuda", "mps", … — where a loaded CrossEncoder runs."""
+    dev = getattr(model, "_target_device", None)
+    if dev is None:
+        dev = getattr(model, "device", None)
+    return str(getattr(dev, "type", dev) or "cpu")
+
+
+def _half_wanted() -> bool:
+    """reranker.half_precision (config.json), off by default."""
+    return (state._config.get("reranker") or {}).get("half_precision") is True
+
+
+def _set_precision(model: Any, half: bool) -> None:
+    """Half precision only when asked for AND the cross-encoder runs on a GPU (CUDA or
+    Apple's MPS) — never on the CPU, where it is slower, not faster. Full otherwise."""
+    model._vw_half_req = half
+    if half and _reranker_device(model) in ("cuda", "mps"):
+        if not getattr(model, "_vw_half", False):
+            try:
+                model.model.half()
+                model._vw_half = True
+            except Exception as e:
+                log.debug(f"reranker stays in full precision: {e}")
+    elif getattr(model, "_vw_half", False):
+        model.model.float()
+        model._vw_half = False
+
+
+def _prepare_reranker(model: Any) -> Any:
+    """Full precision by default, so the scores are exactly the model's on every device.
+    With reranker.half_precision on and a GPU, half precision: faster, but the scores
+    move (by up to about 0.007 on the measured set) and two candidates whose scores are
+    that close can swap places."""
+    _set_precision(model, _half_wanted())
+    return model
+
+
+def _predict_sorted(reranker: Any, pairs: list) -> np.ndarray:
+    """reranker.predict over the pairs longest first, scores returned in input order."""
+    order = sorted(range(len(pairs)), key=lambda i: len(pairs[i][1]), reverse=True)
+    dev = _reranker_device(reranker)
+    bs = _RERANK_BATCH.get(dev, _RERANK_BATCH_GPU)
+    got = np.asarray(reranker.predict([pairs[i] for i in order], batch_size=bs,
+                                      show_progress_bar=False),   # see embed()
+                     dtype=np.float64).reshape(-1)
+    scores = np.empty(len(pairs), dtype=np.float64)
+    scores[order] = got
+    if getattr(reranker, "_vw_half", False) and not np.all(np.isfinite(scores)):
+        # Half precision overflowed on this input: back to full precision for good.
+        log.warning("reranker returned non-finite scores in half precision; using full precision")
+        reranker.model.float()
+        reranker._vw_half = False
+        return _predict_sorted(reranker, pairs)
+    return scores
 
 
 def rerank_chunks(query: str, chunks: list[dict], top_n: int = 5) -> list[dict]:
@@ -359,14 +509,15 @@ def rerank_chunks(query: str, chunks: list[dict], top_n: int = 5) -> list[dict]:
         return chunks
     try:
         pairs  = [(query, c["text"]) for c in chunks]
-        scores = reranker.predict(pairs, show_progress_bar=False)   # see embed()
-        ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
-        result = [c for _, c in ranked[:top_n]]
-        # Annotate each chunk with its reranker score for debugging/analytics
-        for (score, _), chunk in zip(sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True), result):
+        scores = _predict_sorted(reranker, pairs)
+        # Stable on ties: equal scores keep the retrieval order.
+        ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)[:top_n]
+        result = []
+        for score, chunk in ranked:
+            # Annotate each chunk with its reranker score for debugging/analytics
             chunk["reranker_score"] = round(float(score), 4)
+            result.append(chunk)
         return result
     except Exception as e:
         log.warning(f"Reranking failed, using original order: {e}")
         return chunks
-

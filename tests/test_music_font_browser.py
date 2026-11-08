@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from test_science_lanes_browser import _playwright_python
+from test_science_lanes_browser import _no_browser, _playwright_python
 
 _PROBE = pathlib.Path(__file__).with_name("music_font_probe.py")
 HALF = "\U0001D157\U0001D165"
@@ -20,6 +20,8 @@ HALF = "\U0001D157\U0001D165"
 @pytest.fixture(scope="module")
 def probe():
     py = _playwright_python()
+    if py is None:
+        _no_browser()
     r = subprocess.run([py, str(_PROBE)], capture_output=True, text=True, timeout=240)
     out = json.loads(r.stdout.strip().splitlines()[-1])
     if out.get("skip"):

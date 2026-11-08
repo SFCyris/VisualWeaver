@@ -57,9 +57,9 @@
  },
  {
   "id": "M08_query_embedded_as_passage",
-  "file": "visualweaver/rag.py",
-  "find": "    q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query, is_query=True).astype(np.float32)",
-  "replace": "    q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query).astype(np.float32)",
+  "file": "visualweaver/embeddings.py",
+  "find": "        return embed(query, is_query=True).astype(np.float32)",
+  "replace": "        return embed(query).astype(np.float32)",
   "defect": "search_rag embeds the question with the passage prefix",
   "expect": "test_search_embeds_the_query_as_a_query"
  },
@@ -444,8 +444,8 @@
  {
   "id": "M58_remember_id_past_the_900_char_window",
   "file": "visualweaver/index.html",
-  "find": "  connectWS(id);\n  renderSessionList();",
-  "replace": "  connectWS(id);\n  _rememberSessionId(id);\n  renderSessionList();",
+  "find": "  _renderDocsOnly();           // a new conversation starts from the Settings default\n  renderSessionList();",
+  "replace": "  _renderDocsOnly();           // a new conversation starts from the Settings default\n  _rememberSessionId(id);\n  renderSessionList();",
   "defect": "#6 reintroduced at char >900 of newSession(): outside the test's fixed slice",
   "expect": "test_issue6_unused_session_ids_are_not_remembered"
  },
@@ -926,8 +926,8 @@
  {
   "id": "M115_no_kb_gate_inverted",
   "file": "visualweaver/index.html",
-  "find": "    if(ragUsed===false) return;",
-  "replace": "    // was: if(ragUsed===false) return;\n    if(ragUsed===true) return;",
+  "find": "    if(ragUsed===false){if(el.getAttribute('data-raw'))_renderGrounding(msgId);return;}",
+  "replace": "    // was: if(ragUsed===false) return;\n    if(ragUsed===true){if(el.getAttribute('data-raw'))_renderGrounding(msgId);return;}",
   "sites": 1,
   "defect": "P04: no-KB badge gate inverted to ragUsed===true (decoy comment keeps the old text)",
   "expect": "test_no_kb_badge_is_gated_on_rag_used"
@@ -944,10 +944,10 @@
  {
   "id": "M117_http_cache_hit_not_persisted",
   "file": "visualweaver/routes_chat.py",
-  "find": "            await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])\n            return {\"session_id\": sid, \"response\": hit[\"response\"]",
-  "replace": "            if False:\n                await asyncio.to_thread(sessions.save_session, sid, state._sessions[sid])\n            return {\"session_id\": sid, \"response\": hit[\"response\"]",
+  "find": "            await _store_turn(sid, conv)\n            return {\"session_id\": sessions.public_sid(sid), \"response\": hit[\"response\"]",
+  "replace": "            if False:\n                await _store_turn(sid, conv)\n            return {\"session_id\": sessions.public_sid(sid), \"response\": hit[\"response\"]",
   "sites": 1,
-  "defect": "P06: /api/chat returns a cached answer without persisting the turn (word 'save_session' kept, under if False)",
+  "defect": "P06: /api/chat returns a cached answer without persisting the turn (the store call kept, under if False)",
   "expect": "test_cache_hit_records_the_turn"
  },
  {
@@ -1754,8 +1754,8 @@
  {
   "id": "M218_citations_rewrite_code",
   "file": "visualweaver/index.html",
-  "find": ".closest('pre,code,a,.cite-ref,.rag-inspector,.see-also')",
-  "replace": ".closest('a,.cite-ref,.rag-inspector,.see-also')",
+  "find": ".closest('pre,code,a,.cite-ref,.cite-broken,.rag-inspector,.see-also')",
+  "replace": ".closest('a,.cite-ref,.cite-broken,.rag-inspector,.see-also')",
   "defect": "a bracketed number inside a code sample is turned into a citation button",
   "expect": "test_a_bracketed_number_inside_code_is_not_turned_into_a_citation"
  },
@@ -1835,8 +1835,8 @@
  {
   "id": "M228_version_switch_drops_citations",
   "file": "visualweaver/index.html",
-  "find": "  _linkCitations(el,msgId,_citationCount(msgId));\n  renderVersionSwitcher(msgId,versions,idx);",
-  "replace": "  renderVersionSwitcher(msgId,versions,idx);",
+  "find": "    _linkCitations(el,msgId,_citationCount(msgId));\n    _renderGrounding(msgId);\n  }\n  renderVersionSwitcher(msgId,versions,idx);",
+  "replace": "    _renderGrounding(msgId);\n  }\n  renderVersionSwitcher(msgId,versions,idx);",
   "defect": "stepping between regenerated versions rewrites the bubble and leaves the citation markers inert",
   "expect": "test_stepping_between_regenerated_versions_keeps_citations_live"
  },
@@ -1851,8 +1851,8 @@
  {
   "id": "M230_citation_relink_nests_buttons",
   "file": "visualweaver/index.html",
-  "find": ".closest('pre,code,a,.cite-ref,.rag-inspector,.see-also')",
-  "replace": ".closest('pre,code,a,.rag-inspector,.see-also')",
+  "find": ".closest('pre,code,a,.cite-ref,.cite-broken,.rag-inspector,.see-also')",
+  "replace": ".closest('pre,code,a,.cite-broken,.rag-inspector,.see-also')",
   "defect": "a second linking pass reads the marker inside the button it already made and nests another button in it",
   "expect": "test_linking_citations_twice_is_idempotent"
  },
@@ -2339,8 +2339,8 @@
  {
   "id": "M293_grouped_citations_not_linked",
   "file": "visualweaver/index.html",
-  "find": "  const GROUP=/\\[(\\d+(?:\\s*,\\s*\\d+)*)\\]/g;",
-  "replace": "  const GROUP=/\\[(\\d+)\\]/g;",
+  "find": "  const out=[];const re=/\\[(\\d+(?:\\s*,\\s*\\d+)*)\\](?!\\()/g;let last=0,m;",
+  "replace": "  const out=[];const re=/\\[(\\d+)\\](?!\\()/g;let last=0,m;",
   "defect": "a grouped citation marker like [3, 4] stays inert text — visible as a citation but opening nothing",
   "expect": "test_a_grouped_citation_marker_links_every_source_it_names"
  },
@@ -2955,8 +2955,8 @@
  {
   "id": "M370_drawings_matched_by_similarity",
   "file": "visualweaver/routes_chat.py",
-  "find": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, exact_only)",
-  "replace": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, False)",
+  "find": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, exact_only, qvec)",
+  "replace": "    hit             = (await asyncio.to_thread(cache.cache_lookup, query, cache_threshold,\n                                              cache_scope, False, qvec)",
   "defect": "a request to draw something is matched by similarity, so a bar chart request is served a pie chart and sin(x) is served sin(2x) — measured at 0.971 and 0.979, above any usable threshold",
   "expect": "test_both_chat_paths_route_drawings_to_the_exact_partition"
  },
@@ -2971,8 +2971,8 @@
  {
   "id": "M372_question_hash_not_stored",
   "file": "visualweaver/cache.py",
-  "find": "                    filters={\"scope\": scope or \"_none\", \"qhash\": _qhash(query)})",
-  "replace": "                    filters={\"scope\": scope or \"_none\"})",
+  "find": "        filters = {\"scope\": scope or \"_none\", \"qhash\": _qhash(query)}",
+  "replace": "        filters = {\"scope\": scope or \"_none\"}",
   "defect": "entries carry no question hash, so the exact-match partition can never return anything and repeated drawing requests are never served",
   "expect": "test_every_entry_carries_its_hash"
  },
@@ -4334,8 +4334,8 @@
  {
   "id": "M610_stop_leaves_mongodb_running",
   "file": "stop.sh",
-  "find": "if [ \"${STORE_MONGO}\" = 1 ]; then\n  c_info \"Stopping the built-in MongoDB (data kept)…\"\n",
-  "replace": "if false; then\n  c_info \"Stopping the built-in MongoDB (data kept)…\"\n",
+  "find": "    _out=\"$(lm stop 2>&1)\" || _rc=$?\n",
+  "replace": "    _out='{\"was_running\": true, \"seconds\": 0, \"mongod_exit\": 0}'\n",
   "defect": "stop.sh leaves the built-in MongoDB running",
   "expect": "test_stop_stops_mongodb_and_keeps_its_data"
  },
@@ -4502,10 +4502,10 @@
  {
   "id": "M640_session_saved_without_ttl",
   "file": "visualweaver/sessions.py",
-  "find": "            appstore.current().set(_session_key(sid), json.dumps(messages), ttl if ttl > 0 else None)\n",
-  "replace": "            appstore.current().set(_session_key(sid), json.dumps(messages))\n",
+  "find": "        store.set(_session_key(sid), raw, ttl)\n",
+  "replace": "        store.set(_session_key(sid), raw)\n",
   "defect": "conversations are stored without their lifetime and are never removed",
-  "expect": "test_the_app_runs_on_mongodb_with_no_redis"
+  "expect": "test_the_app_runs_on_mongodb_with_no_redis test_a_retention_limit_expires_conversations_and_rows_say_when"
  },
  {
   "id": "M641_switch_drops_remaining_ttl",
@@ -4878,7 +4878,7 @@
  {
   "id": "M691_cache_delete_entry_mongo_fake_ok",
   "file": "visualweaver/routes_redis.py",
-  "find": "            return {\"ok\": mongo_cache.delete_entry(rc, entry_id)}\n",
+  "find": "            return {\"ok\": mongo_cache.delete_entry(rc, entry_id, owner=owner)}\n",
   "replace": "            return {\"ok\": True}\n",
   "defect": "Uncache on MongoDB reports success without deleting the entry",
   "expect": "test_the_analytics_routes[mongodb]"
@@ -5066,8 +5066,8 @@
  {
   "id": "M739_startup_waits_for_storage",
   "file": "visualweaver/index.html",
-  "find": "  loadStorage();   // not awaited: it re-renders what depends on it when it lands\n  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates()]);",
-  "replace": "  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates(),loadStorage()]);",
+  "find": "  loadStorage();   // not awaited: it re-renders what depends on it when it lands\n  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates(),loadProjects()]);",
+  "replace": "  await Promise.all([_modelsP,checkStatus(),loadRagInstances(),loadTemplates(),loadProjects(),loadStorage()]);",
   "defect": "page start-up waits for /api/storage, which probes every connection",
   "expect": "test_start_up_does_not_wait_for_the_storage_route",
   "note": "replaces the catalogue entry of the same id, whose find text this change removed"
@@ -5178,24 +5178,24 @@
  },
  {
   "id": "M767_sessions_store_order",
-  "file": "visualweaver/routes_misc.py",
-  "find": "    result.sort(key=lambda r: r.get(\"updated\") or 0, reverse=True)\n",
-  "replace": "",
+  "file": "visualweaver/sessions.py",
+  "find": "    out = sorted(rows.values(), key=lambda r: r.get(\"updated\") or 0, reverse=True)\n",
+  "replace": "    out = list(rows.values())\n",
   "defect": "after a reload the conversation list is in the store's arbitrary key order, not newest first",
   "expect": "test_titles_and_last_turn_order_survive_a_reload"
  },
  {
   "id": "M768_title_not_persisted",
   "file": "visualweaver/sessions.py",
-  "find": "    first_user.setdefault(\"meta\", {})[\"title\"] = title\n",
-  "replace": "",
+  "find": "    meta[\"title\"] = title\n    return True\n",
+  "replace": "    return True\n",
   "defect": "a conversation's generated title is only sent to the open tab and is lost on reload",
   "expect": "test_titles_and_last_turn_order_survive_a_reload"
  },
  {
   "id": "M769_dns_rebinding_host_allowed",
   "file": "visualweaver/appcore.py",
-  "find": "    if (origin or site or mode) and not _host_allowed(host):\n        return False, \"host\", host\n",
+  "find": "    if not probe and not _host_allowed(host):\n        return False, \"host\", host\n",
   "replace": "",
   "defect": "a page on a domain re-pointed at this machine (DNS rebinding) is same-origin with the app and drives the API",
   "expect": "test_dns_rebinding_host_names_are_refused_for_browsers"
@@ -5683,8 +5683,8 @@
  {
   "id": "M857_rerank_progress_bar",
   "file": "visualweaver/embeddings.py",
-  "find": "reranker.predict(pairs, show_progress_bar=False)",
-  "replace": "reranker.predict(pairs)",
+  "find": "    got = np.asarray(reranker.predict([pairs[i] for i in order], batch_size=bs,\n                                      show_progress_bar=False),   # see embed()",
+  "replace": "    got = np.asarray(reranker.predict([pairs[i] for i in order], batch_size=bs),",
   "defect": "every rerank writes a sentence-transformers progress bar into the app log",
   "expect": "test_embedding_and_reranking_never_draw_progress_bars"
  },
@@ -5879,5 +5879,1836 @@
   "replace": "        pass\n",
   "defect": "start.sh moves the built-in MongoDB off a port another program took, but the app keeps connecting to the old port",
   "expect": "test_a_moved_port_is_followed_by_the_app_config"
+ },
+ {
+  "id": "M882_stopped_runtime_not_started",
+  "file": "visualweaver/local_mongo.py",
+  "find": "    rt = _startable_runtime()\n    if rt is None:\n        raise LocalMongoError(why)                    # e.g. a Linux daemon: needs sudo\n",
+  "replace": "    raise LocalMongoError(why)\n",
+  "defect": "after a reboot start.sh only says the container runtime is not running instead of starting it",
+  "expect": "test_a_stopped_runtime_is_started_waited_for_and_stopped_again"
+ },
+ {
+  "id": "M883_runtime_stopped_under_other_containers",
+  "file": "visualweaver/local_mongo.py",
+  "find": "        if r.returncode == 0 and r.stdout.strip():\n",
+  "replace": "        if False:\n",
+  "defect": "stop.sh stops the container runtime while other projects' containers still run in it",
+  "expect": "test_a_runtime_others_still_use_is_left_running"
+ },
+ {
+  "id": "M884_required_store_exits_silently",
+  "file": "start.sh",
+  "find": "      c_err \"VisualWeaver keeps its app data (conversations, the answer cache) on the built-in ${what},\"\n",
+  "replace": "",
+  "defect": "when the store holding the app data cannot start, start.sh exits without saying the app needs it",
+  "expect": "test_a_missing_runtime_explains_why_the_app_cannot_start_when_it_holds_the_app_data"
+ },
+ {
+  "id": "M900_sessions_expire_after_a_day_by_default",
+  "file": "visualweaver/constants.py",
+  "find": "    \"sessions\":   {\"persist\": True, \"ttl\": 0},",
+  "replace": "    \"sessions\":   {\"persist\": True, \"ttl\": 86400},",
+  "defect": "conversations expire after a day by default instead of being kept",
+  "expect": "test_new_conversations_never_expire_by_default"
+ },
+ {
+  "id": "M901_old_one_day_default_kept_as_a_choice",
+  "file": "visualweaver/config.py",
+  "find": "        merged[\"sessions\"] = {**merged[\"sessions\"], \"ttl\": 0}\n",
+  "replace": "        pass\n",
+  "defect": "an upgraded install keeps the old one-day default, so its conversations still expire after a day",
+  "expect": "test_the_old_one_day_default_is_read_as_forever"
+ },
+ {
+  "id": "M902_chosen_one_day_read_as_the_old_default",
+  "file": "visualweaver/config.py",
+  "find": "            and not raw.get(\"retention_chosen\") and isinstance(merged.get(\"sessions\"), dict)):",
+  "replace": "            and isinstance(merged.get(\"sessions\"), dict)):",
+  "defect": "a one-day retention chosen in Settings turns into Forever after a restart",
+  "expect": "test_the_old_one_day_default_is_read_as_forever test_a_settings_save_records_the_choice_and_applies_it"
+ },
+ {
+  "id": "M903_retention_change_not_applied_on_save",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    await config.save_config_async(state._config)   # strips env keys before writing to disk\n    await _apply_retention_if_changed(retention_before)\n",
+  "replace": "    await config.save_config_async(state._config)   # strips env keys before writing to disk\n",
+  "defect": "a retention saved in Settings leaves the stored conversations on their old expiry",
+  "expect": "test_a_settings_save_records_the_choice_and_applies_it"
+ },
+ {
+  "id": "M904_pinned_conversation_still_expires",
+  "file": "visualweaver/sessions.py",
+  "find": "    return None if (not ttl or _first_meta(msgs).get(\"pinned\")) else ttl",
+  "replace": "    return None if not ttl else ttl",
+  "defect": "a pinned conversation is saved with the retention TTL and expires like any other",
+  "expect": "test_a_pin_is_stored_with_the_conversation_and_survives_a_restart"
+ },
+ {
+  "id": "M905_retention_change_expires_pinned",
+  "file": "visualweaver/sessions.py",
+  "find": "            if sid in pinned or not ttl:",
+  "replace": "            if not ttl:",
+  "defect": "changing the retention gives pinned conversations an expiry",
+  "expect": "test_changing_retention_applies_to_existing_conversations"
+ },
+ {
+  "id": "M906_shorter_retention_resets_every_clock",
+  "file": "visualweaver/sessions.py",
+  "find": "            elif left is None or left > ttl or longer:",
+  "replace": "            elif True:",
+  "defect": "re-applying a retention restarts every conversation's countdown (a move of the app data extends lifetimes; less time left is not kept)",
+  "expect": "test_changing_retention_applies_to_existing_conversations"
+ },
+ {
+  "id": "M907_longer_retention_not_extended",
+  "file": "visualweaver/sessions.py",
+  "find": "        longer = bool(ttl) and isinstance(before, int) and ttl > before",
+  "replace": "        longer = False",
+  "defect": "a longer retention leaves conversations on the shorter expiry they had",
+  "expect": "test_changing_retention_applies_to_existing_conversations"
+ },
+ {
+  "id": "M908_edited_retention_never_applied",
+  "file": "visualweaver/sessions.py",
+  "find": "    if meta is None or meta.get(\"ttl\") != retention_ttl():",
+  "replace": "    if meta is None:",
+  "defect": "a retention changed without a settings save (config.json, the upgrade to Forever) is never applied to stored conversations",
+  "expect": "test_a_hand_edited_retention_is_applied_on_the_next_listing"
+ },
+ {
+  "id": "M909_save_skips_the_registry_row",
+  "file": "visualweaver/sessions.py",
+  "find": "        store.hset(_INDEX_KEY, {sid: row})\n",
+  "replace": "        pass\n",
+  "defect": "a conversation saved after the registry was built is missing from the list",
+  "expect": "test_the_list_is_served_from_the_registry_without_a_scan"
+ },
+ {
+  "id": "M910_yesterday_group_missing",
+  "file": "visualweaver/index.html",
+  "find": "  if(t>=day(1))return 'Yesterday';\n",
+  "replace": "",
+  "defect": "the sidebar has no Yesterday group: yesterday's conversations are filed under Previous 7 days",
+  "expect": "test_conversations_are_grouped_pinned_first_then_by_day"
+ },
+ {
+  "id": "M911_registry_rows_never_pruned",
+  "file": "visualweaver/sessions.py",
+  "find": "        _prune(store, gone)\n",
+  "replace": "        pass\n",
+  "defect": "the registry keeps a row for every conversation that ever expired and grows without bound",
+  "expect": "test_expired_and_deleted_conversations_leave_the_list_and_the_registry"
+ },
+ {
+  "id": "M912_expired_conversations_listed",
+  "file": "visualweaver/sessions.py",
+  "find": "            if left == 0:                      # expired, or removed behind the app's back",
+  "replace": "            if False:",
+  "defect": "expired or deleted conversations stay in the sidebar list",
+  "expect": "test_expired_and_deleted_conversations_leave_the_list_and_the_registry"
+ },
+ {
+  "id": "M913_pre_registry_conversations_never_indexed",
+  "file": "visualweaver/sessions.py",
+  "find": "        if meta is None:\n            _rebuild_index(store)\n",
+  "replace": "",
+  "defect": "an upgraded install lists none of the conversations it stored before the registry",
+  "expect": "test_conversations_stored_before_the_registry_are_indexed_once"
+ },
+ {
+  "id": "M914_list_scans_the_keyspace_again",
+  "file": "visualweaver/sessions.py",
+  "find": "        if ensure_index(store, index):\n            index = _visible_rows(store)\n",
+  "replace": "        _rebuild_index(store)\n        index = _visible_rows(store)\n",
+  "defect": "every page load scans the whole keyspace for conversations again",
+  "expect": "test_the_list_is_served_from_the_registry_without_a_scan"
+ },
+ {
+  "id": "M915_moved_app_data_keeps_a_stale_registry",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    dst.delete(sessions._INDEX_KEY, sessions._INDEX_META_KEY)\n",
+  "replace": "",
+  "defect": "after moving the app data to a store used before, the conversations copied there are not listed",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M916_auto_title_overwrites_a_rename",
+  "file": "visualweaver/sessions.py",
+  "find": "    if meta.get(\"title_user\"):\n        return False\n    meta[\"title\"] = title\n",
+  "replace": "    meta[\"title\"] = title\n",
+  "defect": "a generated title replaces the name the user gave the conversation",
+  "expect": "test_rename_is_stored_and_never_overwritten_by_an_auto_title"
+ },
+ {
+  "id": "M917_regenerate_first_answer_drops_name_and_pin",
+  "file": "visualweaver/routes_chat.py",
+  "find": "            carried = sessions.session_meta(state._sessions[sid])",
+  "replace": "            carried = {}",
+  "defect": "regenerating the first answer loses the conversation's name, pin and creation time",
+  "expect": "test_regenerating_the_first_answer_keeps_the_name_and_pin_and_skips_the_title_call"
+ },
+ {
+  "id": "M918_title_call_over_a_user_name",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if len(state._sessions[sid]) == 2 and not sessions.has_user_title(state._sessions[sid]):",
+  "replace": "    if len(state._sessions[sid]) == 2:",
+  "defect": "a title is generated (a billed model call) over a name the user gave",
+  "expect": "test_regenerating_the_first_answer_keeps_the_name_and_pin_and_skips_the_title_call"
+ },
+ {
+  "id": "M919_session_title_rendered_as_markup",
+  "file": "visualweaver/index.html",
+  "find": "        <span class=\"session-title\">${escHtml(s.title)}</span>",
+  "replace": "        <span class=\"session-title\">${s.title}</span>",
+  "defect": "a conversation title is inserted as HTML in the sidebar (stored XSS)",
+  "expect": "test_a_title_is_text_everywhere_never_markup"
+ },
+ {
+  "id": "M950_ollama_status_ignores_fetch_error",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if not models and state._ollama_models_error:\n",
+  "replace": "    if False:\n",
+  "defect": "/api/status/ollama answers ok:true for an Ollama that is not running (Status, the picker dot and the chat strip all say Online)",
+  "expect": "test_ollama_status_reports_an_ollama_that_is_not_running"
+ },
+ {
+  "id": "M951_ollama_models_error_not_recorded",
+  "file": "visualweaver/providers.py",
+  "find": "        state._ollama_models_error = str(e) or type(e).__name__\n",
+  "replace": "",
+  "defect": "the Ollama model fetch swallows its error, so a stopped Ollama reads as one with no models",
+  "expect": "test_ollama_status_reports_an_ollama_that_is_not_running"
+ },
+ {
+  "id": "M952_hosted_model_ready_without_key",
+  "file": "visualweaver/index.html",
+  "find": "  else if(ps.configured===false)model={ok:false,text:`No ${label} API key`,fix:`Add your ${label} API key`};\n",
+  "replace": "",
+  "defect": "a hosted provider with no API key counts as a usable model because its static model list selects one",
+  "expect": "test_a_hosted_provider_without_a_key_is_not_a_usable_model"
+ },
+ {
+  "id": "M953_stopped_ollama_still_ready",
+  "file": "visualweaver/index.html",
+  "find": "    if(ps.ok===false&&ps.configured!==false)model={ok:false,",
+  "replace": "    if(false)model={ok:false,",
+  "defect": "the checklist and strip keep saying the Ollama model is ready after Ollama stopped answering",
+  "expect": "test_an_ollama_that_stopped_answering_is_not_ready_even_with_a_model_selected"
+ },
+ {
+  "id": "M954_unreachable_chunks_count_as_knowledge",
+  "file": "visualweaver/index.html",
+  "find": "    const full=L.find(r=>r.reachable!==false&&(r.chunks|0)>0), t=_frTarget();\n",
+  "replace": "    const full=L.find(r=>(r.chunks|0)>0), t=_frTarget();\n",
+  "defect": "documents on a connection that cannot be reached tick off the knowledge step",
+  "expect": "test_knowledge_is_done_when_an_instance_has_chunks_and_targets_the_searched_one"
+ },
+ {
+  "id": "M955_add_documents_ignores_searched_instance",
+  "file": "visualweaver/index.html",
+  "find": "  return (!S.noRag&&!S.ragAllMode&&L.find(r=>_isActiveRag(r)&&up(r)))\n    ||",
+  "replace": "  return ",
+  "defect": "Add your first documents targets default instead of the knowledge base the chat searches",
+  "expect": "test_knowledge_is_done_when_an_instance_has_chunks_and_targets_the_searched_one"
+ },
+ {
+  "id": "M956_strip_claims_storage_while_server_away",
+  "file": "visualweaver/index.html",
+  "find": "  const away=S.wsState==='offline'||S.wsState==='signedout';\n",
+  "replace": "  const away=false;\n",
+  "defect": "while the app server is unreachable the strip keeps showing its last storage/model verdicts as current",
+  "expect": "test_the_socket_state_and_a_waiting_message_reach_the_strip"
+ },
+ {
+  "id": "M957_socket_drop_not_shown",
+  "file": "visualweaver/index.html",
+  "find": "    if(current)_wsSetState('reconnecting');\n",
+  "replace": "",
+  "defect": "a dropped chat socket leaves the strip saying connected",
+  "expect": "test_a_dropped_socket_says_reconnecting_and_a_waiting_message_says_so"
+ },
+ {
+  "id": "M958_checklist_shown_when_all_done",
+  "file": "visualweaver/index.html",
+  "find": "  const show=!_frHidden()&&vals.includes(false);\n",
+  "replace": "  const show=!_frHidden();\n",
+  "defect": "the getting-started checklist stays on every new conversation after every step is done",
+  "expect": "test_the_checklist_is_not_shown_when_everything_is_done"
+ },
+ {
+  "id": "M959_checklist_dismissal_ignored",
+  "file": "visualweaver/index.html",
+  "find": "  try{localStorage.setItem(_FR_HIDDEN_KEY,'1');}catch(e){}\n",
+  "replace": "",
+  "defect": "hiding the getting-started checklist is forgotten on the next load",
+  "expect": "test_the_checklist_can_be_hidden_and_stays_hidden_in_this_browser"
+ },
+ {
+  "id": "M960_add_documents_target_not_chosen",
+  "file": "visualweaver/index.html",
+  "find": "  if(t&&sel){const key=_ragKey(t);if([...sel.options].some(o=>o.value===key))sel.value=key;}\n",
+  "replace": "",
+  "defect": "Add documents opens the upload with whatever instance the picker held, not the one the step names",
+  "expect": "test_the_knowledge_step_targets_the_instance_the_chat_searches"
+ },
+ {
+  "id": "M961_reconnecting_never_becomes_unreachable",
+  "file": "visualweaver/index.html",
+  "find": "if(S.wsState==='reconnecting'){S.wsState='offline';_renderHealth();}",
+  "replace": "",
+  "defect": "a server that stays away reads 'reconnecting…' for ever",
+  "expect": "test_a_server_that_stays_away_reads_unreachable_and_the_message_comes_back"
+ },
+ {
+  "id": "M962_ws_error_toast_on_every_reconnect",
+  "file": "visualweaver/index.html",
+  "find": "  ws.onerror=()=>{};\n",
+  "replace": "  ws.onerror=()=>toast('WebSocket error','error',{scope:'ws-send'});\n",
+  "defect": "every failed 2-s reconnect raises a 'WebSocket error' toast that never expires",
+  "expect": "test_a_server_that_stays_away_reads_unreachable_and_the_message_comes_back"
+ },
+ {
+  "id": "M963_strip_provider_not_rechecked",
+  "file": "visualweaver/index.html",
+  "find": "  _renderHealth();\n  _healthProbeProvider().catch(()=>{});\n",
+  "replace": "  _renderHealth();\n",
+  "defect": "the strip never notices Ollama stopping or coming back",
+  "expect": "test_the_strip_follows_ollama_going_away_and_coming_back"
+ },
+ {
+  "id": "M964_installer_counts_embedding_models_as_chat",
+  "file": "visualweaver/provider_check.py",
+  "find": "        chat = [str(m.get(\"name\", \"\")) for m in models if isinstance(m, dict) and not is_embedding_model(m)]\n",
+  "replace": "        chat = [str(m.get(\"name\", \"\")) for m in models if isinstance(m, dict)]\n",
+  "defect": "install.sh reports an Ollama with only embedding models as ready to chat",
+  "expect": "test_ollama_with_only_embedding_models_warns"
+ },
+ {
+  "id": "M965_installer_provider_warning_fails_install",
+  "file": "install.sh",
+  "find": "v_warn() { printf '  \\033[0;33m⚠\\033[0m %-18s %s\\n' \"$1\" \"$2\"; V_WARNS+=(\"$1: $3\"); }\n",
+  "replace": "v_warn() { printf '  \\033[0;33m⚠\\033[0m %-18s %s\\n' \"$1\" \"$2\"; V_FAIL=1; V_FIXES+=(\"$1: $3\"); }\n",
+  "defect": "a missing model provider fails the whole install although Ollama or a key can be added later",
+  "expect": "test_ollama_that_is_not_running_warns_with_the_fix_but_the_install_succeeds"
+ },
+ {
+  "id": "M966_installer_ignores_env_api_key",
+  "file": "visualweaver/provider_check.py",
+  "find": "        if environ.get(ENV[p], \"\").strip():\n",
+  "replace": "        if False:\n",
+  "defect": "install.sh warns about a missing API key that is set in the provider's environment variable",
+  "expect": "test_a_hosted_provider_key_from_the_environment_passes"
+ },
+ {
+  "id": "M967_welcome_overflows_above_the_top",
+  "file": "visualweaver/index.html",
+  "find": ".welcome-screen{justify-content:flex-start}\n",
+  "replace": "",
+  "defect": "on a phone the welcome screen with the checklist overflows above the chat area, leaving the logo and title out of reach",
+  "expect": "test_the_top_of_a_tall_welcome_screen_can_be_scrolled_to"
+ },
+ {
+  "id": "M920_cross_encoder_imported_at_startup",
+  "file": "visualweaver/embeddings.py",
+  "find": "CrossEncoder = None\nHAS_CROSSENCODER = _installed(\"sentence_transformers\", \"transformers\", \"torch\")\n",
+  "replace": "from sentence_transformers import CrossEncoder\nHAS_CROSSENCODER = True\n",
+  "defect": "importing the app imports sentence-transformers, transformers and torch for the reranker flag alone -> the first /api/health answers ~2.4 s later on every start",
+  "expect": "test_importing_the_app_does_not_import_the_cross_encoder"
+ },
+ {
+  "id": "M921_failed_cross_encoder_import_still_reported",
+  "file": "visualweaver/embeddings.py",
+  "find": "            HAS_CROSSENCODER = False\n            log.warning(f\"sentence-transformers CrossEncoder could not be imported: {e}\")",
+  "replace": "            log.warning(f\"sentence-transformers CrossEncoder could not be imported: {e}\")",
+  "defect": "a CrossEncoder that cannot be imported after all leaves /api/health promising a reranker",
+  "expect": "test_the_reranker_class_is_imported_on_first_use_and_a_failed_import_is_reported"
+ },
+ {
+  "id": "M922_cache_lookup_embeds_again",
+  "file": "visualweaver/routes_chat.py",
+  "find": "                                              cache_scope, exact_only, qvec)\n                       if cacheable and not bypass_cache else None)",
+  "replace": "                                              cache_scope, exact_only)\n                       if cacheable and not bypass_cache else None)",
+  "defect": "the chat turn's cache lookup embeds the question itself instead of reusing the turn's embedding",
+  "expect": "test_a_chat_turn_embeds_the_query_once"
+ },
+ {
+  "id": "M923_cache_store_embeds_again",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope, qvec)\n\n    # Which chunks did the answer actually use? The app knows how many it SENT;\n    # without this it cannot know how many were read, so \"is top_k too high\" has no\n    # answer but a guess. Ranks are the [n] markers the model wrote, which are the\n    # numbers rag.number_chunks stamped onto the prompt.\n    if not stream_error and chunks and not reused_sources:\n        _record_answer_citations(full_response, chunks)\n        await asyncio.to_thread(rag_admin.save_rag_stats)\n\n    # ── 7.",
+  "replace": "        await asyncio.to_thread(cache.cache_store, query, full_response, chunks, cache_scope)\n\n    # Which chunks did the answer actually use? The app knows how many it SENT;\n    # without this it cannot know how many were read, so \"is top_k too high\" has no\n    # answer but a guess. Ranks are the [n] markers the model wrote, which are the\n    # numbers rag.number_chunks stamped onto the prompt.\n    if not stream_error and chunks and not reused_sources:\n        _record_answer_citations(full_response, chunks)\n        await asyncio.to_thread(rag_admin.save_rag_stats)\n\n    # ── 7.",
+  "defect": "storing the answer in the cache embeds the question a third time (redisvl's store() embeds the prompt)",
+  "expect": "test_a_chat_turn_embeds_the_query_once"
+ },
+ {
+  "id": "M924_rest_cache_lookup_embeds_again",
+  "file": "visualweaver/routes_chat.py",
+  "find": "                                      cache_scope, exact_only, qvec)\n        if hit:",
+  "replace": "                                      cache_scope, exact_only)\n        if hit:",
+  "defect": "the REST chat route's cache lookup embeds the question itself instead of reusing the turn's embedding",
+  "expect": "test_the_rest_chat_route_embeds_the_query_once"
+ },
+ {
+  "id": "M925_retrieval_embeds_again",
+  "file": "visualweaver/routes_chat.py",
+  "find": "                                    rag_admin.rc_for_instance(rag_inst), hybrid_search,\n                                    search_vec if search_vec is not None else qvec, source_filter,\n                                    errors=search_errors)",
+  "replace": "                                    rag_admin.rc_for_instance(rag_inst), hybrid_search,\n                                    search_vec, source_filter,\n                                    errors=search_errors)",
+  "defect": "single-instance retrieval embeds the question again instead of reusing the turn's embedding",
+  "expect": "test_a_chat_turn_embeds_the_query_once"
+ },
+ {
+  "id": "M926_parallel_retrieval_embeds_again",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        # source_filter is pushed into each instance's KNN + BM25 query (not post-filtered).\n        chunks = await rag.search_rag_parallel(rag_instances, query, fetch_k, rag_threshold,\n                                           hybrid_search,\n                                           search_vec if search_vec is not None else qvec,",
+  "replace": "        # source_filter is pushed into each instance's KNN + BM25 query (not post-filtered).\n        chunks = await rag.search_rag_parallel(rag_instances, query, fetch_k, rag_threshold,\n                                           hybrid_search,\n                                           search_vec,",
+  "defect": "multi-instance retrieval embeds the question again instead of reusing the turn's embedding",
+  "expect": "test_several_instances_share_the_turns_single_embedding"
+ },
+ {
+  "id": "M927_cache_gets_the_retrieval_vector",
+  "file": "visualweaver/embeddings.py",
+  "find": "        return [float(x) for x in self._compute()[1]]",
+  "replace": "        return [float(x) for x in self._compute()[0]]",
+  "defect": "the answer cache looks up and stores the question as typed instead of the normalised text its threshold was calibrated on",
+  "expect": "test_a_chat_turn_embeds_the_query_once"
+ },
+ {
+  "id": "M928_index_retry_embeds_again",
+  "file": "visualweaver/rag.py",
+  "find": "                    vector=q_emb.tolist(),   # the vector above — not embedded again",
+  "replace": "                    vector=_ns_embeddings.embed(query, is_query=True).tolist(),",
+  "defect": "the index-missing retry embeds the question a second time instead of reusing the vector",
+  "expect": "test_search_embeds_the_query_as_a_query"
+ },
+ {
+  "id": "M929_listing_scans_the_keyspace",
+  "file": "visualweaver/rag_admin.py",
+  "find": "            registered = instance_registry.redis_names(rc)\n",
+  "replace": "            registered = {rag._decode(k)[len(\"rag_meta:\"):] for k in rc.scan_iter(\"rag_meta:*\", count=200)}\n",
+  "defect": "every instance listing walks the whole keyspace with SCAN MATCH rag_meta:* (52 ms p50 with 51 instances / 50,000 chunks against 11 ms)",
+  "expect": "test_listing_instances_reads_the_registry_instead_of_scanning_the_keyspace"
+ },
+ {
+  "id": "M930_deleted_instance_stays_registered",
+  "file": "visualweaver/rag_admin.py",
+  "find": "        _registry_write(instance_registry.redis_remove, rc, instance)\n",
+  "replace": "",
+  "defect": "deleting an instance leaves its name in the instance registry",
+  "expect": "test_the_registry_heals_and_follows_create_import_and_delete"
+ },
+ {
+  "id": "M931_missed_index_not_registered",
+  "file": "visualweaver/rag_admin.py",
+  "find": "                    instance_registry.redis_add(rc, *unregistered)\n",
+  "replace": "                    pass\n",
+  "defect": "an index the registry missed is listed but never registered, so the registry does not heal",
+  "expect": "test_the_registry_heals_and_follows_create_import_and_delete"
+ },
+ {
+  "id": "M932_stale_registry_names_kept",
+  "file": "visualweaver/rag_admin.py",
+  "find": "            if stale:\n",
+  "replace": "            if False:\n",
+  "defect": "a registered name with neither metadata nor an index stays in the registry and is checked on every listing",
+  "expect": "test_the_registry_heals_and_follows_create_import_and_delete"
+ },
+ {
+  "id": "M933_registry_never_marked_complete",
+  "file": "visualweaver/instance_registry.py",
+  "find": "            rc.sadd(REDIS_KEY, *found, BUILT)\n",
+  "replace": "            rc.sadd(REDIS_KEY, *found)\n",
+  "defect": "the rebuilt registry is never marked complete, so every listing scans the keyspace again",
+  "expect": "test_an_install_without_a_registry_builds_it_once_from_a_scan"
+ },
+ {
+  "id": "M934_registry_never_rebuilt",
+  "file": "visualweaver/instance_registry.py",
+  "find": "    if BUILT not in members:\n        found = _scan_meta_names(rc)\n",
+  "replace": "    if False:\n        found = _scan_meta_names(rc)\n",
+  "defect": "an install from before the registry never builds one, so instances that exist only as metadata disappear from the list",
+  "expect": "test_an_install_without_a_registry_builds_it_once_from_a_scan"
+ },
+ {
+  "id": "M935_mongodb_listing_reads_every_chunk",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    names = sorted(instance_registry.mongo_names(ep, CHUNKS, META) | set(metas))\n",
+  "replace": "    names = sorted(set(col.distinct(\"instance\")) | set(metas))\n",
+  "defect": "the MongoDB instance listing runs distinct() over every chunk instead of reading the registry",
+  "expect": "test_the_mongodb_listing_reads_the_registry_and_heals_it"
+ },
+ {
+  "id": "M936_mongodb_legs_sequential",
+  "file": "visualweaver/mongo_store.py",
+  "find": "    text_job = (_leg_pool().submit(_text_leg, col, inst, keywords, fetch_k, sources)\n                if hybrid and keywords else None)\n    try:\n        vec_rows = _vector_leg(col, field, q_emb, fetch_k, pre)\n",
+  "replace": "    vec_rows = _vector_leg(col, field, q_emb, fetch_k, pre)\n    text_job = (_leg_pool().submit(_text_leg, col, inst, keywords, fetch_k, sources)\n                if hybrid and keywords else None)\n    try:\n        pass\n",
+  "defect": "MongoDB retrieval runs the keyword leg only after the vector leg has returned (p50 8.8-10.7 ms against 5.6-6.3 ms)",
+  "expect": "test_mongodb_vector_and_keyword_legs_overlap"
+ },
+ {
+  "id": "M937_rerank_pairs_unsorted",
+  "file": "visualweaver/embeddings.py",
+  "find": "    order = sorted(range(len(pairs)), key=lambda i: len(pairs[i][1]), reverse=True)\n",
+  "replace": "    order = list(range(len(pairs)))\n",
+  "defect": "the cross-encoder gets its pairs in retrieval order, so every batch pads to the longest chunk anywhere in it (CPU 641 ms against 380 ms for 40 candidates)",
+  "expect": "test_rerank_sorts_pairs_by_length_and_maps_scores_back"
+ },
+ {
+  "id": "M938_rerank_scores_not_mapped_back",
+  "file": "visualweaver/embeddings.py",
+  "find": "    scores[order] = got\n",
+  "replace": "    scores[:] = got\n",
+  "defect": "scores computed in length order are read back in retrieval order, so each chunk is ranked by another chunk's score",
+  "expect": "test_rerank_sorts_pairs_by_length_and_maps_scores_back"
+ },
+ {
+  "id": "M939_half_precision_on_cpu",
+  "file": "visualweaver/embeddings.py",
+  "find": "    if half and _reranker_device(model) in (\"cuda\", \"mps\"):\n",
+  "replace": "    if half:\n",
+  "defect": "the cross-encoder runs in half precision on the CPU, where it is slower and less exact",
+  "expect": "test_half_precision_is_used_only_on_a_gpu_and_dropped_if_it_overflows"
+ },
+ {
+  "id": "M940_dialog_focus_steals_a_field",
+  "file": "visualweaver/index.html",
+  "find": "    if(cur&&cur!==dlg&&dlg.contains(cur))return;\n",
+  "replace": "",
+  "defect": "a dialog's deferred initial focus moves focus out of a field the person already moved into, so the typing that follows goes to the close button (the Firefox flake of test_read_only_tabs_hide_save_unless_something_is_unsaved)",
+  "expect": "test_typing_into_a_field_clicked_right_after_opening_settings_reaches_the_field[chromium-1400]"
+ },
+ {
+  "id": "M941_sweep_any_red_is_a_kill",
+  "file": "tests/mutation_sweep.py",
+  "find": "    if exp_red:\n",
+  "replace": "    if exp_red or elsewhere:\n",
+  "defect": "the sweep scores a mutation KILLED when only a test outside `expect` failed, so a flaky failure hides a survivor",
+  "expect": "test_a_failure_outside_expect_is_not_a_kill"
+ },
+ {
+  "id": "M942_sweep_expect_params_ignored",
+  "file": "tests/mutation_sweep.py",
+  "find": "    if \"[\" in expect:\n        return test_name == expect\n",
+  "replace": "    if \"[\" in expect:\n        return test_name.split(\"[\", 1)[0] == expect.split(\"[\", 1)[0]\n",
+  "defect": "an expect naming one parametrization (test_x[firefox]) is satisfied by another one failing (test_x[chromium])",
+  "expect": "test_a_parametrized_expect_matches_only_its_own_id"
+ },
+ {
+  "id": "M943_sweep_expect_prefix_match",
+  "file": "tests/mutation_sweep.py",
+  "find": "    return test_name.split(\"[\", 1)[0] == expect\n",
+  "replace": "    return test_name.startswith(expect)\n",
+  "defect": "expect test_x is credited when test_x_more fails",
+  "expect": "test_expect_name_is_not_a_prefix_match"
+ },
+ {
+  "id": "M944_sweep_skipped_expect_survives",
+  "file": "tests/mutation_sweep.py",
+  "find": "    if all(r.outcome == \"skipped\" for r in matched):\n",
+  "replace": "    if False:\n",
+  "defect": "an expect test that skipped (no browser, no MongoDB) is scored SURVIVED instead of EXPECT-NOT-RUN",
+  "expect": "test_a_skipped_expect_is_not_a_survivor"
+ },
+ {
+  "id": "M945_since_ignores_test_edits",
+  "file": "tests/mutation_sweep.py",
+  "find": "        if m[\"file\"] in changed or any(_node_file(n) in tests for n in nodes):\n",
+  "replace": "        if m[\"file\"] in changed:\n",
+  "defect": "--since/--changed skip the entries whose expect test was edited, though the edit can stop it catching its defect",
+  "expect": "test_a_changed_expect_test_selects_its_entries"
+ },
+ {
+  "id": "M946_fast_mode_never_escalates",
+  "file": "tests/mutation_sweep.py",
+  "find": "        if v[\"verdict\"] != \"SURVIVED\" or not settings.escalate:\n",
+  "replace": "        if True:\n",
+  "defect": "fast mode stops at a green expect test, so KILLED-ELSEWHERE is never told apart from SURVIVED",
+  "expect": "test_fast_mode_escalates_to_tell_survived_from_killed_elsewhere"
+ },
+ {
+  "id": "M947_interrupt_leaves_shared_mongo",
+  "file": "tests/mutation_sweep.py",
+  "find": "            settings.mongo.close()\n",
+  "replace": "            pass\n",
+  "defect": "Ctrl-C / SIGTERM leaves the sweep's shared MongoDB stack running in the container VM",
+  "expect": "test_an_interrupted_sweep_still_removes_the_shared_mongodb"
+ },
+ {
+  "id": "M948_preflight_ignores_running_containers",
+  "file": "tests/mutation_sweep.py",
+  "find": "    free = total - used - VM_RESERVE_BYTES\n",
+  "replace": "    free = total - VM_RESERVE_BYTES\n",
+  "defect": "the memory pre-flight counts the VM's total memory as free, ignoring the MongoDB stacks already running in it",
+  "expect": "test_the_memory_preflight_counts_what_running_containers_use"
+ },
+ {
+  "id": "M949_lab_owns_other_pids_databases",
+  "file": "tests/conftest.py",
+  "find": "{os.getpid()}_\")\n",
+  "replace": "{os.getpid()}\")\n",
+  "defect": "on the sweep's shared MongoDB a lab drops databases of another lab whose pid starts with its own (pid 123 takes vwtest_1234_…)",
+  "expect": "test_a_lab_owns_only_databases_with_its_own_pid"
+ },
+ {
+  "id": "M970_signin_header_trusted_from_any_address",
+  "file": "visualweaver/auth.py",
+  "find": "    if vals and not trusted(scope, s):\n        return None, 403, \"untrusted\"",
+  "replace": "    if vals and False:\n        return None, 403, \"untrusted\"",
+  "defect": "the sign-in header is believed from any address, so a direct client claims to be any user",
+  "expect": "test_the_header_from_an_untrusted_address_is_refused"
+ },
+ {
+  "id": "M971_signin_unlisted_routes_open_to_users",
+  "file": "visualweaver/auth.py",
+  "find": "    if (method, path) in USER_ROUTES:\n        return \"user\"\n    return \"admin\"",
+  "replace": "    if (method, path) in USER_ROUTES:\n        return \"user\"\n    return \"user\"",
+  "defect": "routes not listed default to any signed-in user instead of administrators",
+  "expect": "test_every_admin_route_refuses_a_non_admin"
+ },
+ {
+  "id": "M972_signin_admin_check_skipped",
+  "file": "visualweaver/auth.py",
+  "find": "        if need == \"admin\" and not user.admin:",
+  "replace": "        if need == \"admin\" and False:",
+  "defect": "a signed-in non-admin reaches Settings writes, storage moves and instance deletion",
+  "expect": "test_every_admin_route_refuses_a_non_admin"
+ },
+ {
+  "id": "M973_signin_missing_identity_let_through",
+  "file": "visualweaver/auth.py",
+  "find": "            return await _deny(scope, send, 401, _MESSAGES[401])",
+  "replace": "            return await self.app(scope, receive, send)",
+  "defect": "with sign-in on, a request without the identity header is served anonymously",
+  "expect": "test_requests_without_identity_are_401_except_the_health_probe"
+ },
+ {
+  "id": "M974_signin_duplicate_header_first_wins",
+  "file": "visualweaver/auth.py",
+  "find": "    if len(vals) > 1:\n        return None, 400, \"duplicate\"",
+  "replace": "    if len(vals) > 99:\n        return None, 400, \"duplicate\"",
+  "defect": "a client-sent identity header forwarded next to the proxy's is accepted (first one wins)",
+  "expect": "test_duplicate_or_malformed_identity_headers_are_refused"
+ },
+ {
+  "id": "M975_signin_trust_everyone_range_accepted",
+  "file": "visualweaver/auth.py",
+  "find": "        if net.prefixlen == 0:",
+  "replace": "        if net.prefixlen < 0:",
+  "defect": "trusted_proxies 0.0.0.0/0 is accepted, so every address may assert an identity",
+  "expect": "test_a_broken_sign_in_configuration_refuses_everything"
+ },
+ {
+  "id": "M976_signin_misconfiguration_fails_open",
+  "file": "visualweaver/auth.py",
+  "find": "        if s.error:\n            detail = _MESSAGES[\"config\"] if s.error.startswith(\"config.json\") else _MESSAGES[503]\n",
+  "replace": "        if s.error:\n            return await self.app(scope, receive, send)\n            detail = _MESSAGES[\"config\"] if s.error.startswith(\"config.json\") else _MESSAGES[503]\n",
+  "defect": "a broken sign-in configuration serves every request without sign-in",
+  "expect": "test_a_broken_sign_in_configuration_refuses_everything"
+ },
+ {
+  "id": "M977_conversation_ids_not_scoped_per_user",
+  "file": "visualweaver/sessions.py",
+  "find": "    mine = user_prefix(owner) + sid\n",
+  "replace": "    mine = sid\n",
+  "defect": "every user reaches every conversation by its id (no per-user namespace)",
+  "expect": "test_conversations_belong_to_the_user_who_started_them"
+ },
+ {
+  "id": "M978_ws_resumes_another_users_conversation",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    sid = await asyncio.to_thread(sessions.scoped_sid, sid)\n    await _ns_ws.mgr.connect(ws, sid)",
+  "replace": "    await _ns_ws.mgr.connect(ws, sid)",
+  "defect": "the chat WebSocket continues any conversation by id, feeding another user's history to the model",
+  "expect": "test_conversations_belong_to_the_user_who_started_them"
+ },
+ {
+  "id": "M979_session_list_shows_every_users_rows",
+  "file": "visualweaver/sessions.py",
+  "find": "        index = {sid: row for sid, row in _rows_of(index).items() if visible(sid)}",
+  "replace": "        index = {sid: row for sid, row in _rows_of(index).items()}",
+  "defect": "the conversation list includes other users' stored conversations",
+  "expect": "test_conversations_belong_to_the_user_who_started_them"
+ },
+ {
+  "id": "M980_follow_up_answers_cached_for_everyone",
+  "file": "visualweaver/cache.py",
+  "find": "    return auth.cache_partition()\n\n\ndef _cache_scope(",
+  "replace": "    return auth.cache_partition() if history else \"\"\n\n\ndef _cache_scope(",
+  "defect": "with sign-in on, a conversation's first answer is cached for every user: a similar question from someone else replays it, private details included",
+  "expect": "test_with_sign_in_on_even_a_first_question_is_cached_per_user, test_answers_are_cached_per_user_first_answers_included"
+ },
+ {
+  "id": "M981_cached_questions_shown_to_every_user",
+  "file": "visualweaver/routes_redis.py",
+  "find": "    own = [{k: v for k, v in e.items() if k != \"owner\"} for e in rows if e.get(\"owner\") == mine]",
+  "replace": "    own = [{k: v for k, v in e.items() if k != \"owner\"} for e in rows]",
+  "defect": "every signed-in user, administrators included, reads every user's cached questions",
+  "expect": "test_cached_questions_are_shown_only_to_the_user_who_asked_them, test_cache_stats_show_everyone_only_their_own_questions"
+ },
+ {
+  "id": "M982_settings_save_can_turn_sign_in_off",
+  "file": "visualweaver/config.py",
+  "find": "_INSTALLED_KEYS = (\"storage\", \"mongodb\", \"auth\")",
+  "replace": "_INSTALLED_KEYS = (\"storage\", \"mongodb\")",
+  "defect": "a settings save or config import replaces the auth section (turns sign-in off, names admins)",
+  "expect": "test_a_settings_save_or_import_cannot_turn_sign_in_off"
+ },
+ {
+  "id": "M983_untagged_conversations_shown_to_everyone",
+  "file": "visualweaver/sessions.py",
+  "find": "    return auth.is_admin() and not _SCOPED_RE.match(sid)",
+  "replace": "    return not _SCOPED_RE.match(sid)",
+  "defect": "conversations from before sign-in are listed for every user, not only administrators",
+  "expect": "test_conversations_from_before_sign_in_are_shown_to_admins_only"
+ },
+ {
+  "id": "M984_admin_controls_shown_to_non_admins",
+  "file": "visualweaver/index.html",
+  "find": "html.vw-user [data-admin]{display:none!important}\n",
+  "replace": "\n",
+  "defect": "a non-admin is offered every Settings tab and Save, which the server then refuses",
+  "expect": "test_a_non_admin_gets_only_the_read_only_settings"
+ },
+ {
+  "id": "M985_signed_in_name_rendered_as_markup",
+  "file": "visualweaver/index.html",
+  "find": "  el.querySelector('.signed-in-name').textContent=name;",
+  "replace": "  el.querySelector('.signed-in-name').innerHTML=name;",
+  "defect": "the user name from the proxy header is inserted as HTML (XSS)",
+  "expect": "test_the_signed_in_name_is_shown_as_text_inside_the_sidebar"
+ },
+ {
+  "id": "M986_non_admin_page_creates_the_default_instance",
+  "file": "visualweaver/index.html",
+  "find": "S.defaultStatus?.ok!==false&&_isAdmin()){",
+  "replace": "S.defaultStatus?.ok!==false){",
+  "defect": "a non-admin's page posts the default-instance create on every load (refused, console error)",
+  "expect": "test_a_non_admin_gets_only_the_read_only_settings"
+ },
+ {
+  "id": "M987_rest_chat_session_not_scoped",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    sid = await asyncio.to_thread(sessions.scoped_sid, sid)    # the caller's own (sign-in on)\n",
+  "replace": "",
+  "defect": "POST /api/chat appends to any user's conversation by session_id",
+  "expect": "test_rest_chat_keeps_conversations_per_user"
+ },
+ {
+  "id": "M988_signed_in_sidebar_lists_only_this_browsers_ids",
+  "file": "visualweaver/index.html",
+  "find": "      if(!everyRow&&!mine.has(id))return;",
+  "replace": "      if(!mine.has(id))return;",
+  "defect": "with sign-in on, the sidebar still hides the user's own conversations started in another browser",
+  "expect": "test_with_sign_in_on_every_own_conversation_is_listed"
+ },
+ {
+  "id": "M989_rename_pin_not_scoped_per_user",
+  "file": "visualweaver/routes_misc.py",
+  "find": "    sid = sessions.scoped_sid(sid)\n    try:\n        row = sessions.update_session(sid, title=title, pinned=pinned, **extra)",
+  "replace": "    try:\n        row = sessions.update_session(sid, title=title, pinned=pinned, **extra)",
+  "defect": "rename/pin look the conversation up under the raw id, so with sign-in on the owner gets 404 for their own",
+  "expect": "test_owners_can_rename_pin_fork_and_delete_their_own"
+ },
+ {
+  "id": "M990_docs_only_no_match_calls_model",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if refusal:\n        await _answer_not_found(",
+  "replace": "    if False:\n        await _answer_not_found(",
+  "defect": "documents only with nothing retrieved still calls the model, which improvises an answer the mode promises not to give",
+  "expect": "test_no_match_under_documents_only_answers_without_calling_the_model"
+ },
+ {
+  "id": "M991_docs_only_rest_no_match_calls_model",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if refusal:\n        state._sessions[sid].append(",
+  "replace": "    if False:\n        state._sessions[sid].append(",
+  "defect": "POST /api/chat in documents only mode with nothing retrieved still calls the model",
+  "expect": "test_rest_no_match_under_documents_only_does_not_call_the_model"
+ },
+ {
+  "id": "M992_docs_only_shares_cache_partition",
+  "file": "visualweaver/cache.py",
+  "find": "        + ([\"docs-only\"] if documents_only else []))",
+  "replace": "        + ([] if documents_only else []))",
+  "defect": "a documents-only answer and a normal answer share a cache partition, so one is replayed as the other",
+  "expect": "test_a_normal_scope_is_unchanged_and_documents_only_has_its_own"
+ },
+ {
+  "id": "M993_docs_only_flag_lost_in_send",
+  "file": "visualweaver/index.html",
+  "find": "    : {rag_instance:S.activeRag?.name||'default',documents_only,...conv};",
+  "replace": "    : {rag_instance:S.activeRag?.name||'default',...conv};",
+  "defect": "the Documents only toggle never reaches the server: the question is answered in normal mode",
+  "expect": "test_the_toggle_restores_with_the_conversation_and_reaches_the_server"
+ },
+ {
+  "id": "M994_ws_scope_ignores_docs_only",
+  "file": "visualweaver/routes_chat.py",
+  "find": "                                   visual=exact_only, documents_only=documents_only,\n",
+  "replace": "                                   visual=exact_only,\n",
+  "defect": "the chat socket looks up and stores documents-only answers in the normal cache partition",
+  "expect": "test_documents_only_with_chunks_constrains_the_prompt_but_not_the_system_prompt"
+ },
+ {
+  "id": "M995_rest_scope_ignores_docs_only",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    cache_scope = cache._cache_scope(effective_rag,\n                               provider, model, source_filter, system_prompt,\n                               visual=exact_only, documents_only=documents_only,\n",
+  "replace": "    cache_scope = cache._cache_scope(effective_rag,\n                               provider, model, source_filter, system_prompt,\n                               visual=exact_only,\n",
+  "defect": "POST /api/chat looks up and stores documents-only answers in the normal cache partition",
+  "expect": "test_rest_no_match_under_documents_only_does_not_call_the_model"
+ },
+ {
+  "id": "M996_docs_only_prompt_not_used",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if documents_only:\n        context_parts.append(rag.build_documents_only_prompt(chunks).lstrip())",
+  "replace": "    if False:\n        context_parts.append(rag.build_documents_only_prompt(chunks).lstrip())",
+  "defect": "documents-only turns get the normal prompt, which allows a general-knowledge answer",
+  "expect": "test_documents_only_with_chunks_constrains_the_prompt_but_not_the_system_prompt test_an_attached_document_counts_as_a_document",
+  "sites": 2
+ },
+ {
+  "id": "M997_docs_only_prompt_allows_general_knowledge",
+  "file": "visualweaver/rag.py",
+  "find": "        \"- If the context does not contain the answer, say plainly that the user's \"",
+  "replace": "        \"- If none of it bears on the question, answer the question from general knowledge. \"\n        \"- If the context does not contain the answer, say plainly that the user's \"",
+  "defect": "the documents-only prompt lets the model fall back to general knowledge",
+  "expect": "test_documents_only_prompt_has_no_general_knowledge_fallback"
+ },
+ {
+  "id": "M998_attachment_not_a_document",
+  "file": "visualweaver/rag.py",
+  "find": "    if any(isinstance(f, dict) and f.get(\"text\") for f in (file_context or [])):\n        return None",
+  "replace": "    if False:\n        return None",
+  "defect": "documents only refuses a question about an attached document because nothing was retrieved from the knowledge base",
+  "expect": "test_an_attached_document_counts_as_a_document"
+ },
+ {
+  "id": "M999_docs_only_flag_truthy",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    documents_only = msg.get(\"documents_only\") is True",
+  "replace": "    documents_only = bool(msg.get(\"documents_only\"))",
+  "defect": "a client sending the string \"false\" gets documents only mode",
+  "expect": "test_only_json_true_turns_the_mode_on"
+ },
+ {
+  "id": "M1000_turn_mode_not_recorded",
+  "file": "visualweaver/sessions.py",
+  "find": "        meta[\"docs_only\"] = bool(docs_only)",
+  "replace": "        pass",
+  "defect": "the answer mode is not stored with the turn, so a reopened conversation loses its badge mode and toggle",
+  "expect": "test_no_match_under_documents_only_answers_without_calling_the_model"
+ },
+ {
+  "id": "M1001_invalid_citation_still_grounded",
+  "file": "visualweaver/index.html",
+  "find": "  const state=!valid?(maxN?'uncited':invalid?'missing':'noretrieval'):(!invalid&&cited===subst)?'grounded':'partly';",
+  "replace": "  const state=!valid?(maxN?'uncited':invalid?'missing':'noretrieval'):(cited===subst)?'grounded':'partly';",
+  "defect": "an answer citing a source that does not exist is still badged Grounded",
+  "expect": "test_an_invalid_number_counts_against_an_otherwise_cited_answer"
+ },
+ {
+  "id": "M1002_broken_citation_linked",
+  "file": "visualweaver/index.html",
+  "find": "    out.push({cite:nums.map(n=>({n,ok:n<=maxN}))});",
+  "replace": "    out.push({cite:nums.map(n=>({n,ok:true}))});",
+  "defect": "a citation number with no source behind it is rendered as a working citation",
+  "expect": "test_a_number_with_no_source_is_a_broken_citation_not_text"
+ },
+ {
+  "id": "M1003_code_like_brackets_flagged_broken",
+  "file": "visualweaver/index.html",
+  "find": "    if(!ok.length&&/[\\w\\])]/.test(prev))continue;     // code-like: x[3], m[2][3], f(x)[1]\n",
+  "replace": "",
+  "defect": "argv[7] and m[2][3] in prose are marked as broken citations",
+  "expect": "test_code_like_brackets_links_and_zero_are_not_citations"
+ },
+ {
+  "id": "M1004_code_blocks_counted_for_grounding",
+  "file": "visualweaver/index.html",
+  "find": "    .replace(/(^|\\n)[ \\t]*(`{3,}|~{3,})",
+  "replace": "    .replace(/(^|\\n)[ \\t]*(`{9,}|~{9,})",
+  "defect": "an uncited code block makes a fully cited answer only partly grounded",
+  "expect": "test_code_and_maths_do_not_count_either_way"
+ },
+ {
+  "id": "M1005_lead_in_needs_a_citation",
+  "file": "visualweaver/index.html",
+  "find": "    if(nWords>=6&&!/[:：]\\s*$/.test(t)){subst++;if(hasValid)cited++;}",
+  "replace": "    if(nWords>=6){subst++;if(hasValid)cited++;}",
+  "defect": "a lead-in line (\"The steps are:\") is required to carry a citation",
+  "expect": "test_list_items_and_table_rows_are_units_and_headings_and_lead_ins_are_not"
+ },
+ {
+  "id": "M1006_card_parses_document_html",
+  "file": "visualweaver/index.html",
+  "find": "  card.appendChild(mk('div','cite-card-text',text.length>600?text.slice(0,600)+'…':(text||'(no text stored)')));",
+  "replace": "  {const d=mk('div','cite-card-text');d.innerHTML=text;card.appendChild(d);}",
+  "defect": "the source card renders a document's text as HTML, so markup in an indexed page runs in the app",
+  "expect": "test_document_text_in_the_card_is_shown_never_parsed"
+ },
+ {
+  "id": "M1007_card_not_kept_in_window",
+  "file": "visualweaver/index.html",
+  "find": "  const left=Math.max(G,Math.min(r.left,vw-G-w));",
+  "replace": "  const left=r.left;",
+  "defect": "the source card of a marker near the right edge runs off a phone screen",
+  "expect": "test_on_a_phone_a_tap_toggles_the_card_inside_the_375px_window"
+ },
+ {
+  "id": "M1008_tap_opens_and_closes_card",
+  "file": "visualweaver/index.html",
+  "find": "  if(b){if(_citeCardFor!==b&&Date.now()-_citeTouchAt>800&&!_citeBack)_showCiteCard(b);return;}",
+  "replace": "  if(b){if(_citeCardFor!==b&&!_citeBack)_showCiteCard(b);return;}",
+  "defect": "on a touch screen a tap opens the card on focus and closes it on click, so it never shows",
+  "expect": "test_on_a_phone_a_tap_toggles_the_card_inside_the_375px_window"
+ },
+ {
+  "id": "M1009_escape_does_not_close_card",
+  "file": "visualweaver/index.html",
+  "find": "  if(e.key==='Escape'&&_citeCardFor){",
+  "replace": "  if(e.key==='Esc'&&_citeCardFor){",
+  "defect": "Escape leaves the source card open over the answer",
+  "expect": "test_keyboard_focus_shows_the_card_and_escape_closes_it"
+ },
+ {
+  "id": "M1020_health_probe_retries",
+  "file": "visualweaver/redis_store.py",
+  "find": "        _ping_once(rc)\n",
+  "replace": "        rc.ping()\n",
+  "defect": "the storage health probe waits out redis-py's retries, so a stopped Redis takes seconds to show as down",
+  "expect": "test_the_status_poll_tries_a_dead_redis_once"
+ },
+ {
+  "id": "M1021_status_asks_dead_redis_again",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if not state._endpoint_health.get(\"default\", True):\n",
+  "replace": "    if False:\n",
+  "defect": "/api/status/redis asks a Redis the probe just found dead for INFO and waits out the retries again",
+  "expect": "test_the_status_poll_tries_a_dead_redis_once"
+ },
+ {
+  "id": "M1030_project_name_not_required",
+  "file": "visualweaver/projects.py",
+  "find": "        if not name:\n            raise Invalid(\"name is required\")\n",
+  "replace": "        if False:\n            raise Invalid(\"name is required\")\n",
+  "defect": "a project without a name is stored",
+  "expect": "test_a_project_that_cannot_be_stored_is_refused"
+ },
+ {
+  "id": "M1031_project_names_not_unique",
+  "file": "visualweaver/projects.py",
+  "find": "    return any(p[\"name\"].lower() == name.lower() and pid != except_id for pid, p in projects.items())",
+  "replace": "    return False and any(p[\"name\"].lower() == name.lower() and pid != except_id for pid, p in projects.items())",
+  "defect": "two projects can share a name",
+  "expect": "test_project_names_are_unique_ignoring_case"
+ },
+ {
+  "id": "M1032_project_kb_names_unchecked",
+  "file": "visualweaver/projects.py",
+  "find": "if not isinstance(k, str) or not k.strip() or len(k) > 64 or _BAD_KB_CHARS.search(k) \\",
+  "replace": "if not isinstance(k, str) or not k.strip() or len(k) > 64 or False \\",
+  "defect": "a project can name a knowledge base no instance can have (glob characters)",
+  "expect": "test_a_project_that_cannot_be_stored_is_refused"
+ },
+ {
+  "id": "M1033_project_delete_leaves_conversations_filed",
+  "file": "visualweaver/projects.py",
+  "find": "            store.hdel(_KEY, pid)\n    return unbind_all(pid)",
+  "replace": "            store.hdel(_KEY, pid)\n    return 0",
+  "defect": "deleting a project leaves its conversations filed under a project that no longer exists",
+  "expect": "test_deleting_a_project_unfiles_every_conversation_and_keeps_them"
+ },
+ {
+  "id": "M1034_unfile_restarts_the_lifetime",
+  "file": "visualweaver/sessions.py",
+  "find": "            store.set(key, json.dumps(msgs), left)",
+  "replace": "            store.set(key, json.dumps(msgs), _ttl_for(msgs))",
+  "defect": "unfiling a conversation (project deleted) counts its retention again from now",
+  "expect": "test_deleting_a_project_unfiles_every_conversation_and_keeps_them"
+ },
+ {
+  "id": "M1035_unfile_only_callers_own",
+  "file": "visualweaver/sessions.py",
+  "find": "            if json.loads(raw).get(\"project\") == pid:\n                sids.append(sid)",
+  "replace": "            if json.loads(raw).get(\"project\") == pid and visible(sid):\n                sids.append(sid)",
+  "defect": "an admin deleting a project leaves other users' conversations filed under it",
+  "expect": "test_with_sign_in_projects_are_admin_managed_and_visible_to_all"
+ },
+ {
+  "id": "M1036_anyone_creates_projects",
+  "file": "visualweaver/auth.py",
+  "find": "    (\"GET\", \"/api/projects\"),\n",
+  "replace": "    (\"GET\", \"/api/projects\"), (\"POST\", \"/api/projects\"),\n",
+  "defect": "with sign-in on, a user who is not an administrator can create projects",
+  "expect": "test_with_sign_in_projects_are_admin_managed_and_visible_to_all"
+ },
+ {
+  "id": "M1037_any_turn_moves_the_project",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if first:\n        p = projects.resolve(msg.get(\"project\"))",
+  "replace": "    if True:\n        p = projects.resolve(msg.get(\"project\"))",
+  "defect": "a later turn naming another project moves the conversation into it",
+  "expect": "test_a_chat_started_in_a_project_is_filed_under_it_on_its_first_turn"
+ },
+ {
+  "id": "M1038_unknown_project_stored",
+  "file": "visualweaver/projects.py",
+  "find": "    try:\n        return get(pid)\n    except Exception:\n        return None",
+  "replace": "    try:\n        return get(pid) or {\"id\": pid}\n    except Exception:\n        return None",
+  "defect": "a chat turn naming a deleted/unknown project files the conversation under it",
+  "expect": "test_an_unknown_project_or_a_bad_selection_is_not_stored"
+ },
+ {
+  "id": "M1039_conversation_fields_not_stored",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if fields:\n        sessions.set_conversation_fields(state._sessions[sid], **fields)",
+  "replace": "    if False:\n        sessions.set_conversation_fields(state._sessions[sid], **fields)",
+  "defect": "a conversation's project and knowledge-base selection are never stored: reopening it uses the browser's selection",
+  "expect": "test_a_chat_started_in_a_project_is_filed_under_it_on_its_first_turn"
+ },
+ {
+  "id": "M1040_patch_accepts_any_project",
+  "file": "visualweaver/routes_misc.py",
+  "find": "        if pid is not None and projects.resolve(pid) is None:",
+  "replace": "        if False:",
+  "defect": "PATCH files a conversation under a project that does not exist",
+  "expect": "test_patch_files_a_conversation_under_a_project_and_changes_its_selection"
+ },
+ {
+  "id": "M1041_vanished_project_listed",
+  "file": "visualweaver/routes_misc.py",
+  "find": "            if r.get(\"project\") and r[\"project\"] not in known:",
+  "replace": "            if False:",
+  "defect": "the list names a project that no longer exists",
+  "expect": "test_a_conversation_under_a_vanished_project_is_listed_without_one"
+ },
+ {
+  "id": "M1042_regenerate_drops_project",
+  "file": "visualweaver/sessions.py",
+  "find": "_SESSION_FIELDS = (\"title\", \"title_user\", \"pinned\", \"created\", \"owner\",\n                   \"project\", \"kb_select\", \"template\")",
+  "replace": "_SESSION_FIELDS = (\"title\", \"title_user\", \"pinned\", \"created\", \"owner\",\n                   \"template\",)",
+  "defect": "regenerating the first answer takes the conversation out of its project and drops its selection",
+  "expect": "test_a_fork_and_a_regenerated_first_answer_keep_the_project"
+ },
+ {
+  "id": "M1043_project_advice_reads_every_kb",
+  "file": "visualweaver/projects.py",
+  "find": "    keep = set(p[\"kbs\"])\n    return {k: v for k, v in list((stats or {}).items()) if k in keep}",
+  "replace": "    keep = set(p[\"kbs\"])\n    return dict(stats or {})",
+  "defect": "a project's retrieval advice is measured on every knowledge base",
+  "expect": "test_retrieval_advice_can_be_read_for_one_projects_knowledge_bases"
+ },
+ {
+  "id": "M1044_project_presets_read_every_kb",
+  "file": "visualweaver/rag_advice.py",
+  "find": "    stats = stats if stats is not None else state._rag_stats\n    conflict = None",
+  "replace": "    stats = state._rag_stats\n    conflict = None",
+  "defect": "a project's presets are computed from every knowledge base",
+  "expect": "test_retrieval_advice_can_be_read_for_one_projects_knowledge_bases"
+ },
+ {
+  "id": "M1045_move_drops_projects",
+  "file": "visualweaver/routes_storage.py",
+  "find": "    if proj:\n        dst.hset(projects._KEY, proj)",
+  "replace": "    if False:\n        dst.hset(projects._KEY, proj)",
+  "defect": "moving the app data to another connection loses the projects",
+  "expect": "test_switch_redis_to_mongodb_copies_the_app_data"
+ },
+ {
+  "id": "M1046_hash_in_word_is_a_mention",
+  "file": "visualweaver/index.html",
+  "find": "  const m=/(^|\\s)#([^\\s#]*)$/.exec(before);",
+  "replace": "  const m=/()#([^\\s#]*)$/.exec(before);",
+  "defect": "'C#' or 'issue#4' opens the knowledge-base list",
+  "expect": "test_other_hashes_are_not_mentions"
+ },
+ {
+  "id": "M1047_mentions_not_sent",
+  "file": "visualweaver/index.html",
+  "find": "  if(mentions.length){delete ragPayload.rag_instance;ragPayload.rag_instances=mentions;}\n",
+  "replace": "",
+  "defect": "#mentioned knowledge bases are shown but the question searches the conversation's selection",
+  "expect": "test_mentions_restrict_this_question_only_also_under_documents_only"
+ },
+ {
+  "id": "M1048_project_change_overwrites_preference",
+  "file": "visualweaver/index.html",
+  "find": "  if(typeof _inProject==='function'&&_inProject())return;\n",
+  "replace": "",
+  "defect": "a knowledge base picked inside a project's conversation becomes the browser's choice for every new conversation",
+  "expect": "test_a_change_is_stored_with_the_conversation"
+ },
+ {
+  "id": "M1049_reopen_keeps_browser_selection",
+  "file": "visualweaver/index.html",
+  "find": "    if(sel!=null)_setKbSelection(sel);\n",
+  "replace": "    if(false)_setKbSelection(sel);\n",
+  "defect": "reopening a conversation searches the browser's last selection instead of its own",
+  "expect": "test_reopening_a_conversation_restores_its_own_selection"
+ },
+ {
+  "id": "M1050_x_forwarded_host_from_anyone",
+  "file": "visualweaver/appcore.py",
+  "find": "    if fwd and _forwarded_host_trusted(scope):\n",
+  "replace": "    if fwd:\n",
+  "defect": "X-Forwarded-Host is believed from any client: a request that is not from the proxy matches its Origin against a host name it chose",
+  "expect": "test_x_forwarded_host_is_honoured_only_from_a_trusted_proxy"
+ },
+ {
+  "id": "M1051_x_forwarded_host_replaces_the_host_check",
+  "file": "visualweaver/appcore.py",
+  "find": "    host = h.get(\"host\", \"\")\n    site, mode",
+  "replace": "    host = h.get(\"x-forwarded-host\") or h.get(\"host\", \"\")\n    site, mode",
+  "defect": "a DNS-rebinding page sends X-Forwarded-Host: localhost and the host check passes (1.15.0 behaviour)",
+  "expect": "test_x_forwarded_host_from_a_browser_does_not_pass_the_host_check, test_x_forwarded_host_with_loopback_trust_cannot_reach_admin_routes"
+ },
+ {
+  "id": "M1052_forwarded_host_not_checked",
+  "file": "visualweaver/appcore.py",
+  "find": "        if not probe and not _host_allowed(fwd):\n            return False, \"host\", fwd\n",
+  "replace": "",
+  "defect": "a proxy-forwarded host name that is not allowed is served (the proxy passes a rebinding page's host on)",
+  "expect": "test_x_forwarded_host_is_honoured_only_from_a_trusted_proxy"
+ },
+ {
+  "id": "M1053_lan_claimable_names_allowed",
+  "file": "visualweaver/appcore.py",
+  "find": "_PRIVATE_SUFFIXES = (\".localhost\",)",
+  "replace": "_PRIVATE_SUFFIXES = (\".localhost\", \".local\", \".lan\", \".internal\", \".home.arpa\")",
+  "defect": "evil.local (mDNS) or box.lan (router DNS) — names any device on the network can answer for — pass the DNS-rebinding guard",
+  "expect": "test_names_anyone_on_the_network_can_claim_are_not_allowed_by_default"
+ },
+ {
+  "id": "M1054_single_label_names_allowed",
+  "file": "visualweaver/appcore.py",
+  "find": "    if name.endswith(_PRIVATE_SUFFIXES) or name in _MACHINE_NAMES:",
+  "replace": "    if \".\" not in name or name.endswith(_PRIVATE_SUFFIXES) or name in _MACHINE_NAMES:",
+  "defect": "any single-label name (answerable by LLMNR or the router's DHCP DNS) passes the DNS-rebinding guard",
+  "expect": "test_names_anyone_on_the_network_can_claim_are_not_allowed_by_default"
+ },
+ {
+  "id": "M1055_cross_site_navigation_reaches_every_route",
+  "file": "visualweaver/appcore.py",
+  "find": "    if navigation and site in (\"cross-site\", \"same-site\") and scope.get(\"path\") != \"/\":\n        navigation = False\n",
+  "replace": "",
+  "defect": "a link or <iframe> on any web page opens GET /api/rag/{instance}/ingest/url/stream and starts a crawl into a knowledge base",
+  "expect": "test_a_cross_site_navigation_cannot_start_a_crawl_or_any_other_route"
+ },
+ {
+  "id": "M1056_unloaded_config_turns_sign_in_off",
+  "file": "visualweaver/config.py",
+  "find": "            return copy.deepcopy(constants.DEFAULT_CONFIG)\n        return _unloaded_defaults()\n",
+  "replace": "            return copy.deepcopy(constants.DEFAULT_CONFIG)\n",
+  "defect": "an unparsable or unreadable config.json runs on defaults without an auth section: sign-in off, everyone an administrator",
+  "expect": "test_an_unparsable_config_refuses_every_request_until_fixed, test_an_unreadable_config_refuses_every_request"
+ },
+ {
+  "id": "M1057_quarantined_config_restart_is_a_fresh_install",
+  "file": "visualweaver/config.py",
+  "find": "        named = [k for k in _kept_copies() if _mentions_signin(k)]\n",
+  "replace": "        named = []\n",
+  "defect": "after a bad config.json was moved aside, the next start runs as a fresh install with sign-in off",
+  "expect": "test_an_unparsable_config_refuses_every_request_until_fixed"
+ },
+ {
+  "id": "M1058_non_object_auth_is_off",
+  "file": "visualweaver/auth.py",
+  "find": "        raw = {\"mode\": f\"(auth is a {type(a).__name__}, not an object)\"}",
+  "replace": "        raw = {}",
+  "defect": "\"auth\": \"header\" in config.json silently turns sign-in off",
+  "expect": "test_an_auth_value_that_is_not_an_object_is_a_config_error"
+ },
+ {
+  "id": "M1059_cache_entry_has_no_owner",
+  "file": "visualweaver/cache.py",
+  "find": "            filters[\"owner\"] = owner\n",
+  "replace": "",
+  "defect": "cached answers do not record their user: removing one cannot check whose it is, and another user's Re-run fresh replaces it",
+  "expect": "test_a_stored_answer_records_its_owner_and_another_users_rerun_cannot_overwrite_it"
+ },
+ {
+  "id": "M1060_any_user_removes_any_cached_answer_redis",
+  "file": "visualweaver/routes_redis.py",
+  "find": "            if not owner or got != owner:\n                return {\"ok\": False}\n",
+  "replace": "",
+  "defect": "a signed-in user removes another user's (or the shared) cached answer by its id",
+  "expect": "test_removing_a_cached_answer_reaches_only_your_own"
+ },
+ {
+  "id": "M1061_any_user_removes_any_cached_answer_mongodb",
+  "file": "visualweaver/mongo_cache.py",
+  "find": "        q[\"owner\"] = owner\n",
+  "replace": "",
+  "defect": "on MongoDB a signed-in user removes another user's cached answer by its id",
+  "expect": "test_removing_a_cached_answer_on_mongodb_reaches_only_your_own"
+ },
+ {
+  "id": "M1062_look_alike_user_names_accepted",
+  "file": "visualweaver/auth.py",
+  "find": "    if unicodedata.normalize(\"NFKC\", name) != name:\n        return None\n",
+  "replace": "",
+  "defect": "a user named with the Kelvin sign or fullwidth letters folds into an administrator's name",
+  "expect": "test_a_look_alike_name_is_not_the_admin"
+ },
+ {
+  "id": "M1063_unicode_case_folded",
+  "file": "visualweaver/auth.py",
+  "find": "    return name.lower() if fold_case and name.isascii() else name",
+  "replace": "    return name.lower() if fold_case else name",
+  "defect": "non-ASCII names are case-folded: two different users share one identity",
+  "expect": "test_admin_names_and_groups_match_the_same_way, test_case_insensitive_names_are_an_explicit_choice"
+ },
+ {
+  "id": "M1064_look_alike_group_is_the_admin_group",
+  "file": "visualweaver/auth.py",
+  "find": "any(fold_name(g, s.fold_case) in s.admin_groups for g in groups)",
+  "replace": "any(g.lower() in s.admin_groups for g in groups)",
+  "defect": "a group named with a look-alike character (Kelvin sign) counts as the administrators' group",
+  "expect": "test_admin_names_and_groups_match_the_same_way, test_a_name_differing_only_in_case_is_another_user_and_not_the_admin"
+ },
+ {
+  "id": "M1065_ipv4_mapped_proxy_never_matches",
+  "file": "visualweaver/auth.py",
+  "find": "        if mapped is not None and net.prefixlen >= 96:",
+  "replace": "        if False:",
+  "defect": "a trusted proxy written as ::ffff:10.0.0.5 never matches, so its users are refused",
+  "expect": "test_an_ipv4_mapped_proxy_address_matches_the_proxy"
+ },
+ {
+  "id": "M1066_proxy_host_bits_widen_the_range",
+  "file": "visualweaver/auth.py",
+  "find": "            net = ipaddress.ip_network(p, strict=True)",
+  "replace": "            net = ipaddress.ip_network(p, strict=False)",
+  "defect": "trusted_proxies 10.0.0.5/8 silently trusts all of 10.0.0.0/8",
+  "expect": "test_proxy_ranges_with_host_bits_or_covering_everything_are_refused"
+ },
+ {
+  "id": "M1067_proxy_ranges_covering_everything",
+  "file": "visualweaver/auth.py",
+  "find": "        if cover >= total:",
+  "replace": "        if False:",
+  "defect": "trusted_proxies 0.0.0.0/1 + 128.0.0.0/1 trusts every address: any client may name itself",
+  "expect": "test_proxy_ranges_with_host_bits_or_covering_everything_are_refused"
+ },
+ {
+  "id": "M1068_fresh_row_pruned_mid_save",
+  "file": "visualweaver/sessions.py",
+  "find": "        dead = [s for s in dead if not _row_recent(index.get(s), fresh)]\n",
+  "replace": "",
+  "defect": "a listing that runs between a save's row write and its conversation write deletes the row: the conversation is never listed",
+  "expect": "test_a_row_written_just_before_its_conversation_is_not_pruned"
+ },
+ {
+  "id": "M1069_images_served_from_the_working_directory",
+  "file": "visualweaver/routes_media.py",
+  "find": "_ALLOWED_IMAGE_DIRS: list[Path] = [constants.IMAGE_DIR]",
+  "replace": "_ALLOWED_IMAGE_DIRS: list[Path] = [constants.IMAGE_DIR, Path.cwd(), Path(__import__('tempfile').gettempdir())]",
+  "defect": "every image under the working directory (the home directory when started from there) and the temp directory is served to any signed-in user",
+  "expect": "test_the_image_route_serves_only_the_image_directory"
+ },
+ {
+  "id": "M1070_image_symlink_escapes",
+  "file": "visualweaver/routes_media.py",
+  "find": "        p = Path(path).resolve(strict=True)",
+  "replace": "        p = Path(path).absolute()",
+  "defect": "a symlink or ../ inside the image directory serves a file outside it",
+  "expect": "test_the_image_route_serves_only_the_image_directory"
+ },
+ {
+  "id": "M1071_tool_image_anywhere_linked",
+  "file": "visualweaver/providers.py",
+  "find": " and p.is_file() and _image_servable(p):",
+  "replace": " and p.is_file():",
+  "defect": "a tool result naming any local image path is linked through the image route",
+  "expect": "test_a_tool_image_outside_the_image_directory_is_not_linked"
+ },
+ {
+  "id": "M1072_users_get_the_whole_config",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if not auth.is_admin():\n        out = _for_user(out)\n",
+  "replace": "",
+  "defect": "every signed-in user reads the admins' names, proxy addresses, storage hosts, web sources and watched-folder paths from GET /api/config",
+  "expect": "test_users_get_the_config_without_admin_only_details"
+ },
+ {
+  "id": "M1073_ratings_unbounded",
+  "file": "visualweaver/routes_misc.py",
+  "find": "    if _depth(entry) > _MAX_FEEDBACK_DEPTH or \\\n",
+  "replace": "    if False and _depth(entry) > _MAX_FEEDBACK_DEPTH or False and \\\n",
+  "defect": "POST /api/feedback stores nested values of any depth and size; every later rating rewrites them",
+  "expect": "test_a_rating_with_a_huge_or_deeply_nested_body_is_refused"
+ },
+ {
+  "id": "M1074_provider_id_breaks_out_of_onclick",
+  "file": "visualweaver/index.html",
+  "find": "function _safeProv(p){return ['ollama','claude','openai','qwen','mistral','groq','gemini'].includes(p)?p:'ollama';}",
+  "replace": "function _safeProv(p){return escHtml(p);}",
+  "defect": "a provider value with a quote runs script from the checklist / status-strip button (HTML-escaping inside a JS string in an attribute)",
+  "expect": "test_the_provider_in_a_settings_button_is_one_of_the_known_ids"
+ },
+ {
+  "id": "M1075_retention_of_one_second",
+  "file": "visualweaver/routes_settings.py",
+  "find": "            if 0 < t < sessions.MIN_RETENTION:",
+  "replace": "            if False:",
+  "defect": "sessions.ttl 1 is accepted: every stored conversation expires a second after its last turn",
+  "expect": "test_a_retention_of_seconds_is_refused"
+ },
+ {
+  "id": "M1076_registry_note_outlives_the_registry",
+  "file": "visualweaver/sessions.py",
+  "find": "    return meta if isinstance(meta, dict) and meta.get(\"v\") == _INDEX_VERSION else None",
+  "replace": "    return meta if isinstance(meta, dict) and meta.get(\"v\") == _INDEX_VERSION else {\"v\": _INDEX_VERSION, \"ttl\": retention_ttl()}",
+  "defect": "a registry that was lost is taken as complete: the conversation list stays empty for good",
+  "expect": "test_a_lost_registry_is_rebuilt_even_when_its_marker_survived"
+ },
+ {
+  "id": "M1077_conversation_written_before_its_row",
+  "file": "visualweaver/sessions.py",
+  "find": "        if sid != _INDEX_META_FIELD:\n            store.hset(_INDEX_KEY, {sid: row})\n        store.set(_session_key(sid), raw, ttl)\n",
+  "replace": "        store.set(_session_key(sid), raw, ttl)\n        if sid != _INDEX_META_FIELD:\n            store.hset(_INDEX_KEY, {sid: row})\n",
+  "defect": "a save whose row write fails leaves a stored conversation that is never listed",
+  "expect": "test_a_conversation_is_never_stored_without_its_registry_row"
+ },
+ {
+  "id": "M1078_retention_overrides_a_pin_made_meanwhile",
+  "file": "visualweaver/sessions.py",
+  "find": "            items = [(sid, t) for sid, t in items if current.get(sid) == seen.get(sid)]\n",
+  "replace": "",
+  "defect": "a conversation pinned while a new retention is applied gets the expiry anyway and is deleted later",
+  "expect": "test_pinning_while_retention_is_applied_is_not_undone",
+  "also": [
+   {
+    "find": "            store.expire_many(fix)\n",
+    "replace": ""
+   }
+  ]
+ },
+ {
+  "id": "M1079_expect_timeout_counts_as_a_kill",
+  "file": "tests/mutation_sweep.py",
+  "find": "            return {**base, \"verdict\": \"TIMEOUT\", \"killers\": [],\n                    \"scope\": \"expect\"",
+  "replace": "            return {**base, \"verdict\": \"KILLED\", \"killers\": [],\n                    \"scope\": \"expect\"",
+  "defect": "the mutation sweep scores an expect test that merely hung as KILLED",
+  "expect": "test_an_expect_test_that_times_out_is_not_a_kill"
+ },
+ {
+  "id": "M1080_damaged_config_without_signin_refuses",
+  "file": "visualweaver/config.py",
+  "find": "        if unparsable is not None and not _mentions_signin(unparsable) \\\n",
+  "replace": "        if False and not _mentions_signin(unparsable) \\\n",
+  "defect": "a damaged config.json that never configured sign-in makes a single-user install refuse every request",
+  "expect": "test_a_damaged_config_that_never_set_up_sign_in_keeps_the_app_running"
+ },
+ {
+  "id": "M1081_damaged_signin_config_runs_open",
+  "file": "visualweaver/config.py",
+  "find": "    return any(_AUTH_KEY.search(t) for t in texts)",
+  "replace": "    return False",
+  "defect": "a damaged config.json that configured sign-in lets the app run with sign-in off",
+  "expect": "test_an_unparsable_config_refuses_every_request_until_fixed"
+ },
+ {
+  "id": "M1120_component_probe_retries",
+  "file": "visualweaver/routes_storage.py",
+  "find": "                     retry=Retry(NoBackoff(), 0))   # one attempt: a probe, not a workload\n",
+  "replace": ")\n",
+  "defect": "Settings → Components waits out redis-py's retries for every unreachable Redis connection (seconds per connection)",
+  "expect": "test_the_component_probe_tries_a_dead_redis_once"
+ },
+ {
+  "id": "M1121_storage_probe_retries",
+  "file": "visualweaver/routes_storage.py",
+  "find": "        redis_store._ping_once(rc)     # a dead server answers now, not after the retries\n",
+  "replace": "        rc.ping()\n",
+  "defect": "the storage probe waits out redis-py's retries before reporting an unreachable Redis connection",
+  "expect": "test_the_storage_probe_tries_a_dead_redis_once"
+ },
+ {
+  "id": "M1090_browser_list_capped_at_200",
+  "file": "visualweaver/index.html",
+  "find": "  const MAX=1000;",
+  "replace": "  const MAX=200;",
+  "defect": "the browser's conversation list keeps only the last 200 ids, so older conversations drop out of the sidebar",
+  "expect": "test_the_list_keeps_far_more_than_200_and_never_drops_a_pinned_id"
+ },
+ {
+  "id": "M1091_pinned_id_dropped_from_browser_list",
+  "file": "visualweaver/index.html",
+  "find": "      let drop=ids.length-MAX-ids.filter(x=>S.sessions?.[x]?.pinned).length;\n      ids=ids.filter(x=>drop<=0||S.sessions?.[x]?.pinned||x===id||!(drop--));",
+  "replace": "      ids=ids.slice(-MAX);",
+  "defect": "a pinned conversation is trimmed from the browser's list and vanishes from the sidebar while it lives forever on the server",
+  "expect": "test_the_list_keeps_far_more_than_200_and_never_drops_a_pinned_id"
+ },
+ {
+  "id": "M1092_opened_id_not_moved_to_end",
+  "file": "visualweaver/index.html",
+  "find": "    let ids=_mySessionIds().filter(x=>x!==id);\n    ids.push(id);",
+  "replace": "    let ids=_mySessionIds();\n    if(!ids.includes(id))ids.push(id);",
+  "defect": "a conversation opened again keeps its old place in the browser's list and is the first to be dropped",
+  "expect": "test_opening_a_conversation_moves_its_id_to_the_end"
+ },
+ {
+  "id": "M1093_switch_does_not_remember_opened",
+  "file": "visualweaver/index.html",
+  "find": "  if(!S.me?.auth)_rememberSessionId(id);   // the most recently opened: last to be dropped\n",
+  "replace": "",
+  "defect": "opening a conversation from the sidebar does not make it the browser's most recent",
+  "expect": "test_the_keyboard_reaches_a_rows_actions_and_enter_opens_it"
+ },
+ {
+  "id": "M1094_unlisted_conversations_not_counted",
+  "file": "visualweaver/index.html",
+  "find": "      return id&&!mine.has(id)&&(s.messages||0)>0;});",
+  "replace": "      return false;});",
+  "defect": "conversations stored from another browser cannot be seen or deleted from this one",
+  "expect": "test_settings_counts_the_conversations_this_browser_does_not_list"
+ },
+ {
+  "id": "M1095_lifted_expiries_not_logged",
+  "file": "visualweaver/sessions.py",
+  "find": "    log.info(f\"Retention ({'forever' if not ttl else f'{ttl} s'}) applied to {len(sids)} stored \"",
+  "replace": "    log.debug(f\"Retention ({'forever' if not ttl else f'{ttl} s'}) applied to {len(sids)} stored \"",
+  "defect": "the startup log does not say how many expiries a retention change (the upgrade) lifted",
+  "expect": "test_applying_retention_logs_how_many_expiries_it_lifted"
+ },
+ {
+  "id": "M1096_search_failure_not_reported",
+  "file": "visualweaver/rag.py",
+  "find": "        state.record_rag_failure(instance)\n        _note_failure(errors, instance, search_failure_reason(e))\n        return []\n\n\ndef _search_mongo",
+  "replace": "        state.record_rag_failure(instance)\n        return []\n\n\ndef _search_mongo",
+  "defect": "a knowledge-base search that failed is reported like one that found nothing",
+  "expect": "test_search_rag_reports_an_unreachable_store_instead_of_an_empty_result"
+ },
+ {
+  "id": "M1097_docs_only_failed_search_says_not_found",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if search_errors:\n        return rag.documents_only_search_failed(search_errors), [], False, True\n",
+  "replace": "",
+  "defect": "Documents only answers \"nothing in your documents matched\" when the search itself failed",
+  "expect": "test_documents_only_says_the_search_failed_instead_of_not_found"
+ },
+ {
+  "id": "M1098_offline_store_not_a_failure",
+  "file": "visualweaver/rag.py",
+  "find": "                    _note_failure(errors, inst, SEARCH_UNREACHABLE)\n",
+  "replace": "",
+  "defect": "a knowledge base on a store known to be offline is skipped silently in a parallel search",
+  "expect": "test_a_knowledge_base_on_an_offline_store_is_a_failure_in_parallel_search"
+ },
+ {
+  "id": "M1099_follow_up_refused",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        prev = _previous_cited_sources(sid, replace_from, query, instances or [], source_filter)\n",
+  "replace": "        prev = []\n",
+  "defect": "a documents-only follow-up (\"shorten that\") that retrieves nothing is refused although the previous answer cited its sources",
+  "expect": "test_a_follow_up_with_no_hits_answers_from_the_previous_answers_sources"
+ },
+ {
+  "id": "M1100_reuse_without_a_citation",
+  "file": "visualweaver/rag.py",
+  "find": "    for m in _CITE_MARK.finditer(content):\n        if any(int(x) in numbers for x in m.group(1).split(\",\")):\n",
+  "replace": "    for m in [None]:\n        if True:\n",
+  "defect": "a follow-up reuses the sources of an answer that cited none of them",
+  "expect": "test_no_reuse_when_the_previous_answer_cited_nothing"
+ },
+ {
+  "id": "M1101_reused_source_answer_cached",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if reused_sources:\n        # Answered from another turn's sources: not an answer to replay for this question.\n        cacheable = False\n",
+  "replace": "",
+  "defect": "an answer made from the previous turn's sources is cached and replayed for the same words in another conversation",
+  "expect": "test_a_follow_up_with_no_hits_answers_from_the_previous_answers_sources"
+ },
+ {
+  "id": "M1102_regenerate_reuses_replaced_answer",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        end = replace_from - 1 if replace_from > 0 and msgs[replace_from - 1].get(\"role\") == \"user\" else replace_from\n",
+  "replace": "        end = len(msgs)\n",
+  "defect": "regenerating a follow-up reuses the sources of the answer being replaced, not of the one before it",
+  "expect": "test_the_sources_before_a_regenerated_follow_up_are_the_previous_answers"
+ },
+ {
+  "id": "M1103_cjk_never_substantive",
+  "file": "visualweaver/index.html",
+  "find": "      +Math.floor((t.match(ns)||[]).length/2);",
+  "replace": "      +0;",
+  "defect": "a Chinese, Japanese or Thai paragraph never counts as substantive, so the grounding badge ignores it",
+  "expect": "test_a_fully_cited_chinese_answer_is_grounded"
+ },
+ {
+  "id": "M1104_nothing_retrieved_is_uncited",
+  "file": "visualweaver/index.html",
+  "find": "  const state=!valid?(maxN?'uncited':invalid?'missing':'noretrieval'):",
+  "replace": "  const state=!valid?'uncited':",
+  "defect": "a search that ran and retrieved nothing is badged a red Uncited",
+  "expect": "test_nothing_retrieved_is_its_own_neutral_state_not_uncited"
+ },
+ {
+  "id": "M1105_quoted_reference_struck_through",
+  "file": "visualweaver/index.html",
+  "find": "      if(quoted||listEntry)continue;                    // a reference quoted from a document\n",
+  "replace": "\n",
+  "defect": "a reference number quoted from a document (\"[12]\" inside a quotation, or opening a reference-list line, with 5 sources) is struck through as a broken citation",
+  "expect": "test_a_quoted_reference_number_far_out_of_range_is_plain_text"
+ },
+ {
+  "id": "M1106_failed_search_badge_missing",
+  "file": "visualweaver/index.html",
+  "find": "  if(searchFailed)return {state:'searchfailed',units:0,cited:0,valid:0,invalid:0};\n",
+  "replace": "",
+  "defect": "an answer whose search failed is graded as if the search had run",
+  "expect": "test_a_failed_search_is_its_own_state"
+ },
+ {
+  "id": "M1107_docs_only_suffix_low_contrast",
+  "file": "visualweaver/index.html",
+  "find": ".ground-badge .g-mode{font-weight:500}",
+  "replace": ".ground-badge .g-mode{font-weight:500;opacity:.85}",
+  "defect": "the badge's \"· Documents only\" suffix falls under 4.5:1 contrast",
+  "expect": "test_every_badge_state_and_its_mode_suffix_reach_4_5_to_1"
+ },
+ {
+  "id": "M1108_version_shows_latest_sources",
+  "file": "visualweaver/index.html",
+  "find": "  if(v.chunks){\n    _msgMeta[msgId]=",
+  "replace": "  if(false){\n    _msgMeta[msgId]=",
+  "defect": "an earlier answer version is shown with the latest version's sources, citations and badge",
+  "expect": "test_each_answer_version_shows_its_own_sources_citations_and_badge"
+ },
+ {
+  "id": "M1109_checklist_admin_button_for_users",
+  "file": "visualweaver/index.html",
+  "find": "       m.ok!==false?'':admin?btn(",
+  "replace": "       m.ok!==false?'':true?btn(",
+  "defect": "a user who is not an administrator is offered a checklist button into settings they cannot open",
+  "expect": "test_the_checklist_tells_a_user_to_ask_instead_of_offering_admin_buttons"
+ },
+ {
+  "id": "M1110_strip_model_button_for_users",
+  "file": "visualweaver/index.html",
+  "find": "'Model',m.text,mLabel,admin?`openSettings('${_safeProv(prov)}')`:'')",
+  "replace": "'Model',m.text,mLabel,`openSettings('${_safeProv(prov)}')`)",
+  "defect": "the status strip's Model item is a button into the provider settings for every user",
+  "expect": "test_the_strip_model_item_is_not_a_button_for_a_user"
+ },
+ {
+  "id": "M1111_save_to_kb_offered_to_users",
+  "file": "visualweaver/index.html",
+  "find": "<button class=\"msg-action-btn\" data-admin onclick=\"saveAnswerToKb(",
+  "replace": "<button class=\"msg-action-btn\" onclick=\"saveAnswerToKb(",
+  "defect": "a user who is not an administrator is offered Save to knowledge base, which the server refuses",
+  "expect": "test_save_to_knowledge_base_is_not_offered_to_a_user"
+ },
+ {
+  "id": "M1112_signed_out_never_detected",
+  "file": "visualweaver/index.html",
+  "find": "  if(r.status===401||r.status===403){_setSignedOut();return false;}",
+  "replace": "  if(false){_setSignedOut();return false;}",
+  "defect": "a signed-out page reconnects every 2 s for ever and never says the user is signed out",
+  "expect": "test_a_refused_reconnect_with_the_sign_in_gone_says_signed_out_and_stops"
+ },
+ {
+  "id": "M1113_status_401_reads_as_storage_down",
+  "file": "visualweaver/index.html",
+  "find": "function _statusOk(r){\n  if(r.status===401||r.status===403){",
+  "replace": "function _statusOk(r){\n  if(false){",
+  "defect": "a status poll refused with 401 is shown as the storage being unreachable",
+  "expect": "test_a_status_poll_refused_401_shows_signed_out_not_storage_down"
+ },
+ {
+  "id": "M1114_queued_send_announced_twice",
+  "file": "visualweaver/index.html",
+  "find": "  if(S.wsState==='open'||S.wsState==='connecting')_wsSetState('reconnecting');\n  else _renderHealth();",
+  "replace": "  announce('Reconnecting to the server');\n  _renderHealth();",
+  "defect": "a message sent while the socket is down is announced twice to screen readers",
+  "expect": "test_a_send_on_a_dropped_socket_is_announced_once"
+ },
+ {
+  "id": "M1115_date_groups_not_headings",
+  "file": "visualweaver/index.html",
+  "find": "<div class=\"session-group\" role=\"heading\" aria-level=\"3\">",
+  "replace": "<div class=\"session-group\">",
+  "defect": "the sidebar's date groups are not headings, so a screen reader cannot jump between them",
+  "expect": "test_conversation_rows_are_buttons_side_by_side_under_headings"
+ },
+ {
+  "id": "M1116_cite_card_unreachable_by_keyboard",
+  "file": "visualweaver/index.html",
+  "find": "    if(first){first.focus();return;}",
+  "replace": "    if(first){return;}",
+  "defect": "the source card's link and Show in sources cannot be reached from the keyboard",
+  "expect": "test_enter_moves_focus_into_the_card_and_its_controls_are_reachable"
+ },
+ {
+  "id": "M1117_reranker_half_precision_by_default",
+  "file": "visualweaver/embeddings.py",
+  "find": "    _set_precision(model, _half_wanted())\n    return model",
+  "replace": "    _set_precision(model, True)\n    return model",
+  "defect": "the reranker runs in half precision on a GPU unasked, so scores (and near-ties) differ from the CPU",
+  "expect": "test_the_reranker_stays_in_full_precision_on_a_gpu_by_default"
+ },
+ {
+  "id": "M1118_listing_reads_every_users_rows",
+  "file": "visualweaver/sessions.py",
+  "find": "    if owner is None or auth.is_admin():\n        return store.hgetall(_INDEX_KEY)\n",
+  "replace": "    if True:\n        return store.hgetall(_INDEX_KEY)\n",
+  "defect": "with sign-in on, every conversation listing reads every user's registry rows",
+  "expect": "test_a_signed_in_user_lists_only_their_rows_without_reading_everyones"
+ },
+ {
+  "id": "M1119_docker_no_provider_check",
+  "file": "docker.sh",
+  "find": "  disk_warning\n  provider_report\n",
+  "replace": "  disk_warning\n",
+  "defect": "./docker.sh up reports ready without checking that the selected model provider can answer",
+  "expect": "test_up_reports_a_hosted_provider_without_a_key_with_the_fix"
+ },
+ {
+  "id": "M1130_follow_up_reuse_ignores_kb_selection",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        if not wanted or not isinstance(prev_kbs, list) or {str(k) for k in prev_kbs} != wanted:\n            return []",
+  "replace": "        if not wanted:\n            return []",
+  "defect": "a documents-only follow-up asked with another knowledge-base selection (a #mention, a project) is answered from the previous answer's passages",
+  "expect": "test_a_follow_up_with_a_mention_of_another_knowledge_base_is_refused"
+ },
+ {
+  "id": "M1131_follow_up_reuse_other_kbs_passages",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        cited = [c for c in cited if c.get(\"instance\") in wanted\n",
+  "replace": "        cited = [c for c in cited if True\n",
+  "defect": "a documents-only follow-up is handed passages from knowledge bases this turn does not search",
+  "expect": "test_only_passages_from_this_turns_knowledge_bases_are_reused"
+ },
+ {
+  "id": "M1132_unrelated_no_hit_question_reuses_sources",
+  "file": "visualweaver/routes_chat.py",
+  "find": "        return cited if rag.is_follow_up(query, context) else []",
+  "replace": "        return cited",
+  "defect": "any documents-only question with no match is answered from the previous answer's passages (the model is called although nothing matched)",
+  "expect": "test_an_unrelated_question_with_no_hits_is_refused_without_the_model"
+ },
+ {
+  "id": "M1133_follow_up_reuse_ignores_source_filter",
+  "file": "visualweaver/routes_chat.py",
+  "find": "                 and (not sf or sf in str(c.get(\"source\", \"\")).casefold())]",
+  "replace": "                 and True]",
+  "defect": "a documents-only follow-up limited to one document (only this) is answered from other documents' passages",
+  "expect": "test_a_follow_up_with_a_source_filter_excluding_the_passages_is_refused"
+ },
+ {
+  "id": "M1134_every_question_is_a_follow_up",
+  "file": "visualweaver/rag.py",
+  "find": "        if (len(w) < 3 and w.isascii()) or w in _FOLLOW_UP_WORDS or _follow_up_stem(w) in known:",
+  "replace": "        if True:",
+  "defect": "a question with a subject of its own is taken for a follow-up on the previous answer",
+  "expect": "test_what_counts_as_a_follow_up"
+ },
+ {
+  "id": "M1135_reused_sources_not_labelled",
+  "file": "visualweaver/index.html",
+  "find": "    const ragEl=buildRagInspector(chunks,latency,showByDefault,query,msgId,_turnMetaOf(msgId).reused_sources===true);",
+  "replace": "    const ragEl=buildRagInspector(chunks,latency,showByDefault,query,msgId,false);",
+  "defect": "a follow-up answered from the previous answer's sources is shown as if its own search had found them",
+  "expect": "test_reused_sources_are_labelled_in_the_source_list_and_the_badge"
+ },
+ {
+  "id": "M1136_reused_sources_not_in_badge",
+  "file": "visualweaver/index.html",
+  "find": "  b.title+=reusedNote;\n",
+  "replace": "\n",
+  "defect": "the grounding badge of a follow-up answered from the previous answer's sources does not say so",
+  "expect": "test_reused_sources_are_labelled_in_the_source_list_and_the_badge"
+ },
+ {
+  "id": "M1137_tool_image_path_not_encoded",
+  "file": "visualweaver/providers.py",
+  "find": "path={urllib.parse.quote(val, safe='')}",
+  "replace": "path={val}",
+  "defect": "a tool image under a path with a space (the macOS data directory) is shown as markdown text, never as the image",
+  "expect": "test_a_tool_image_in_a_folder_with_a_space_renders_and_is_served"
+ },
+ {
+  "id": "M1138_image_route_existence_oracle",
+  "file": "visualweaver/routes_media.py",
+  "find": "    if not image_allowed(path):\n        raise HTTPException(404, \"File not found\")",
+  "replace": "    if not p.is_file():\n        raise HTTPException(404, \"File not found\")\n\n    if not image_allowed(path):\n        raise HTTPException(403, \"Path not in an allowed directory\")",
+  "defect": "the image route answers 403 for an existing file outside the image folder and 404 for a missing one: any user can probe which files exist",
+  "expect": "test_the_image_route_does_not_tell_an_existing_file_outside_from_a_missing_one, test_image_route_rejects_a_sibling_directory_with_an_allowed_prefix"
+ },
+ {
+  "id": "M1139_health_refused_while_misconfigured",
+  "file": "visualweaver/auth.py",
+  "find": "            if _is_health_probe(scope):\n                return await _misconfigured_health(send, detail)\n",
+  "replace": "\n",
+  "defect": "while sign-in is misconfigured /api/health answers 503: start.sh waits 60 s and exits 1 with the app running, the Docker health check fails",
+  "expect": "test_health_says_misconfigured_with_200_and_nothing_else, test_start_sh_says_when_sign_in_is_misconfigured"
+ },
+ {
+  "id": "M1141_docker_sh_ignores_misconfigured_health",
+  "file": "docker.sh",
+  "find": "  if printf '%s' \"${health}\" | grep -q '\"status\" *: *\"misconfigured\"'; then",
+  "replace": "  if false; then",
+  "defect": "./docker.sh up reports a misconfigured sign-in as a healthy app",
+  "expect": "test_docker_sh_up_reports_misconfigured_sign_in"
+ },
+ {
+  "id": "M1142_names_case_folded_by_default",
+  "file": "visualweaver/auth.py",
+  "find": "    return name.lower() if fold_case and name.isascii() else name",
+  "replace": "    return name.lower() if name.isascii() else name",
+  "defect": "Root and root are one identity: on a case-sensitive proxy with self-enrolment anyone can sign up as Root and be the admin",
+  "expect": "test_a_name_differing_only_in_case_is_another_user_and_not_the_admin, test_conversations_of_names_differing_in_case_are_kept_apart"
+ },
+ {
+  "id": "M1143_case_insensitive_names_ignored",
+  "file": "visualweaver/auth.py",
+  "find": "    fold = _on(raw.get(\"case_insensitive_names\"))",
+  "replace": "    fold = False",
+  "defect": "auth.case_insensitive_names / VISUALWEAVER_AUTH_CASE_INSENSITIVE_NAMES has no effect",
+  "expect": "test_case_insensitive_names_are_an_explicit_choice"
+ },
+ {
+  "id": "M1144_machine_names_from_reverse_lookup",
+  "file": "visualweaver/appcore.py",
+  "find": "        if usable(fqdn):\n            names.add(fqdn)",
+  "replace": "        if fqdn:\n            names |= {fqdn, fqdn.split(\".\")[0], fqdn.split(\".\")[0] + \".local\"}",
+  "defect": "getfqdn()'s ip6.arpa answer on macOS allows the host names \"1\" and \"1.local\" (claimable over mDNS)",
+  "expect": "test_machine_names_come_from_the_host_name_not_a_reverse_lookup"
+ },
+ {
+  "id": "M1145_docker_sh_records_reverse_lookup_names",
+  "file": "docker.sh",
+  "find": "grep -v '^localhost' | grep -v '\\.arpa$' | grep -v '^[0-9]*\\(\\.\\|$\\)' \\\n             | sort -u",
+  "replace": "grep -v '^localhost' | sort -u",
+  "defect": "./docker.sh records an ip6.arpa name, \"1\" and \"1.local\" as this machine's names",
+  "expect": "test_docker_sh_records_no_names_from_a_reverse_lookup"
+ },
+ {
+  "id": "M1146_host_checked_only_for_browsers",
+  "file": "visualweaver/appcore.py",
+  "find": "    if not probe and not _host_allowed(host):",
+  "replace": "    if browser and not _host_allowed(host):",
+  "defect": "a request with no Origin or Sec-Fetch-* header (Safari < 16.4, Firefox < 90) passes the DNS-rebinding host check",
+  "expect": "test_a_rebinding_host_is_refused_without_origin_or_fetch_metadata"
+ },
+ {
+  "id": "M1147_retention_ttl_not_clamped",
+  "file": "visualweaver/sessions.py",
+  "find": "    return MIN_RETENTION if 0 < t < MIN_RETENTION else t",
+  "replace": "    return t",
+  "defect": "sessions.ttl 1 in the config gives every conversation a one-second expiry",
+  "expect": "test_retention_ttl_never_gives_less_than_an_hour"
+ },
+ {
+  "id": "M1148_import_accepts_seconds_retention",
+  "file": "visualweaver/routes_settings.py",
+  "find": "    if isinstance(sess_in, dict) and \"ttl\" in sess_in and config.session_ttl_error(sess_in[\"ttl\"]):",
+  "replace": "    if False:",
+  "defect": "a config import sets a retention of one second",
+  "expect": "test_a_config_import_with_a_retention_of_seconds_is_refused"
+ },
+ {
+  "id": "M1149_config_load_keeps_seconds_retention",
+  "file": "visualweaver/config.py",
+  "find": "        if isinstance(t, int) and not isinstance(t, bool) and 0 < t < MIN_SESSION_TTL:",
+  "replace": "        if False:",
+  "defect": "a config.json retention below one hour is loaded as it is",
+  "expect": "test_a_config_json_with_a_retention_of_seconds_loads_as_an_hour"
+ },
+ {
+  "id": "M1150_config_bom_is_corrupt",
+  "file": "visualweaver/config.py",
+  "find": "            cfg = json.loads(_config_text(constants.CONFIG_PATH.read_bytes()))",
+  "replace": "            cfg = json.loads(constants.CONFIG_PATH.read_bytes().decode(\"utf-8\"))",
+  "defect": "a valid config.json saved with a byte-order mark is quarantined as corrupt (and, naming auth, keeps the app at 503)",
+  "expect": "test_a_valid_config_json_with_a_byte_order_mark_loads"
+ },
+ {
+  "id": "M1151_utf16_config_auth_not_seen",
+  "file": "visualweaver/config.py",
+  "find": "    if b\"\\x00\" in data:\n        texts += [data.decode(\"utf-16-le\", errors=\"replace\"), data.decode(\"utf-16-be\", errors=\"replace\")]",
+  "replace": "    pass",
+  "defect": "a damaged UTF-16 config.json that configured sign-in lets the app run with sign-in off",
+  "expect": "test_a_damaged_config_json_is_closed_only_when_it_may_have_set_up_sign_in"
+ },
+ {
+  "id": "M1152_auth_key_case_sensitive",
+  "file": "visualweaver/config.py",
+  "find": "_AUTH_KEY = re.compile(r'\"\\s*auth\\s*\"\\s*:', re.IGNORECASE)",
+  "replace": "_AUTH_KEY = re.compile(r'\"\\s*auth\\s*\"\\s*:')",
+  "defect": "a damaged config.json naming \"AUTH\" lets the app run with sign-in off",
+  "expect": "test_a_damaged_config_json_is_closed_only_when_it_may_have_set_up_sign_in"
+ },
+ {
+  "id": "M1153_only_newest_corrupt_copy_checked",
+  "file": "visualweaver/config.py",
+  "find": "        named = [k for k in _kept_copies() if _mentions_signin(k)]",
+  "replace": "        named = [k for k in _kept_copies()[-1:] if _mentions_signin(k)]",
+  "defect": "with several damaged copies kept, only the newest decides: an older one that configured sign-in is ignored and the app runs open",
+  "expect": "test_any_kept_copy_naming_auth_keeps_sign_in_closed"
+ },
+ {
+  "id": "M1154_older_corrupt_copies_ignored_on_parse_failure",
+  "file": "visualweaver/config.py",
+  "find": "                and not any(_mentions_signin(k) for k in _kept_copies()):",
+  "replace": "                and True:",
+  "defect": "a damaged config.json without auth runs open although an earlier damaged copy configured sign-in",
+  "expect": "test_any_kept_copy_naming_auth_keeps_sign_in_closed"
+ },
+ {
+  "id": "M1155_missing_sources_badged_neutral",
+  "file": "visualweaver/index.html",
+  "find": "  const state=!valid?(maxN?'uncited':invalid?'missing':'noretrieval'):(!invalid&&cited===subst)?'grounded':'partly';",
+  "replace": "  const state=!valid?(maxN?'uncited':'noretrieval'):(!invalid&&cited===subst)?'grounded':'partly';",
+  "defect": "an answer citing [1][2] when nothing was retrieved is badged a neutral \"Nothing retrieved\"",
+  "expect": "test_citing_sources_when_nothing_was_retrieved_is_not_neutral, test_citations_with_nothing_retrieved_are_badged_as_missing_sources"
+ },
+ {
+  "id": "M1156_made_up_number_hidden_as_quote",
+  "file": "visualweaver/index.html",
+  "find": "      if(quoted||listEntry)continue;                    // a reference quoted from a document",
+  "replace": "      if(quoted||listEntry||nums.every(n=>n>maxN+5))continue;",
+  "defect": "a made-up citation number a few past the sources ([9] with 3) is left as plain text and the answer badged Grounded",
+  "expect": "test_a_made_up_number_a_few_past_the_sources_is_a_broken_citation, test_a_made_up_number_is_drawn_as_a_broken_citation"
+ },
+ {
+  "id": "M1157_unknown_sign_in_is_admin",
+  "file": "visualweaver/index.html",
+  "find": "function _isAdmin(){ return S.me?.admin===true; }",
+  "replace": "function _isAdmin(){ return !S.me||S.me.admin!==false; }",
+  "defect": "while /api/me fails, answers 5xx or a proxy's login page, every administrator control is shown",
+  "expect": "test_administrator_controls_are_hidden_until_sign_in_is_known"
+ },
+ {
+  "id": "M1158_sign_in_check_not_retried",
+  "file": "visualweaver/index.html",
+  "find": "    setTimeout(()=>{loadMe().catch(()=>{});},_meRetryMs);",
+  "replace": "",
+  "defect": "a single-user install whose first /api/me failed never gets its administrator controls back",
+  "expect": "test_a_single_user_install_gets_its_controls_back_after_a_retry"
+ },
+ {
+  "id": "M1159_admin_controls_painted_before_sign_in_known",
+  "file": "visualweaver/index.html",
+  "find": "<html lang=\"en\" class=\"vw-user\">",
+  "replace": "<html lang=\"en\">",
+  "defect": "administrator controls are shown until /api/me answers (to everyone, briefly; for good if it never answers)",
+  "expect": "test_administrator_controls_are_hidden_until_sign_in_is_known"
+ },
+ {
+  "id": "M1160_deleted_project_saved_by_running_turn",
+  "file": "visualweaver/routes_chat.py",
+  "find": "    if fields.get(\"project\") and await asyncio.to_thread(projects.resolve, fields[\"project\"]) is None:",
+  "replace": "    if False:",
+  "defect": "a project deleted while a conversation's first turn runs is stored on that conversation",
+  "expect": "test_a_project_deleted_during_the_first_turn_is_not_saved_with_it"
+ },
+ {
+  "id": "M1140_start_sh_hides_why_sign_in_is_misconfigured",
+  "file": "start.sh",
+  "find": "    [ -n \"${_why}\" ] && c_err \"            ${_why}\"",
+  "replace": "",
+  "defect": "start.sh says sign-in is misconfigured but not why (the reason /api/health gives)",
+  "expect": "test_start_sh_says_when_sign_in_is_misconfigured"
  }
 ]

@@ -52,6 +52,7 @@ def _repo(tmp_path, env_file=None, redis_installed=False, mongo_installed=None):
     (repo / "visualweaver").mkdir(exist_ok=True)
     shutil.copy(_ROOT / "scripts" / "common.sh", repo / "scripts" / "common.sh")
     shutil.copy(_ROOT / "visualweaver" / "local_mongo.py", repo / "visualweaver" / "local_mongo.py")
+    shutil.copy(_ROOT / "visualweaver" / "provider_check.py", repo / "visualweaver" / "provider_check.py")
     if env_file is not None:
         (repo / ".visualweaver.env").write_text(env_file)
     data = tmp_path / "data"

@@ -12,7 +12,7 @@ import time
 from typing import Any, Optional
 from redisvl.query.filter import Tag
 from redisvl.extensions.cache.llm import SemanticCache
-from . import (appstore, config, constants, embeddings, mongo_cache, mongo_store, rag_admin,
+from . import (appstore, auth, config, constants, embeddings, mongo_cache, mongo_store, rag_admin,
                redis_store, state)
 
 log = logging.getLogger(__name__)
@@ -596,9 +596,20 @@ async def _effective_rag_instances(rag_instances: list[str] | None) -> list[str]
     return out
 
 
+def private_partition(history: list | None = None) -> str:
+    """The answer-cache partition a turn belongs to, with sign-in on: the signed-in
+    user's own, for every turn. A first question can carry private details as much as a
+    follow-up, and a similar question from someone else would be served that answer; the
+    partition also keeps entries cached before sign-in was turned on (no partition) away
+    from every user. "" (one shared cache, as before) with sign-in off. ``history`` is
+    not used; it is kept for the callers' signature."""
+    return auth.cache_partition()
+
+
 def _cache_scope(rag_instances: list[str] | None = None, provider: str = "",
                  model: str = "", source_filter: str = "",
-                 system_prompt: str = "", visual: bool = False) -> str:
+                 system_prompt: str = "", visual: bool = False, owner: str = "",
+                 documents_only: bool = False) -> str:
     """Identity of the *conditions* an answer was produced under.
 
     A semantic cache keyed on the question alone is wrong in two ways:
@@ -626,7 +637,17 @@ def _cache_scope(rag_instances: list[str] | None = None, provider: str = "",
         # knowledge graphs in redis" and "diagram knowledge graphs in redis" measure
         # 0.8827 apart, which is inside the range an ordinary threshold accepts.
         "v" if visual else "t",
-    ])
+    ]
+        # Documents-only answers are their own partition: one may say "not in your
+        # documents" where a normal answer gives general knowledge, and the reverse
+        # replay would serve an ungrounded answer under a mode that promises none. Only
+        # appended when on, so every scope (and stored entry) of a normal question is
+        # exactly what it was before the mode existed.
+        + (["docs-only"] if documents_only else []))
+    if owner:
+        # One user's partition (see private_partition). Not added when empty, so every
+        # scope from before sign-in existed is unchanged.
+        payload += "|u:" + owner
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
@@ -644,8 +665,15 @@ def _qhash(query: str) -> str:
     return hashlib.sha256(_normalize_query(query).encode()).hexdigest()[:32]
 
 
+def query_vectors(query: str) -> "embeddings.QueryVectors":
+    """The turn's query vectors (embeddings.QueryVectors): the cache's view of the
+    question is _normalize_query's, the same text a lookup and a store embed."""
+    return embeddings.QueryVectors(query, _normalize_query(query))
+
+
 def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
-                 exact_only: bool = False) -> dict | None:
+                 exact_only: bool = False,
+                 qvec: "embeddings.QueryVectors | None" = None) -> dict | None:
     """
     Look up the nearest cached response in the semantic cache (redisvl on Redis,
     mongo_cache on MongoDB — the same filters and distance on both).
@@ -661,6 +689,9 @@ def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
     0.9785 — above the configured threshold — while the only genuine repeats measured
     0.9851 and 0.9932. There is no threshold in a 0.015-wide window; asking the identical
     question is the only safe match, and it is also the case worth serving.
+
+    ``qvec`` (query_vectors) supplies the vector, so the turn's single embedding is
+    reused instead of the cache embedding the question itself.
     """
     # During the first few seconds after a restart the background warm may not have built
     # the vectorizer yet; treat that as a cache miss rather than paying the ~3 s build here.
@@ -677,6 +708,8 @@ def cache_lookup(query: str, threshold: float = 0.92, scope: str = "",
         # exact partition the tag decides, so the distance is opened right up rather
         # than being asked to do work it has been measured to be bad at.
         opened = {"distance_threshold": 1.0} if exact_only else {}
+        if qvec is not None:
+            opened["vector"] = qvec.cache()
         if getattr(cache, "kind", "") == "mongodb":
             hits = cache.check(prompt=_normalize_query(query), num_results=1,
                                filters=want, **opened)
@@ -711,7 +744,8 @@ def worth_caching(rag_instances, chunks) -> bool:
     return not (rag_instances and not chunks)
 
 
-def cache_store(query: str, response: str, chunks: list | None = None, scope: str = ""):
+def cache_store(query: str, response: str, chunks: list | None = None, scope: str = "",
+                qvec: "embeddings.QueryVectors | None" = None):
     """Store a query→response pair in the SemanticCache with TTL.
     Chunks are stored as JSON metadata so they can be re-displayed on cache hits.
     ``scope`` tags the entry with the conditions it was produced under so a later
@@ -727,8 +761,17 @@ def cache_store(query: str, response: str, chunks: list | None = None, scope: st
         metadata = {"chunks_json": json.dumps(chunks)} if chunks else None
         # Every entry carries its question hash, so the exact partition costs nothing to
         # maintain and an ordinary entry can still be found by similarity.
+        # The lookup's vector (qvec): redisvl would otherwise embed the prompt again.
+        vec = {"vector": qvec.cache()} if qvec is not None else {}
+        filters = {"scope": scope or "_none", "qhash": _qhash(query)}
+        owner = auth.cache_partition()
+        if owner:
+            # Whose answer this is (sign-in on): removing one entry checks it. Part of the
+            # entry id as well, so one user's "Re-run fresh" never replaces another's.
+            # Absent with sign-in off, so those entry ids are what they always were.
+            filters["owner"] = owner
         cache.store(prompt=_normalize_query(query), response=response, metadata=metadata,
-                    filters={"scope": scope or "_none", "qhash": _qhash(query)})
+                    filters=filters, **vec)
     except Exception as e:
         log.error(f"Cache store error: {e}")
 

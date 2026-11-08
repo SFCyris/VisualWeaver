@@ -6,6 +6,7 @@ module-qualified so runtime rebinding and test monkeypatching stay live.
 """
 import logging
 import asyncio
+import functools
 import hashlib
 import os
 import re
@@ -16,7 +17,7 @@ import redis
 from redisvl.index import SearchIndex
 from redisvl.query import VectorQuery
 from redisvl.schema import IndexSchema
-from . import mongo_store, rag_admin, redis_store, state, textutil
+from . import instance_registry, mongo_store, rag_admin, redis_store, state, textutil
 from . import embeddings as _ns_embeddings
 
 log = logging.getLogger(__name__)
@@ -263,6 +264,10 @@ def _ensure_rag_index_locked(instance: str, rc: redis.Redis, ver_key: str) -> No
         # "Index already exists" is not an error — the index is present, which is what we want.
         if "already exists" not in msg.lower():
             log.warning(f"RAG index creation for '{instance}': {e}")
+    try:
+        instance_registry.redis_add(rc, instance)    # an indexed instance is listed
+    except Exception as e:
+        log.debug(f"instance registry: could not register '{instance}': {e}")
     _index_ensured.add(instance)
 
 
@@ -346,6 +351,204 @@ def number_chunks(chunks: list[dict]) -> list[dict]:
     return chunks
 
 
+# ── Documents-only mode ─────────────────────────────────────────────────────
+# The fixed answers for a documents-only turn with nothing to answer from. The model is
+# NOT called for these: asked to "answer only from the documents" with no documents in
+# front of it, a model still tends to produce something, and that something is exactly
+# the improvised answer the mode exists to rule out.
+DOCS_ONLY_NOT_FOUND = (
+    "Not found in your documents. Nothing in the knowledge base matched this question, "
+    "so there is no answer to give from your documents. Documents only is on, so no answer "
+    "was made up from general knowledge. Try rephrasing the question, choose another "
+    "knowledge base, or turn Documents only off to get a general answer."
+)
+DOCS_ONLY_NO_KB = (
+    "No knowledge base to answer from. Documents only is on, but this question was not "
+    "asked against any knowledge base (none is selected, or the selected one is switched "
+    "off), so there are no documents to answer from. Select a knowledge base, attach a "
+    "document, or turn Documents only off to get a general answer."
+)
+
+
+# ── a search that failed (not one that found nothing) ────────────────────────
+# search_rag / search_rag_parallel return [] on a failure as on no hits, which every
+# caller relies on. A caller that passes ``errors=`` (a list) gets one
+# {"instance", "reason"} entry per knowledge base that could not be searched.
+SEARCH_UNREACHABLE = "its storage could not be reached"
+SEARCH_DIM_MISMATCH = ("it was indexed with a different embedding model than the one now selected "
+                       "(re-ingest it, or switch the embedding model back)")
+SEARCH_ERROR = "the search returned an error (see the server log)"
+
+
+def search_failure_reason(exc: Exception) -> str:
+    """A short, user-facing reason for a failed search (no addresses, no stack)."""
+    if _is_vector_dim_error(exc):
+        return SEARCH_DIM_MISMATCH
+    unreachable: tuple = (ConnectionError, TimeoutError, redis.exceptions.ConnectionError,
+                          redis.exceptions.TimeoutError)
+    try:
+        from pymongo.errors import ConnectionFailure
+        unreachable += (ConnectionFailure,)
+    except ImportError:
+        pass
+    # The search library wraps the connection error in its own ("Error while searching:
+    # Error 61 connecting to … Connection refused."): follow the chain, then the words.
+    seen, e = set(), exc
+    while e is not None and id(e) not in seen:
+        if isinstance(e, unreachable):
+            return SEARCH_UNREACHABLE
+        seen.add(id(e))
+        e = e.__cause__ or e.__context__
+    s = str(exc).lower()
+    if "connection refused" in s or "error 61 connecting" in s or "error 111 connecting" in s or "timed out" in s:
+        return SEARCH_UNREACHABLE
+    return SEARCH_ERROR
+
+
+def _note_failure(errors: list | None, instance: str, reason: str) -> None:
+    if errors is not None:
+        errors.append({"instance": instance, "reason": reason})
+
+
+def documents_only_search_failed(errors: list) -> str:
+    """The fixed answer for a documents-only turn whose knowledge-base search failed."""
+    seen, parts = set(), []
+    for e in errors:
+        key = (e.get("instance"), e.get("reason"))
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(f"the knowledge base “{e.get('instance')}” could not be searched — {e.get('reason')}")
+    return ("Search failed: " + "; ".join(parts) + ". Documents only is on, so no answer was made "
+            "up from general knowledge, and nothing was looked up in your documents either — "
+            "this is not a sign that they lack the answer. Try again in a moment; if it keeps "
+            "failing, Settings → Status shows what cannot be reached.")
+
+
+_CITE_MARK = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\](?!\()")
+
+
+def cited_sources(content: str, chunks: list | None) -> list[dict]:
+    """The chunks an answer was given, when its text cites at least one of them by
+    number ("[1]", "[1, 3]"); else []. Used for a documents-only follow-up that
+    retrieves nothing on its own wording ("shorten that")."""
+    if not chunks or not isinstance(content, str):
+        return []
+    numbers = {c.get("n", i) for i, c in enumerate(chunks, 1) if isinstance(c, dict)}
+    for m in _CITE_MARK.finditer(content):
+        if any(int(x) in numbers for x in m.group(1).split(",")):
+            return [dict(c) for c in chunks if isinstance(c, dict) and c.get("text")]
+    return []
+
+
+# Words a follow-up on the previous answer is made of: references to it and instructions
+# about its form. Anything else in a question has to appear in the previous question,
+# answer or sources for the question to count as a follow-up (see is_follow_up).
+_FOLLOW_UP_WORDS = frozenset("""
+the and but for from with without into onto than then that this these those its they them
+their there here what which who whom whose why how when where are was were been being does
+did done can could would should will shall may might must please you your yours our him her
+his hers she also just only more most less least much many few some any all each every
+other another again same such very really too not yes okay thanks thank about over under
+shorten shorter short summarize summarise summary briefly brief concise condense simplify
+simpler simple explain explanation elaborate expand detail details detailed clarify rephrase
+reword rewrite paraphrase repeat restate list bullet bullets point points table format
+outline step steps example examples give show tell write make put turn use say mean means
+meaning previous above earlier last first second third fourth fifth one two three four five
+part parts sentence sentences paragraph paragraphs word words answer response reply version
+longer long quote quotes cite citation citations source sources number numbered key main
+idea ideas takeaway takeaways tldr continue further plain terms bit lot little now instead
+""".split())
+_LETTERS = re.compile(r"[^\W\d_]+")
+
+
+def _follow_up_stem(w: str) -> str:
+    return w[:6]
+
+
+def is_follow_up(query: str, context: list[str]) -> bool:
+    """Whether a question that retrieved nothing is a follow-up on the previous answer
+    ("shorten that", "explain point 2") rather than a question of its own.
+
+    It is when it has at least one word and each of its words is either a reference or an
+    instruction word (_FOLLOW_UP_WORDS), an ASCII word shorter than three letters, or
+    appears — compared on its first six letters — in ``context`` (the previous question,
+    answer and sources). A question that names a subject of its own ("what is the capital
+    of France?") is not a follow-up; nor is one with no letters at all.
+    """
+    words = _LETTERS.findall((query or "").casefold())
+    if not words:
+        return False
+    known = {_follow_up_stem(w) for t in context if isinstance(t, str)
+             for w in _LETTERS.findall(t.casefold())}
+    for w in words:
+        if (len(w) < 3 and w.isascii()) or w in _FOLLOW_UP_WORDS or _follow_up_stem(w) in known:
+            continue
+        return False
+    return True
+
+
+def documents_only_refusal(rag_used: bool, chunks: list | None, file_context=None) -> str | None:
+    """The fixed answer for a documents-only turn that has nothing to answer from, else None.
+
+    "Nothing" means no retrieved chunk and no attached document with text: an attached
+    document counts as one of the user's documents.
+    """
+    if chunks:
+        return None
+    if any(isinstance(f, dict) and f.get("text") for f in (file_context or [])):
+        return None
+    return DOCS_ONLY_NOT_FOUND if rag_used else DOCS_ONLY_NO_KB
+
+
+def _numbered_context(chunks: list[dict]) -> str:
+    """The chunks as the model sees them: ``[n] (source: …, match NN%)`` then the text."""
+    def _pct(c: dict) -> str:
+        s = c.get("relevance", c.get("score"))
+        try:
+            return f", match {round(float(s) * 100)}%" if s is not None else ""
+        except (TypeError, ValueError):
+            return ""
+
+    return "\n\n".join(
+        f"[{c.get('n', i)}] (source: {c.get('source', 'unknown')}{_pct(c)})\n{c.get('text', '')}"
+        for i, c in enumerate(chunks, 1)
+    )
+
+
+def build_documents_only_prompt(chunks: list[dict]) -> str:
+    """The per-turn context for a documents-only answer.
+
+    Unlike build_context_prompt there is no general-knowledge fallback anywhere in it: the
+    model answers from the numbered chunks (and an attached document) or says plainly
+    that the documents do not contain the answer. With no chunks it is only reached when a
+    document is attached (documents_only_refusal answers every other empty case itself).
+    """
+    if not chunks:
+        return (
+            "\n\nDocuments only is on. Nothing was retrieved from the knowledge base for "
+            "this question. Answer ONLY from the attached document(s) above — never from "
+            "general knowledge, training data or assumptions. If they do not contain the "
+            "answer, say plainly that the user's documents do not contain it, and stop."
+        )
+    return (
+        "\n\nDocuments only is on. The numbered context below was retrieved from the "
+        "user's knowledge base by automatic similarity search. Answer ONLY from this "
+        "context and any document the user attached above — never from general "
+        "knowledge, training data or assumptions:\n"
+        "- If the context does not contain the answer, say plainly that the user's "
+        "documents do not contain it, and stop. Do not guess and do not fill the gap "
+        "from general knowledge.\n"
+        "- If it covers the question only partly, answer the part it covers and say "
+        "plainly which part the documents do not cover.\n"
+        "- Cite every statement taken from the context by appending the chunk number "
+        "in square brackets to its sentence — for example: \"Streams are append-only "
+        "[2].\" Use several markers when a sentence draws on more than one chunk, and "
+        "cite only the numbers listed below.\n\n"
+        f"{_numbered_context(chunks)}"
+    )
+
+
 def build_context_prompt(chunks: list[dict]) -> str:
     """Render retrieved chunks into a system-prompt section.
 
@@ -372,17 +575,7 @@ def build_context_prompt(chunks: list[dict]) -> str:
             "knowledge and make clear that the answer is not grounded in the user's documents."
         )
 
-    def _pct(c: dict) -> str:
-        s = c.get("relevance", c.get("score"))
-        try:
-            return f", match {round(float(s) * 100)}%" if s is not None else ""
-        except (TypeError, ValueError):
-            return ""
-
-    numbered = "\n\n".join(
-        f"[{c.get('n', i)}] (source: {c.get('source', 'unknown')}{_pct(c)})\n{c.get('text', '')}"
-        for i, c in enumerate(chunks, 1)
-    )
+    numbered = _numbered_context(chunks)
     return (
         "\n\nThe numbered context below was retrieved from the user's knowledge base "
         "by automatic similarity search — it may or may not be relevant to the "
@@ -673,11 +866,15 @@ def search_rag(
     threshold: float = 0.0,
     rc: redis.Redis | None = None,
     hybrid: bool = True,
-    query_vec: "np.ndarray | None" = None,
+    query_vec: "np.ndarray | _ns_embeddings.QueryVectors | None" = None,
     source_filter: str = "",
+    errors: list | None = None,
 ) -> list[dict]:
     """
     Search a RAG instance and return the top-K most relevant chunks.
+
+    A search that fails returns [] like one that finds nothing; ``errors`` (a list), when
+    given, receives {"instance", "reason"} for the failure (see search_failure_reason).
 
     When ``hybrid=True`` (default) the search combines two strategies via
     Reciprocal Rank Fusion (RRF):
@@ -707,14 +904,16 @@ def search_rag(
     # call raised UnboundLocalError on every caller that left `rc` unset.
     rc     = rc or redis_store.r_for("default")
     if mongo_store.is_mongo(rc):
-        return _search_mongo(instance, query, top_k, threshold, rc, hybrid, query_vec, source_filter)
+        return _search_mongo(instance, query, top_k, threshold, rc, hybrid, query_vec, source_filter,
+                             errors)
     prefix = rag_prefix(instance)
     idx_name = f"{prefix}:idx"
     # Make sure the index exists with the current schema (source as TAG) before
     # we build a TAG pre-filter against it. Cached after the first call.
     ensure_rag_index(instance, rc)
-    # Use a pre-computed query vector (e.g. from HyDE) if provided, otherwise embed the query.
-    q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query, is_query=True).astype(np.float32)
+    # A pre-computed query vector (HyDE's, or the turn's QueryVectors) if provided,
+    # otherwise the query is embedded here.
+    q_emb = _ns_embeddings.query_vector(query, query_vec)
 
     # source_filter → TAG infix-wildcard pre-filter, fully escaped so the value
     # is matched as a literal substring (see _source_infix_filter). A raw filter
@@ -828,10 +1027,8 @@ def search_rag(
             try:
                 idx = _get_rag_index(instance, rc)
                 fetch_k = top_k * 2 if hybrid else top_k
-                q_emb2 = (query_vec if query_vec is not None
-                          else _ns_embeddings.embed(query, is_query=True).astype(np.float32))
                 vq2 = VectorQuery(
-                    vector=q_emb2.tolist(),
+                    vector=q_emb.tolist(),   # the vector above — not embedded again
                     vector_field_name=_ns_embeddings.vector_field_for(),
                     ef_runtime=_HNSW_EF_RUNTIME,
                     return_fields=["text", "source"],
@@ -859,6 +1056,7 @@ def search_rag(
                 return kept2
             except Exception as e2:
                 log.warning(f"RAG search still failing for '{instance}' after index recreate: {e2}")
+                e = e2
         elif _is_vector_dim_error(e):
             # The query vector no longer matches the index — almost always because
             # the embedding model was changed without re-indexing. Say so loudly
@@ -875,15 +1073,17 @@ def search_rag(
         else:
             log.warning(f"RAG search skipped for '{instance}': {e}")
         state.record_rag_failure(instance)
+        _note_failure(errors, instance, search_failure_reason(e))
         return []
 
 
-def _search_mongo(instance, query, top_k, threshold, ep, hybrid, query_vec, source_filter):
+def _search_mongo(instance, query, top_k, threshold, ep, hybrid, query_vec, source_filter,
+                  errors=None):
     """search_rag for an instance stored on MongoDB: same legs, same fusion, same gate."""
     field = _ns_embeddings.vector_field_for()
     try:
         ensure_rag_index(instance, ep)
-        q_emb = query_vec if query_vec is not None else _ns_embeddings.embed(query, is_query=True).astype(np.float32)
+        q_emb = _ns_embeddings.query_vector(query, query_vec)
         fetch_k = top_k * 2 if hybrid else top_k
         kws = textutil._keywords_for_bm25(query) if hybrid else []
         vec_rows, bm25_rows = mongo_store.search_legs(ep, instance, q_emb, kws, fetch_k, field, hybrid, source_filter)
@@ -905,6 +1105,7 @@ def _search_mongo(instance, query, top_k, threshold, ep, hybrid, query_vec, sour
     except Exception as e:
         log.warning(f"RAG search skipped for '{instance}' (MongoDB '{ep.name}'): {e}")
         state.record_rag_failure(instance)
+        _note_failure(errors, instance, search_failure_reason(e))
         return []
 
 
@@ -916,9 +1117,12 @@ async def search_rag_parallel(
     hybrid: bool = True,
     query_vec: "np.ndarray | None" = None,
     source_filter: str = "",
+    errors: list | None = None,
 ) -> list[dict]:
     """
     Search multiple RAG instances concurrently and return a merged, score-sorted list.
+    ``errors``: as in search_rag — an instance whose store is known to be offline, or
+    whose metadata could not be read, counts as a failed search too.
 
     Each instance may live on a different Redis server (resolved via rc_for_instance).
     Only enabled instances are queried.  Results from all instances are merged and
@@ -939,11 +1143,12 @@ async def search_rag_parallel(
                 enabled_flag = meta.get("enabled", True)
                 # Skip if the owning endpoint is known to be offline
                 if not state._endpoint_health.get(ep, True):
+                    _note_failure(errors, inst, SEARCH_UNREACHABLE)
                     continue
             if enabled_flag:
                 enabled.append(inst)
-        except Exception:
-            pass  # skip unreachable instances gracefully
+        except Exception as e:
+            _note_failure(errors, inst, search_failure_reason(e))   # skipped, and reported
 
     if not enabled:
         return []
@@ -952,15 +1157,18 @@ async def search_rag_parallel(
     # each instance's search_rag independently re-embeds the identical query string
     # (N redundant local encodes + executor contention). HyDE already supplies
     # query_vec; this covers the common HyDE-off path. Local model — saves CPU, not tokens.
-    if query_vec is None:
+    # A QueryVectors from the chat turn is resolved here too, usually from its memo.
+    if query_vec is None or isinstance(query_vec, _ns_embeddings.QueryVectors):
+        _qv = query_vec
         query_vec = await loop.run_in_executor(
-            None, lambda: _ns_embeddings.embed(query, is_query=True).astype(np.float32))
+            None, lambda: _ns_embeddings.query_vector(query, _qv))
 
     async def _search_one(inst: str) -> list[dict]:
         """Run a single synchronous search in a thread-pool so searches are parallel."""
         rc = rag_admin.rc_for_instance(inst)
         results = await loop.run_in_executor(
-            None, search_rag, inst, query, top_k, threshold, rc, hybrid, query_vec, source_filter
+            None, functools.partial(search_rag, inst, query, top_k, threshold, rc, hybrid, query_vec,
+                                    source_filter, errors=errors)
         )
         # Tag each chunk with its origin instance
         for c in results:

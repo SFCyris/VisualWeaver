@@ -1,0 +1,82 @@
+# VisualWeaver with sign-in through oauth2-proxy (any OIDC provider). oauth2-proxy is the
+# reverse proxy here: it signs people in and passes their e-mail address to VisualWeaver
+# in X-Forwarded-Email. Put your TLS terminator (Caddy, a load balancer) in front of
+# oauth2-proxy's port 4180. See DOCS.md → "Sign-in through a reverse proxy".
+#
+#   1. Fill in oauth2-proxy.cfg for your identity provider.
+#   2. Set OAUTH2_PROXY_CLIENT_SECRET and OAUTH2_PROXY_COOKIE_SECRET (32 random bytes,
+#      base64) in a .env file next to this one.
+#   3. Set VISUALWEAVER_ADMIN_USERS below to your administrators' e-mail addresses.
+#   4. From the repo root:  docker compose -f deploy/signin/docker-compose.oauth2-proxy.yml up -d
+
+services:
+  visualweaver:
+    image: ghcr.io/sfcyris/visualweaver:1.16
+    container_name: visualweaver
+    volumes:
+      - visualweaver-data:/data
+    environment:
+      - VISUALWEAVER_DATA_DIR=/data
+      - VISUALWEAVER_HOST=0.0.0.0
+      - VISUALWEAVER_PORT=8420
+      - VISUALWEAVER_REDIS_HOST=redis
+      - VISUALWEAVER_REDIS_PORT=6379
+      - VISUALWEAVER_ALLOWED_HOSTS=visualweaver.example.com
+      - VISUALWEAVER_AUTH=header
+      - VISUALWEAVER_TRUSTED_PROXIES=172.31.241.10        # oauth2-proxy, and nothing else
+      - VISUALWEAVER_AUTH_USER_HEADER=X-Forwarded-Email
+      - VISUALWEAVER_AUTH_GROUPS_HEADER=X-Forwarded-Groups
+      - VISUALWEAVER_AUTH_NAME_HEADER=X-Forwarded-Preferred-Username
+      - VISUALWEAVER_ADMIN_USERS=alice@example.com
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "8420"            # internal network only — never add a `ports:` entry here
+    networks:
+      - signin
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    container_name: visualweaver-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - visualweaver-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - signin
+    restart: unless-stopped
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    container_name: visualweaver-oauth2-proxy
+    command: ["--config=/etc/oauth2-proxy.cfg"]
+    env_file: .env
+    volumes:
+      - ./oauth2-proxy.cfg:/etc/oauth2-proxy.cfg:ro
+    ports:
+      - "127.0.0.1:4180:4180"   # your TLS terminator on this host forwards to it
+    depends_on:
+      - visualweaver
+    networks:
+      signin:
+        ipv4_address: 172.31.241.10
+    restart: unless-stopped
+
+networks:
+  signin:
+    ipam:
+      config:
+        - subnet: 172.31.241.0/24
+          # Containers without a fixed address get one from .128-.255 only, so none
+          # of them can be given the proxy's 172.31.241.10.
+          ip_range: 172.31.241.128/25
+
+volumes:
+  visualweaver-data:
+  visualweaver-redis:

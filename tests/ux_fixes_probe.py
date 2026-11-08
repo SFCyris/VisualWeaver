@@ -312,10 +312,11 @@ def welcome_chips_and_misc(r: Run):
         pg.evaluate(f"switchTab('{t}')")
         OUT["footer"][t] = pg.evaluate(foot)
     # an unsaved edit keeps Save in reach on a read-only tab
+    # This fill starts ~10-30 ms after openSettings(), inside the dialog's 40 ms initial-
+    # focus timer; that timer used to move focus to the close button between the fill's
+    # focus and its typing (Firefox's slower fill straddled it), losing the edit. The app
+    # now leaves focus that is already inside the dialog alone (test_dialog_focus_browser).
     pg.fill("#s-max-img-dim", "2048")
-    # The edit registers on the field's input/change event; a user's click on the tab
-    # comes after it, so wait for it rather than racing it (Firefox fires it later).
-    _wait(pg, "() => _settingsDirty()", 5)
     pg.evaluate("switchTab('status')")
     OUT["footer"]["status_dirty"] = pg.evaluate(foot)
     pg.evaluate("closeSettings(true)")
@@ -720,7 +721,7 @@ def sessions_pins_feedback(r: Run):
     sessions = [{"id": "s_new", "messages": 2, "preview": "Newest answer.", "title": "Travel policy", "updated": 2000},
                 {"id": "s_old", "messages": 2, "preview": "The limit is 150 EUR.", "title": None, "updated": 1000}]
     pg = r.page(_variant(sessions=sessions, sessionMsgs=msgs, mine=["s_old", "s_new"]))
-    OUT["session_rows"] = pg.evaluate("[...document.querySelectorAll('#sessions-list .session-row')].map(r => r.dataset.sid + ':' + r.querySelector('div > div').innerText.trim())")
+    OUT["session_rows"] = pg.evaluate("[...document.querySelectorAll('#sessions-list .session-row')].map(r => r.dataset.sid + ':' + r.querySelector('.session-text').innerText.trim())")
     # C1: reopening a stored conversation shows it without the welcome hero above it; the
     # restore scrolls once, not once per message (each scroll forced a layout)
     pg.evaluate("async () => { await hydrateSession('s_old'); const f = scrollToBottom; window.__scrolls = 0;"
@@ -763,7 +764,7 @@ def sessions_pins_feedback(r: Run):
     old = [{"id": "s_old", "messages": 2, "preview": "The limit is 150 EUR."},
            {"id": "s_new", "messages": 2, "preview": "Newest answer."}]
     pg = r.page(_variant(sessions=old, sessionMsgs=msgs, mine=["s_old", "s_new"]))
-    OUT["session_rows_old_server"] = pg.evaluate("[...document.querySelectorAll('#sessions-list .session-row')].map(r => r.dataset.sid + ':' + r.querySelector('div > div').innerText.trim())")
+    OUT["session_rows_old_server"] = pg.evaluate("[...document.querySelectorAll('#sessions-list .session-row')].map(r => r.dataset.sid + ':' + r.querySelector('.session-text').innerText.trim())")
     pg.context.close()
 
 

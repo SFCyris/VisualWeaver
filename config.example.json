@@ -111,5 +111,15 @@
     "js_concurrency": 3,
     "smart_mode": true,
     "min_words": 100
+  },
+  "auth": {
+    "mode": "off",
+    "user_header": "Remote-User",
+    "groups_header": "Remote-Groups",
+    "name_header": "Remote-Name",
+    "trusted_proxies": [],
+    "admin_users": [],
+    "admin_groups": [],
+    "case_insensitive_names": false
   }
 }

@@ -1187,8 +1187,13 @@ def main(index: pathlib.Path) -> None:
                   targets: [...el.querySelectorAll('.cite-ref')].map(r => r.dataset.cite),
                   // the out-of-range marker must be left alone, not silently dropped
                   keptOutOfRange: bubble.textContent.includes('[9]'),
-                  // and the surrounding prose must survive intact
-                  prose: bubble.textContent.replace(/\s+/g, ' ').trim()};
+                  // and the surrounding prose must survive intact (the screen-reader-only
+                  // note on a broken citation is not prose)
+                  prose: (() => { const c = bubble.cloneNode(true);
+                    c.querySelectorAll('.sr-only').forEach(x => x.remove());
+                    return c.textContent.replace(/\s+/g, ' ').trim(); })(),
+                  outOfRangeBroken: !!bubble.querySelector('.cite-broken') &&
+                    bubble.querySelector('.cite-broken').firstChild.textContent === '[9]'};
         }""")
 
         # The top bar is one row. It was two, and the second one wrapped again as the

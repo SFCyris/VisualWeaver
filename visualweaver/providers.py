@@ -8,6 +8,7 @@ import logging
 import asyncio
 import base64
 import json
+import urllib.parse
 import time
 from pathlib import Path
 import httpx
@@ -134,13 +135,21 @@ async def ollama_models() -> list[dict]:
             models.append({"name": name, "size": m.get("size", 0), "vision": vision, "details": details})
         state._ollama_models_cache = models
         state._ollama_models_ts = time.time()
+        state._ollama_models_error = ""
         return models
     except Exception as e:
         log.error(f"Ollama models error: {e}")
+        state._ollama_models_error = str(e) or type(e).__name__
         return []
 
 
 _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+def _image_servable(p: Path) -> bool:
+    """Only a file GET /api/files/image will serve is linked (routes_media.image_allowed)."""
+    from . import routes_media     # late: routes_media imports this module
+    return routes_media.image_allowed(p)
+
 
 def _tool_result_to_markdown(tool_calls: list) -> str:
     """
@@ -168,8 +177,11 @@ def _tool_result_to_markdown(tool_calls: list) -> str:
                 continue
             # Local file path with image extension
             p = Path(val)
-            if p.suffix.lower() in _IMG_EXTS and p.is_file():
-                parts.append(f"\n![{name} result](/api/files/image?path={val})\n")
+            if p.suffix.lower() in _IMG_EXTS and p.is_file() and _image_servable(p):
+                # Percent-encoded: a path with a space ("Application Support", the default
+                # macOS data directory) is not a Markdown link destination, and "#"/"&"
+                # would cut the query short.
+                parts.append(f"\n![{name} result](/api/files/image?path={urllib.parse.quote(val, safe='')})\n")
                 found_image = True
                 continue
             # HTTP URL pointing to an image

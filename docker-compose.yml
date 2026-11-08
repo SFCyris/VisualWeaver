@@ -63,8 +63,8 @@ services:
       - VISUALWEAVER_MONGODB_DATABASE=visualweaver
       # Ollama on this host, used until another address is chosen in Settings.
       - VISUALWEAVER_OLLAMA_URL=${VISUALWEAVER_OLLAMA_URL:-http://host.docker.internal:11434}
-      # Host names browsers may use besides IP addresses, localhost and .local/.lan
-      # names (e.g. this machine's DNS name, a reverse proxy's domain).
+      # Host names browsers may use besides IP addresses and localhost (e.g. this
+      # machine's names — docker.sh records them — or a reverse proxy's domain).
       - VISUALWEAVER_ALLOWED_HOSTS=${VISUALWEAVER_ALLOWED_HOSTS:-}
       # Optional provider keys (else set them in Settings):
       # - ANTHROPIC_API_KEY=

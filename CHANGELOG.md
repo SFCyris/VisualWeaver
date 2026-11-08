@@ -5,6 +5,168 @@ All notable changes to VisualWeaver are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] — 2026-11-08
+
+### Added
+- **Conversations are kept and organised.** Rename a conversation (✎) and pin it
+  (📌) from the sidebar; names and pins are stored with the conversation and
+  survive reloads. The sidebar groups conversations into Pinned, Today,
+  Yesterday, Previous 7 days, Previous 30 days and Older. **Settings → General →
+  Conversations → Keep conversations** offers Forever (the default), 30 days or
+  1 day; with a limit, each row shows when it expires, and pinned conversations
+  are always kept. The same section lists stored conversations this browser's
+  sidebar does not show (started in another browser, or before site data was
+  cleared), with **Show them in the sidebar** and **Delete them…**.
+- **Projects.** A project gives its conversations their own knowledge bases,
+  prompt template, model and Documents only default. Pick a project in the
+  sidebar switcher to list its conversations; **New Chat** starts one with its
+  settings. Deleting a project keeps its conversations. Each conversation also
+  remembers the knowledge bases it searches, its template and its model, and
+  reopening it, in any browser, restores them.
+- **`#` mentions**: type `#` in the message box to ask one question of chosen
+  knowledge bases only; they show as chips and the conversation's own selection
+  is unchanged.
+- **Documents only mode** (📚 beside the template picker, per conversation;
+  default in **Settings → RAG**): answers come only from your documents. When
+  nothing matches, the answer says so without asking the model. A follow-up that
+  finds nothing on its own wording ("shorten that"), asked against the same
+  knowledge bases, is answered from the sources the previous answer cited (the
+  source list reads **↩ N sources from the previous answer**), and a search that
+  fails is reported as **Search failed: …**.
+- **Citation cards**: point at, tab to or tap a `[n]` citation to see its source
+  (name or link, knowledge base, match and rerank scores, and the passage).
+- **Grounding badge** on every answer that searched a knowledge base: Grounded,
+  Partly grounded, Uncited, Nothing retrieved or Cites missing sources; answers
+  without a search say "No documents used". A citation number with no source
+  behind it is shown struck through, unless it is a reference number inside a
+  quotation or a reference list.
+- **Sign-in through an authenticating reverse proxy** (Authelia, Authentik,
+  oauth2-proxy), off by default: set `auth.mode` to `header` (or
+  `VISUALWEAVER_AUTH=header`) with the proxy as a trusted address. Each
+  conversation then belongs to the user who started it and is listed in every
+  browser they sign in from; administrators (by user name or group) are the only
+  ones who can change settings, storage, projects and knowledge bases; the
+  sidebar shows who is signed in. User and group names are compared exactly;
+  `auth.case_insensitive_names` (`VISUALWEAVER_AUTH_CASE_INSENSITIVE_NAMES`)
+  ignores the case of ASCII letters for proxies whose names are case-insensitive.
+  With sign-in on, the cache analytics list only your own cached questions;
+  administrators also see the other users' counts. Examples for Caddy `forward_auth` with Authelia
+  or Authentik, and for oauth2-proxy, are in `deploy/signin/`.
+- **Get started checklist** on the welcome screen: storage reachable, a usable
+  model (Ollama with a chat model, or the hosted provider's API key), and **Add
+  documents**, which opens the upload with the knowledge base the chat searches
+  already chosen. It disappears when all three are done and can be hidden.
+- **Status line** under the message box: storage, model provider and server
+  connection (connected, reconnecting, unreachable, offline, or signed out), with
+  **Retry now**. A message sent while reconnecting waits and is shown as waiting.
+- `./install.sh` and `./docker.sh up` check that the selected model provider can
+  answer and report ✓ or ⚠ with the fix, without failing.
+- API: `PATCH /api/sessions/{sid}` (name, pin, project, knowledge bases),
+  `GET/POST /api/projects`, `PATCH/DELETE /api/projects/{id}`, `GET /api/me`;
+  chat requests take `documents_only`, `kb_select`, `template` and `project`.
+
+### Changed
+- **`./start.sh` and `./install.sh` start the container runtime for the built-in
+  MongoDB** when it is installed but stopped (after a reboot, typically) —
+  Colima, Docker Desktop, OrbStack, Rancher Desktop or Podman, whichever the
+  `docker` command uses — and wait until it answers. `./stop.sh` stops it again
+  if VisualWeaver started it and no other containers run in it
+  (`VISUALWEAVER_KEEP_RUNTIME=1` keeps it running).
+- **`./stop.sh` reports a verified shutdown**: Redis saved and stopped, MongoDB
+  stopped cleanly with its exit code (or a warning when it had to be killed),
+  the container runtime stopped or kept and why, and a final check that nothing
+  of VisualWeaver still answers.
+- **Conversations no longer expire after one day.** Configurations that still
+  hold the old one-day default are read as Forever.
+- **Faster start**: the first `/api/health` answers in about 1.9 s instead of
+  4.2 s; the reranker's libraries load when the reranker is first used.
+- **Each question is embedded once** instead of up to three times; time to
+  first token on a cache miss drops by about a fifth.
+- **Faster lists**: conversations about 3 ms instead of 24 ms (200
+  conversations), knowledge bases about 11 ms instead of 52 ms (51 instances,
+  50,000 chunks on Redis).
+- **MongoDB retrieval runs its vector and keyword searches at the same time**:
+  about 6 ms instead of 9–11 ms, same results.
+- **Faster reranking on a CPU** with length-sorted batches, same scores.
+  `reranker.half_precision` (config.json) runs it in half precision on a GPU.
+- A stopped Redis shows as down in Settings and the status line within a second
+  (it took 8–16 s), and Settings → About no longer waits several seconds per
+  unreachable Redis connection.
+- Message pins are now **🔖 Bookmarks**, distinct from pinned conversations.
+- The repeating "WebSocket error" notice during a reconnect is gone; the status
+  line shows the connection state instead.
+- Browsers are answered only for IP addresses, `localhost` and this machine's own
+  names (host name, short name, `<short name>.local`). Other `.local`, `.lan`,
+  `.internal`, `.home.arpa` and single-word names must be listed in
+  `VISUALWEAVER_ALLOWED_HOSTS`; `./docker.sh` records this machine's names for
+  the container.
+- A link or frame on another website opens only VisualWeaver's page; any other
+  address of the app opened from another site is refused.
+- The host name of every request is checked, not only of requests that look like
+  a browser's; `VISUALWEAVER_ALLOWED_HOSTS=*` turns the check off.
+- While sign-in is misconfigured, `GET /api/health` answers with status
+  `misconfigured` and the reason, and `./start.sh`, `./docker.sh up` and the
+  container health check report it.
+- Conversation retention must be forever or at least one hour, whether set in
+  Settings, by a config import or in `config.json`; ratings are limited to 64 KB
+  and 5 levels of nesting.
+
+### Security
+- `X-Forwarded-Host` is believed only from a trusted proxy address, so a page on
+  a domain re-pointed at this machine can no longer pass the host check with it.
+- A crawl can no longer be started by a link or frame on another website.
+- With sign-in on, cached answers are served only to the user they were given
+  to; a user removes only cached answers given to them, and **Re-run fresh**
+  never replaces another user's.
+- A `config.json` that cannot be read, or that cannot be parsed and contains
+  sign-in settings (in any text encoding, or in an older damaged copy), keeps
+  every request but `/api/health` refused until it is restored or
+  `VISUALWEAVER_AUTH` is set, instead of running with sign-in off. A damaged
+  `config.json` without sign-in settings is moved aside as before and the app
+  runs on the defaults.
+- Sign-in user and group names that only look like another (Kelvin sign,
+  fullwidth letters) are refused; non-ASCII names are compared exactly. Trusted
+  proxy ranges with host bits set, or that together cover every address, are
+  refused, and very wide ranges are warned about at start.
+- Images from tool results are served only from the `images` folder in the data
+  directory, and a file outside it is answered like a missing one.
+- This machine's names no longer include ones taken from a reverse lookup (such
+  as `1` and `1.local` on macOS).
+- With sign-in on, `GET /api/config` gives users who are not administrators no
+  sign-in settings, storage addresses, web sources or watched folders.
+
+### Fixed
+- When the store holding the app data could not start, `./start.sh` stopped
+  without saying why; it now says the app cannot start without that store and
+  what to fix. It no longer fails with "MPORT: unbound variable" when the
+  built-in MongoDB cannot start but the app can run without it.
+- Reopening a conversation searched whatever knowledge base was selected last;
+  a follow-up now searches the conversation's own.
+- Pinned and older conversations could disappear from the sidebar while still
+  stored on the server.
+- Regenerating the first answer of a conversation dropped its name; a name you
+  give a conversation is no longer replaced by the automatic title; a forked
+  conversation keeps its "(fork)" name after a reload.
+- An earlier version of a regenerated answer was shown with the latest
+  version's sources, citations and badge.
+- Settings → Status (and the model picker's dot) showed Ollama as online when it
+  was not running.
+- Typing into a Settings field right after opening Settings could go to the
+  close button instead.
+- On a phone, a welcome screen taller than the chat area hid its top.
+- Images from tool results did not show when the data directory's path contains
+  a space (the default on macOS).
+- A `config.json` saved with a byte-order mark (UTF-8 or UTF-16) was treated as
+  damaged.
+- Enter on a conversation's ✕ button opened the conversation instead of
+  deleting it.
+- A lost conversation registry is rebuilt instead of leaving the list empty,
+  and a failed save no longer leaves a conversation that is never listed.
+- Accessibility: conversation rows no longer nest buttons inside a button, date
+  groups are headings, source cards can be used from the keyboard, sending while
+  reconnecting is announced once, and the "· Documents only" badge text meets
+  4.5:1 contrast.
+
 ## [1.15.0] — 2026-11-06
 
 ### Added

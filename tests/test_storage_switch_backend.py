@@ -29,9 +29,12 @@ def _closed_port() -> int:
 
 @pytest.fixture
 def app_keys(monkeypatch):
-    from visualweaver import rag_admin, sessions, ws
+    from visualweaver import projects, rag_admin, sessions, ws
+    monkeypatch.setattr(projects, "_KEY", f"{KEY_PREFIX}projects")
     monkeypatch.setattr(sessions, "_SESSION_PREFIX", f"{KEY_PREFIX}session:")
     monkeypatch.setattr(sessions, "_USAGE_KEY", f"{KEY_PREFIX}usage")
+    monkeypatch.setattr(sessions, "_INDEX_KEY", f"{KEY_PREFIX}session_index")
+    monkeypatch.setattr(sessions, "_INDEX_META_KEY", f"{KEY_PREFIX}session_index_meta")
     monkeypatch.setattr(rag_admin, "_RAG_STATS_KEY", f"{KEY_PREFIX}rag_stats")
     monkeypatch.setattr(ws, "_WATCH_SEEN_KEY", f"{KEY_PREFIX}watch")
 
@@ -132,7 +135,16 @@ def test_switch_redis_to_mongodb_copies_the_app_data(stores, cfg, config_file):
     mongo_store_.set(sessions._session_key("only-on-target"), json.dumps([{"role": "user", "content": "deleted"}]), 3600)
     sessions.save_session("short", [{"role": "user", "content": "short-lived"}])
     redis_store_.set(sessions._session_key("short"), redis_store_.get(sessions._session_key("short")), 120)
+    # ...and a conversation registry from that earlier stay, complete then, that knows
+    # none of the conversations about to be copied: it must not be what is listed.
+    mongo_store_.hset(sessions._INDEX_KEY, {"only-on-target": json.dumps({"title": "deleted"})})
+    mongo_store_.hset(sessions._INDEX_KEY, {sessions._INDEX_META_FIELD: json.dumps({"v": 1, "ttl": 3600})})
     state._semantic_cache = object()
+    # Projects go with the conversations filed under them; one left on the target by an
+    # earlier stay (deleted since on the source) does not come back.
+    from visualweaver import projects
+    proj = projects.create({"name": "Manuals", "kbs": ["manuals"]})
+    mongo_store_.hset(projects._KEY, {"p_000000000000": json.dumps({"name": "gone"})})
 
     t0 = time.time()
     res = _switch(MONGO)
@@ -157,6 +169,7 @@ def test_switch_redis_to_mongodb_copies_the_app_data(stores, cfg, config_file):
     stats = json.loads(mongo_store_.get(rag_admin._RAG_STATS_KEY))
     assert stats[f"{KEY_PREFIX}r2m"]["queries"] == 120
     assert mongo_store_.hgetall(ws._WATCH_SEEN_KEY) == {"inst\x00/a.txt": "1:10", "inst\x00/b.txt": "2:20"}
+    assert [(p["id"], p["name"], p["kbs"]) for p in projects.list_projects()] == [(proj["id"], "Manuals", ["manuals"])]
     # Counters stay counters on MongoDB: the next turn adds to the copied tally.
     sessions.record_usage("ollama", "r2m:7b", {"prompt": 5, "completion": 1})
     assert sessions.usage_totals()["ollama:r2m:7b"] == {"in": 125, "out": 61}

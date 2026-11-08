@@ -433,4 +433,7 @@ _provider_http_client: httpx.AsyncClient | None = None
 _provider_http_loop = None
 _ollama_models_cache: list[dict] = []
 _ollama_models_ts: float = 0.0
+# Why the last Ollama model fetch failed ("" after one that answered): ollama_models()
+# returns [] either way, and only this tells "not running" from "has no models".
+_ollama_models_error: str = ""
 _rag_meta_gen = 0

@@ -22,6 +22,8 @@ def test_writes_from_another_site_are_refused(client):
         r = client.post(path, headers=EVIL, json={})
         assert r.status_code == 403 and r.json() == {"detail": "Cross-site request refused"}, path
     assert client.delete("/api/sessions/x", headers=EVIL).status_code == 403
+    r = client.patch("/api/sessions/x", headers=EVIL, json={"pinned": True})      # rename / pin
+    assert r.status_code == 403 and r.json() == {"detail": "Cross-site request refused"}
     # Origin: null (sandboxed frames, file://) is not trusted for writes either
     assert client.post("/api/redis/test", headers={"Origin": "null"}, json={}).status_code == 403
 
@@ -29,6 +31,7 @@ def test_writes_from_another_site_are_refused(client):
 def test_the_apps_own_page_and_non_browser_clients_still_work(client):
     assert client.delete("/api/sessions/x", headers=SELF).status_code == 200
     assert client.delete("/api/sessions/x").status_code == 200                     # curl: no Origin
+    assert client.patch("/api/sessions/x", headers=SELF, json={}).status_code == 400   # reached the route
     assert client.delete("/api/sessions/x", headers={"Origin": "http://TestServer:80"}).status_code == 200
     assert client.get("/api/health", headers={"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}).status_code == 200
 
@@ -79,9 +82,10 @@ def test_dns_rebinding_host_names_are_refused_for_browsers(client, monkeypatch):
                                  "Sec-Fetch-Site": "none"})
     assert r.status_code == 403
     # names an outsider cannot own still work
-    for host in ("127.0.0.1:8420", "192.168.1.20:8420", "[::1]:8420", "localhost:8420", "nas:8420",
-                 "my-mac.local:8420", "vw.home.arpa", "box.lan:8420"):
+    for host in ("127.0.0.1:8420", "192.168.1.20:8420", "[::1]:8420", "localhost:8420"):
         assert client.get("/api/health", headers={**page, "Host": host}).status_code == 200, host
+    # names any device on the network can answer for need listing
+    # (test_security_review_1_16.test_names_anyone_on_the_network_can_claim_are_not_allowed_by_default)
     # a reverse proxy's domain, once listed (also as a wildcard)
     monkeypatch.setattr(appcore, "_allowed_hosts", {"vw.corp.example"})
     assert client.get("/api/health", headers={**page, "Host": "vw.corp.example"}).status_code == 200

@@ -1,0 +1,24 @@
+# VisualWeaver behind Caddy, signed in by Authelia (forward_auth).
+# Used by docker-compose.signin.yml; see DOCS.md → "Sign-in through a reverse proxy".
+#
+# Replace visualweaver.example.com with your domain. Authelia itself (its portal, users,
+# secrets and access rules for this domain) is set up as its own documentation
+# describes; it must be reachable as authelia:9091.
+visualweaver.example.com {
+	# `route` keeps the order as written: strip, then ask Authelia, then proxy.
+	route {
+		# A browser must never be able to send these itself. Removed first, so the only
+		# copies that reach VisualWeaver are the ones forward_auth sets from Authelia.
+		request_header -Remote-User
+		request_header -Remote-Groups
+		request_header -Remote-Name
+		request_header -Remote-Email
+
+		forward_auth authelia:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+
+		reverse_proxy visualweaver:8420
+	}
+}

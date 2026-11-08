@@ -67,7 +67,7 @@ For scripted installs set `VISUALWEAVER_STORAGE=redis`, `mongodb` or `both` (plu
 The dedicated Redis runs on a loopback port (6389 by default), so it never conflicts with any Redis you already have. If a port the install needs (8420 for the web UI, 6389 for Redis, 27019 for MongoDB) is taken by another program, the installer names that program and uses the next free port. The default sentence-transformer embedding model (~90 MB) is downloaded and cached the first time you ingest content — not during install.
 
 > **If it fails:** `python3 not found` or `Homebrew is required` → install those (see [Prerequisites](#prerequisites)) and re-run. If it reports the Redis **search module** did not load, re-run `./install.sh` — it re-locates the module.
-> **Verify:** the script ends with a **Validation** table — a ✓ for the Python environment, each store you chose (with its address and version) and the web UI port — followed by *Install complete — ready to use*. A ✗ line says what to fix, and the install then exits with an error.
+> **Verify:** the script ends with a **Validation** table — a ✓ for the Python environment, each store you chose (with its address and version) and the web UI port — followed by *Install complete — ready to use*. A ✗ line says what to fix, and the install then exits with an error. The table also checks the **model provider** chosen in Settings (Ollama on a new install): ✓ when Ollama is running and has a chat model, or when a hosted provider has its API key; otherwise ⚠ with what to do, listed under *Before the first answer*. A ⚠ does not stop the install — you can start Ollama or add a key afterwards.
 
 > Prefer containers? Skip Steps 1–3 and run `./docker.sh up` instead: it asks for Redis, MongoDB or both, starts everything, waits until it is ready and prints the address. Stop with `./docker.sh stop`. See the README's Docker section for details.
 
@@ -114,6 +114,8 @@ sudo apt-get install -y \
 
 This starts the storage you installed (Redis and/or MongoDB), then the app, and prints the versions in use. Open **http://localhost:8420** in your browser — you should see the chat interface with a glass-effect sidebar.
 
+On a new install the welcome screen shows a **Get started** checklist — storage, model, and **Add documents** for your first knowledge base — and a status line under the message box shows the storage, the model and the server connection at all times.
+
 ![The VisualWeaver welcome screen](screenshots/tutorial/03-welcome.png)
 
 - Stop everything (app **and** its storage; data is kept): `./stop.sh`
@@ -124,7 +126,7 @@ This starts the storage you installed (Redis and/or MongoDB), then the app, and 
 > **If the page doesn't load or the port is busy** (`Port 8420 is already in use`), start on another port: `./start.sh 9000`, then open `http://localhost:9000`. Check the app log path printed in the start banner for errors.
 > **Verify:** `curl -fsS http://localhost:8420/api/health` returns an `ok` status.
 
-Who can open the app is the answer you gave `install.sh`: **only this machine** (`127.0.0.1` — the default when you just press Enter) or **any device on your network** (`0.0.0.0`, and `start.sh` then prints the LAN address). An install run without a terminal is not asked and leaves the app listening on all interfaces (`0.0.0.0`). There is no built-in authentication: switch with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`).
+Who can open the app is the answer you gave `install.sh`: **only this machine** (`127.0.0.1` — the default when you just press Enter) or **any device on your network** (`0.0.0.0`, and `start.sh` then prints the LAN address). An install run without a terminal is not asked and leaves the app listening on all interfaces (`0.0.0.0`). There is no built-in authentication: switch with `./changeAccess.sh local` or `./changeAccess.sh lan` and restart, and put a reverse proxy with auth in front before exposing it beyond a trusted network (see `deploy/docker-compose.https.yml`). For several people, that proxy can also sign them in to VisualWeaver, each with their own conversations — see DOCS.md → *Sign-in through a reverse proxy*.
 
 ---
 
@@ -136,7 +138,7 @@ Who can open the app is the answer you gave `install.sh`: **only this machine** 
 
 ![Settings → Status tab showing Redis and provider health](screenshots/tutorial/04-status.png)
 
-If it shows red, that store is not running — `./start.sh` starts it (for MongoDB the container runtime must be running, e.g. `colima start`), and the **Storage** tab shows the address it uses. While the storage that holds your conversations cannot be reached, a line above the chat says so and links to the Status tab.
+If it shows red, that store is not running — `./start.sh` starts it (for MongoDB the container runtime must be running, e.g. `colima start`), and the **Storage** tab shows the address it uses. While the storage that holds your conversations cannot be reached, a line above the chat says so and links to the Status tab, and **Storage** in the status line under the message box shows ✗.
 
 ---
 
@@ -290,6 +292,10 @@ Ask a question about something in your documents, e.g.:
 
 After the response, look for the **📚 N matched chunks** badge. Click it to see exactly which passages were retrieved, their similarity scores, and their sources.
 
+To ask one question of a particular knowledge base without changing the selection, type **#** in the message box and pick it from the list — it shows as a **# my-docs** chip, and only that question searches it.
+
+**Projects.** Working on several subjects? Click **＋** under **New Chat**, name a project and tick the knowledge bases it should search (optionally a template, a model and Documents only). With the project picked in the switcher, the sidebar lists its conversations and **New Chat** starts one with its settings. Every conversation remembers the knowledge bases it searches, so reopening it later — in any browser — picks up where it left off.
+
 ---
 
 ## Step 10 — Explore the RAG inspector
@@ -302,6 +308,17 @@ Expand the chunk inspector on any RAG response. Each chunk shows:
 - **Text** — the exact passage injected into the LLM prompt
 
 If chunks have low scores (< 0.5), the retrieval may be struggling. See [SETTINGS.md](SETTINGS.md) for tuning guidance.
+
+Point at a `[2]` marker (or tab to it) to see source 2 in a card without leaving the answer;
+Escape closes it, and on a phone a tap opens and closes it. Under the answer, a badge says how
+well it is backed: **● Grounded** (every substantive paragraph cites a source), **◐ Partly
+grounded**, or **○ Uncited**. A struck-through marker such as ~~[7]~~ cites a source the answer
+was never given.
+
+To get answers **only** from your documents, press **📚** beside the template picker. With it on,
+a question your documents do not answer gets a plain **Not found in your documents** instead of
+a general-knowledge answer. **Settings → RAG → Documents only for new conversations** makes it
+the default.
 
 ---
 
@@ -320,8 +337,8 @@ rest of the session, so an error you missed can still be read.
 ## Step 10c — Keeping an answer worth keeping
 
 When an answer is worth more than the conversation it appeared in, click **💾** on it.
-Nothing else keeps it: the cache entry expires after an hour, the conversation after a day,
-and 📌 Pin is gone on reload.
+The cache entry expires after an hour, the conversation goes when you delete it (or when
+its retention runs out, if you set one), and 🔖 Bookmark on a message is gone on reload.
 
 1. A dialog opens with the **question**, the **answer** and the **sources it cited**, all
    editable — trim anything you would not want quoted back to you months from now
@@ -410,7 +427,7 @@ No re-embedding needed — the vectors are stored in the export.
 |---|---|
 | `install.sh`: *python3 not found* / *Homebrew is required* | Install the missing tool (see [Prerequisites](#prerequisites)) and re-run. |
 | Redis is up but **search unavailable** (Status tab) | Re-run `./install.sh` — it re-locates the Redis search module. |
-| `start.sh`: *The built-in MongoDB did not start* | Usually the container runtime is not running — start it as the message says (e.g. `colima start`), then `./start.sh` again. |
+| `start.sh`: *its container runtime is not available* | `start.sh` starts Colima / Docker Desktop / OrbStack / Rancher Desktop / Podman itself; this means none is installed, or it did not start (see `log/container-runtime.log` in the data folder). Start it by hand, then `./start.sh` again. |
 | **Port 8420 already in use** / page won't load | `./start.sh 9000`, then open `http://localhost:9000`. (Redis and MongoDB ports are moved to a free one automatically.) |
 | A new knowledge base on **MongoDB** finds nothing | Its search index takes a few seconds to build. If it stays empty, the disk is likely over 85 % full — `./start.sh` warns about it; free space (`docker image prune`). |
 | Ollama **🔌 Test** red | Start `ollama serve` (or open the Ollama app); confirm host `http://localhost:11434`. |

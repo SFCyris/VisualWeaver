@@ -13,7 +13,9 @@ The interface is the small subset of Redis the app uses, with str values:
   get / set(ttl) / mget / delete / keys(prefix) / ttl        plain keys
   ttls(keys) / set_many([(key, value, ttl)])                 batched, for copying stores
                                                              (ttls: 0 for a key that is gone)
-  hgetall / hset / hdel / hincrby                            hashes (field → str/int)
+  expire_many([(key, ttl|None)])                             set/clear expiries, batched
+                                                             (a key that is gone stays gone)
+  hgetall / hgetall_prefix / hset / hdel / hincrby           hashes (field → str/int)
 
 On MongoDB, in the connection's database:
 
@@ -109,8 +111,26 @@ class RedisAppStore:
                 pipe.set(k, v)
         pipe.execute()
 
+    def expire_many(self, items: list[tuple[str, int | None]]) -> None:
+        """Expire each existing key ttl seconds from now (None: never), in one round trip."""
+        if not items:
+            return
+        pipe = self.raw.pipeline(transaction=False)
+        for k, ttl in items:
+            if ttl:
+                pipe.expire(k, int(ttl))
+            else:
+                pipe.persist(k)
+        pipe.execute()
+
     def hgetall(self, key: str) -> dict[str, str]:
         return {_s(k): _s(v) for k, v in self.raw.hgetall(key).items()}
+
+    def hgetall_prefix(self, key: str, prefix: str) -> dict[str, str]:
+        """The fields of a hash whose name starts with ``prefix`` (matched literally)."""
+        if not prefix:
+            return self.hgetall(key)
+        return {_s(k): _s(v) for k, v in self.raw.hscan_iter(key, match=_glob_escape(prefix) + "*", count=1000)}
 
     def hset(self, key: str, mapping: dict) -> None:
         if mapping:
@@ -215,8 +235,32 @@ class MongoAppStore:
         self._kv.bulk_write([ReplaceOne({"_id": k}, {"_id": k, "v": v, "exp": (now + _dt.timedelta(
             seconds=int(ttl))) if ttl else None}, upsert=True) for k, v, ttl in items], ordered=False)
 
+    def expire_many(self, items: list[tuple[str, int | None]]) -> None:
+        if not items:
+            return
+        now = _dt.datetime.now(_dt.timezone.utc)
+        groups: dict = {}
+        for k, ttl in items:
+            groups.setdefault(int(ttl) if ttl else None, []).append(k)
+        for ttl, keys in groups.items():
+            exp = now + _dt.timedelta(seconds=ttl) if ttl else None
+            for i in range(0, len(keys), 1000):
+                # Live documents only: one past its expiry but not yet removed by the TTL
+                # monitor is gone, and clearing its expiry would bring it back.
+                self._kv.update_many({"_id": {"$in": keys[i:i + 1000]}, **self._live(now)},
+                                     {"$set": {"exp": exp}})
+
     def hgetall(self, key: str) -> dict[str, str]:
         return {d["f"]: _s(d.get("v")) for d in self._h.find({"k": key}, {"f": 1, "v": 1})}
+
+    def hgetall_prefix(self, key: str, prefix: str) -> dict[str, str]:
+        """The fields of a hash whose name starts with ``prefix``: one range of the _id
+        index (each field is stored as "<key>NUL<field>"), not a read of the whole hash."""
+        if not prefix:
+            return self.hgetall(key)
+        lo = f"{key}\x00{prefix}"
+        hi = lo[:-1] + chr(ord(lo[-1]) + 1)
+        return {d["f"]: _s(d.get("v")) for d in self._h.find({"_id": {"$gte": lo, "$lt": hi}}, {"f": 1, "v": 1})}
 
     def hset(self, key: str, mapping: dict) -> None:
         if not mapping:
